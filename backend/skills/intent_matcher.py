@@ -68,8 +68,8 @@ class IntentMatcher:
 
         # --- 商品屬性 ---
         prod_destinations = [d.get("name", "") for d in product.get("destinations", [])]
-        prod_main_cat     = product.get("product_category", {}).get("main", "")
-        prod_cat_key      = product.get("main_cat_key", "")
+        prod_main_cat     = product.get("product_category", {}).get("main") or ""
+        prod_cat_key      = product.get("main_cat_key") or ""
 
         # --- 地點比對 ---
         dest_match = any(expected_dest_name in d for d in prod_destinations) if expected_dest_name else True
@@ -80,9 +80,10 @@ class IntentMatcher:
         is_broad_cat = False
         if expected_cat_name:
             exact_cat_code = self.CATEGORY_MAPPING.get(expected_cat_name)
-            is_exact_cat = (exact_cat_code and prod_cat_key == exact_cat_code) or (expected_cat_name in prod_main_cat)
+            is_exact_cat = (bool(exact_cat_code) and prod_cat_key == exact_cat_code) or (expected_cat_name in prod_main_cat)
             broad_cats = self.BROAD_CATEGORIES.get(expected_cat_name, [])
             is_broad_cat = prod_cat_key in broad_cats
+
 
             if is_exact_cat:
                 cat_match = "exact"

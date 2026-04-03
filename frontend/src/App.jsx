@@ -175,36 +175,64 @@ export default function App() {
   const [mode, setMode] = useState('compare')
   const [onlyIssues, setOnlyIssues] = useState(false)
   const [cookieLoading, setCookieLoading] = useState(false)
+  const [cookieInfo, setCookieInfo] = useState(null)  // { env, key_fields_found, total_fields }
 
   const handleAutoFetchCookie = async () => {
     setCookieLoading(true)
     setError('')
-    // Use the env relevant to the current mode; compare mode fetches from production
-    const targetEnv = mode === 'stage' ? 'stage' : 'production'
-    try {
-      const res = await fetch(`http://localhost:8000/api/guest-cookie?env=${targetEnv}`)
+
+    const fetchCookie = async (env) => {
+      const res = await fetch(`http://localhost:8000/api/guest-cookie?env=${env}`)
+        .catch(() => { throw new Error('無法連線到 Backend (port 8000)，請確認 ./start.sh 已執行') })
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}))
         throw new Error(errBody.detail || `HTTP ${res.status}`)
       }
-      const data = await res.json()
-      setCookie(data.cookie)
-    } catch (err) {
-      const msg = err.message
-      if (msg === 'Failed to fetch') {
-        setError('無法連線到 Backend (port 8000)，請確認 ./start.sh 已執行')
+      return res.json()
+    }
+
+    try {
+      if (mode === 'compare') {
+        // 同時取兩個環境再合併 — stage 有 KKWEBSTAGE，production 有 KKWEB
+        const [stageData, prodData] = await Promise.all([fetchCookie('stage'), fetchCookie('production')])
+
+        // 合併：以 Map 去重，stage 的值優先蓋掉 production 的同名 key
+        const cookieMap = new Map()
+        const parseCookieStr = (str) => str.split(';').forEach(p => {
+          const idx = p.indexOf('='); if (idx < 0) return
+          cookieMap.set(p.slice(0, idx).trim(), p.slice(idx + 1).trim())
+        })
+        parseCookieStr(prodData.cookie)
+        parseCookieStr(stageData.cookie)  // stage 蓋掉同名 prod key
+
+        const merged = [...cookieMap.entries()].map(([k, v]) => `${k}=${v}`).join('; ')
+        const allKeyFields = [...new Set([...(stageData.key_fields_found || []), ...(prodData.key_fields_found || [])])]
+
+        setCookie(merged)
+        setCookieInfo({
+          env: 'stage + production',
+          key_fields_found: allKeyFields,
+          total_fields: cookieMap.size,
+        })
       } else {
-        setError(`自動取 Cookie 失敗: ${msg}`)
+        const targetEnv = mode  // 'stage' or 'production'
+        const data = await fetchCookie(targetEnv)
+        setCookie(data.cookie)
+        setCookieInfo({ env: data.env, key_fields_found: data.key_fields_found, total_fields: data.total_fields })
       }
+    } catch (err) {
+      setError(`自動取 Cookie 失敗: ${err.message}`)
     } finally {
       setCookieLoading(false)
     }
   }
 
+
   const handleSearch = async (e) => {
     e.preventDefault()
     if (!cookie) { setError('請輸入 Cookie 以獲得授權'); return }
-    setError(''); setLoading(true); setStageData(null); setProdData(null)
+    // 清掉上次的 cookie 狀態和錯誤，避免混淆
+    setError(''); setCookieInfo(null); setLoading(true); setStageData(null); setProdData(null)
 
     try {
       if (mode === 'compare') {
@@ -269,13 +297,15 @@ export default function App() {
               <div className="flex-[2] min-w-[280px]">
                 <label className="block text-[10px] font-semibold text-gray-500 uppercase mb-1">Cookie</label>
                 <div className="flex gap-2">
-                  <input type="text" value={cookie} onChange={e => setCookie(e.target.value)}
+                  <input type="text" value={cookie} onChange={e => { setCookie(e.target.value); setCookieInfo(null) }}
                     className="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400 font-mono"
                     placeholder="Paste KKDAY_COOKIE... 或點右邊按鈕自動取得" />
                   <button type="button" onClick={handleAutoFetchCookie} disabled={cookieLoading}
                     title="自動向對應環境取得訪客 Cookie"
-                    className="px-3 py-2 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg transition-all disabled:opacity-50 shrink-0 whitespace-nowrap">
-                    {cookieLoading ? '取得中...' : '自動取 Cookie'}
+                    className={`px-3 py-2 text-xs border rounded-lg transition-all disabled:opacity-50 shrink-0 whitespace-nowrap ${
+                      cookieInfo ? 'bg-green-50 text-green-700 border-green-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200'
+                    }`}>
+                    {cookieLoading ? '取得中...' : cookieInfo ? `✓ 已取得 (${cookieInfo.total_fields} 欄)` : '自動取 Cookie'}
                   </button>
                 </div>
               </div>
@@ -288,34 +318,47 @@ export default function App() {
             </div>
 
             {/* Mode Selector */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-gray-400 font-medium">查詢模式：</span>
-              {[
-                { value: 'stage',   label: 'Stage 僅看',      desc: '只查 Stage' },
-                { value: 'production', label: 'Production 僅看', desc: '只查 Production' },
-                { value: 'compare', label: 'Stage vs Prod (含 Rank Delta)', desc: '並排比較，自動計算位移差' },
-              ].map(opt => (
-                <label key={opt.value} title={opt.desc}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border cursor-pointer text-sm transition-all ${
-                    mode === opt.value
-                      ? 'bg-slate-900 text-white border-slate-900'
-                      : 'bg-white text-slate-600 border-gray-200 hover:border-slate-400'
-                  }`}>
-                  <input type="radio" name="mode" value={opt.value} checked={mode === opt.value}
-                    onChange={() => setMode(opt.value)} className="hidden" />
-                  {opt.label}
-                </label>
-              ))}
-              <div className="w-px h-4 bg-gray-200 mx-1" />
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="text-xs text-gray-400 font-medium shrink-0">查詢模式：</label>
+              <select
+                value={mode}
+                onChange={e => setMode(e.target.value)}
+                className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer"
+              >
+                <option value="stage">Stage 僅看</option>
+                <option value="production">Production 僅看</option>
+                <option value="compare">Stage vs Prod（含 Rank Delta）</option>
+              </select>
+              <div className="w-px h-4 bg-gray-200" />
               <label className="flex items-center gap-1.5 cursor-pointer text-red-600 text-sm font-medium">
                 <input type="checkbox" checked={onlyIssues} onChange={e => setOnlyIssues(e.target.checked)} className="w-3.5 h-3.5 rounded" />
                 僅顯示有疑慮 (Mismatch / T3)
               </label>
             </div>
+
           </form>
 
-          {error && (
-            <div className="mt-2 px-4 py-2 bg-red-50 text-red-700 rounded-lg border border-red-100 text-sm">⚠️ {error}</div>
+          {/* Status bar: cookie info + error — 同一行，避免雙層 banner 堆疊 */}
+          {(cookieInfo || error) && (
+            <div className="mt-2 flex flex-col gap-1">
+              {cookieInfo && (
+                <div className="px-3 py-1.5 bg-green-50 text-green-700 rounded-lg border border-green-100 text-xs flex items-center gap-2">
+                  <span className="shrink-0">✓ [{cookieInfo.env}] 已取得 {cookieInfo.total_fields} 個 Cookie 欄位</span>
+                  {cookieInfo.key_fields_found?.length > 0
+                    ? <span className="font-medium text-green-600">{cookieInfo.key_fields_found.join(' · ')}</span>
+                    : <span className="text-orange-600">⚠️ 缺少 csrf_cookie_name，搜尋可能失敗</span>
+                  }
+                  <button onClick={() => setCookieInfo(null)} className="ml-auto text-green-400 hover:text-green-600 shrink-0">✕</button>
+                </div>
+              )}
+              {error && (
+                <div className="px-3 py-2 bg-red-50 text-red-700 rounded-lg border border-red-100 text-sm flex items-start gap-2">
+                  <span>⚠️</span>
+                  <span className="flex-1">{error}</span>
+                  <button onClick={() => setError('')} className="text-red-300 hover:text-red-500 shrink-0">✕</button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -333,7 +376,7 @@ export default function App() {
           {/* Results Columns */}
           <div className="flex flex-1 gap-4 min-h-0">
             {stageData && (
-              <div className="flex-1 bg-white/70 backdrop-blur rounded-xl border-t-4 border-cyan-400 shadow p-4 h-[calc(100vh-140px)] flex flex-col">
+              <div className="flex-1 bg-white/70 backdrop-blur rounded-xl border-t-4 border-cyan-400 shadow p-4 h-[calc(100vh-160px)] flex flex-col">
                 <ProductList data={stageData} envTitle="Stage Environment" accentClass="border-cyan-400"
                   onlyIssues={onlyIssues} showDelta={showDelta} />
               </div>

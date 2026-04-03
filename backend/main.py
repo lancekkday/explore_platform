@@ -35,7 +35,7 @@ class CompareRequest(BaseModel):
 @app.get("/api/guest-cookie")
 def get_guest_cookie(env: str = "production"):
     """
-    向 KKDay 首頁發送 GET 請求，取得訪客 Cookie。
+    用 Playwright Headless Chromium 訪問 KKDay，取得完整的動態 Cookie（含 csrf_cookie_name）。
     env: 'stage' | 'production'
     """
     if env == "production":
@@ -46,22 +46,50 @@ def get_guest_cookie(env: str = "production"):
         raise HTTPException(status_code=400, detail="env must be stage or production")
 
     try:
-        resp = _requests.get(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept-Language": "zh-TW,zh;q=0.9",
-            },
-            timeout=15,
-            allow_redirects=True,
-        )
-        # Build cookie string from the response cookies jar
-        cookie_str = "; ".join(f"{k}={v}" for k, v in resp.cookies.items())
-        if not cookie_str:
-            raise HTTPException(status_code=502, detail=f"KKDay 服務在 {env} 未回傳任何 cookie，請檢查環境是否可連線")
-        return {"success": True, "env": env, "cookie": cookie_str}
-    except _requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"[{env}] 接活 KKDay 失敗: {e}")
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                locale="zh-TW",
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            )
+            page = context.new_page()
+
+            # Step 1: 首頁 — 觸發 JS 設定的 KKUD / KKWEB
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(2000)  # 等 JS 執行完畢
+
+            # Step 2: 搜尋列表頁 — 觸發 csrf_cookie_name
+            origin = url.rsplit("/zh-tw", 1)[0]
+            page.goto(f"{origin}/zh-tw/product/productlist/test", wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(1500)
+
+            # 收集所有 cookie
+            cookies = context.cookies()
+            browser.close()
+
+        if not cookies:
+            raise HTTPException(status_code=502, detail=f"KKDay [{env}] Headless 未取得任何 cookie")
+
+        cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+        key_fields = [c['name'] for c in cookies if c['name'] in ("KKUD", "KKWEB", "KKWEBSTAGE", "csrf_cookie_name", "csrf_token")]
+
+        return {
+            "success": True,
+            "env": env,
+            "cookie": cookie_str,
+            "key_fields_found": key_fields,
+            "total_fields": len(cookies),
+        }
+
+    except ImportError:
+        raise HTTPException(status_code=500, detail="Playwright 未安裝，請執行: pip install playwright && playwright install chromium")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"[{env}] Playwright 取 Cookie 失敗: {e}")
+
+
+
 
 
 def _build_results(products, keyword):

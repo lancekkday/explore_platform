@@ -24,7 +24,9 @@ class IntentMatcher:
             "體驗": "CATEGORY_018",
             "美食": "CATEGORY_125",
             "自助餐": "CATEGORY_134",
-            "esim": "CATEGORY_015" # Assuming some default if not found
+            "esim": "CATEGORY_081", # Updated based on actual API data
+            "sim": "CATEGORY_081",
+            "wifi": "CATEGORY_081"
         }
         
         # Broad category expansions logic
@@ -46,30 +48,35 @@ class IntentMatcher:
             except Exception as e:
                 logger.error(f"Failed to load destinations: {e}")
 
-    def verify(self, product, keyword):
+    def verify(self, product, keyword, ai_metadata=None):
         """
         驗證單個商品的邏輯
-        回傳 dict:
-          tier: 1 / 2 / 3 / None
-          dest_match: bool
-          cat_match: 'exact' / 'broad' / 'none' / 'n/a'
-          mismatch_reasons: list of str  (空表示完全符合)
-          expected_dest: str
-          expected_cat: str
         """
         # --- 解析 keyword 的預期地點 & 分類 ---
-        expected_cat_name = None
-        for cat in self.CATEGORY_MAPPING.keys():
-            if cat in keyword:
-                expected_cat_name = cat
-                break
-
-        expected_dest_name = keyword.replace(expected_cat_name, "").strip() if expected_cat_name else keyword.strip()
+        if ai_metadata and ai_metadata.get("item"):
+             # 使用 AI 解析出來的結果
+             expected_cat_name = ai_metadata.get("category")
+             expected_dest_name = ai_metadata.get("location")
+        else:
+             # 原有 Rule-based 解析 (待優化)
+             expected_cat_name = None
+             for cat in self.CATEGORY_MAPPING.keys():
+                 if cat in keyword:
+                     expected_cat_name = cat
+                     break
+             expected_dest_name = keyword.replace(expected_cat_name, "").strip() if expected_cat_name else keyword.strip()
 
         # --- 商品屬性 ---
         prod_destinations = [d.get("name", "") for d in product.get("destinations", [])]
         prod_main_cat     = product.get("product_category", {}).get("main") or ""
-        prod_cat_key      = product.get("main_cat_key") or ""
+        # 更加強健的提取邏輯：檢查 Root, product_category.key 以及 product_category.main (如果是 CATEGORY_ 開頭)
+        prod_cat_key = product.get("main_cat_key") or ""
+        pc = product.get("product_category") or {}
+        if not prod_cat_key and pc:
+            if isinstance(pc.get("main"), str) and pc["main"].startswith("CATEGORY_"):
+                prod_cat_key = pc["main"]
+            elif pc.get("key"):
+                prod_cat_key = pc["key"]
 
         # --- 地點比對 ---
         dest_match = any(expected_dest_name in d for d in prod_destinations) if expected_dest_name else True
@@ -94,6 +101,15 @@ class IntentMatcher:
 
         # --- Tier 判定 ---
         tier = None
+        
+        # 關鍵字顯性檢查 (Relevance Check)
+        # 如果商品標題與簡介完全沒有出現核心關鍵字，強制判定為 Mismatch (或最低 Tier)
+        title_intro = (product.get("name", "") + " " + product.get("introduction", "")).lower()
+        keyword_low = keyword.lower()
+        
+        # 如果有 AI 提供的核心產品名詞，優先查核心名詞
+        is_keyword_present = keyword_low in title_intro
+        
         if expected_cat_name:
             if dest_match and is_exact_cat:
                 tier = 1
@@ -105,10 +121,15 @@ class IntentMatcher:
             if dest_match:
                 tier = 3
 
-        # 標題比對 fallback
-        if tier is None and keyword in product.get("name", ""):
+        # --- 強關聯過濾 (針對 esim 等關鍵詞) ---
+        # 如果是明確搜尋某個名詞 (如 esim)，但標題完全沒提到，降級為 Mismatch
+        if not is_keyword_present and not is_exact_cat:
+            tier = None
+
+        # 標題比對 fallback (若原本沒中，但標題有中，至少給 T3)
+        if tier is None and is_keyword_present:
             tier = 3
-            dest_match = True  # keyword 出現在標題視為隱性地點命中
+            dest_match = True 
 
         # --- 組裝 mismatch_reasons ---
         mismatch_reasons = []

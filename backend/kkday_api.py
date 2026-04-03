@@ -47,6 +47,9 @@ def _fetch_page(base_url, params, post_body, headers, env, keyword, page):
         resp = requests.post(base_url, params=p, data=post_body, headers=headers, timeout=60)
         resp.raise_for_status()
         products, total, total_page = _parse_ajax_product_list_json(resp.json())
+        if products:
+            # logger.info(f"Sample product keys: {list(products[0].keys())}")
+            logger.info(f"Sample product_category: {products[0].get('product_category')}")
         logger.info(f"[{env}] keyword='{keyword}' page={page} got={len(products)} total={total} total_page={total_page}")
         return products, total, total_page
     except Exception as e:
@@ -68,18 +71,16 @@ def fetch_kkday_products(keyword: str, env: str, cookie: str, row_count: int = 3
 
     base_url = f"{origin}/zh-tw/product/ajax_get_product_list"
     path_keyword = quote(keyword, safe="")
-    query_keyword = quote(keyword, safe="")
-    referer = (
-        f"{origin}/zh-tw/product/productlist/{path_keyword}"
-        f"?filter_trusted_partner=trusted_partner&keyword={query_keyword}"
-        f"&currency=TWD&sort=prec&page=1&count={PAGE_SIZE}"
-    )
+    # 簡化 Referer，模擬從列表頁發起的 AJAX
+    referer = f"{origin}/zh-tw/product/productlist/{path_keyword}"
 
     csrf = _csrf_token_from_cookie(cookie)
-    post_body = urlencode({
-        "filter[filter_trusted_partner][0]": "trusted_partner",
-        "csrf_token_name": csrf,
-    })
+    # 備用 CSRF：如果 cookie 裡沒找到，試著找有沒有其他可能的 token
+    if not csrf:
+        csrf_m = re.search(r"csrf_ks_name=([^;\s]+)", cookie or "")
+        csrf = csrf_m.group(1) if csrf_m else ""
+
+    post_body = f"csrf_token_name={csrf}" if csrf else ""
 
     base_params = {
         "keyword": keyword,
@@ -94,6 +95,12 @@ def fetch_kkday_products(keyword: str, env: str, cookie: str, row_count: int = 3
         "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
         "Origin": origin,
         "Referer": referer,
+        "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"macOS"',
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -105,30 +112,33 @@ def fetch_kkday_products(keyword: str, env: str, cookie: str, row_count: int = 3
     all_products = []
     seen_ids = set()
 
+    def add_unique(prods):
+        for p in prods:
+            # Try multiple ID sources used by KKDay API variants
+            pid = p.get("oid") or p.get("product_id") or p.get("id") or p.get("prod_id")
+            if pid is None:
+                # If no ID, we can't reliably deduplicate, so just keep it
+                all_products.append(p)
+            elif pid not in seen_ids:
+                seen_ids.add(pid)
+                all_products.append(p)
+
     # ── Page 1 ──
     page1, total, total_page = _fetch_page(base_url, base_params, post_body, headers, env, keyword, 1)
-    for p in page1:
-        pid = p.get("oid") or p.get("product_id") or p.get("id")
-        if pid not in seen_ids:
-            seen_ids.add(pid)
-            all_products.append(p)
+    add_unique(page1)
 
     if not total or total_page <= 1:
         return all_products[:row_count], total, total_page
 
     # ── Pages 2…N ──
-    max_page = min(total_page, -(-row_count // PAGE_SIZE))   # 需要幾頁才夠 row_count
+    max_page = min(total_page, -(-row_count // PAGE_SIZE))
     for page in range(2, max_page + 1):
         if len(all_products) >= row_count:
             break
         prods, _, _ = _fetch_page(base_url, base_params, post_body, headers, env, keyword, page)
         if not prods:
             break
-        for p in prods:
-            pid = p.get("oid") or p.get("product_id") or p.get("id")
-            if pid not in seen_ids:
-                seen_ids.add(pid)
-                all_products.append(p)
+        add_unique(prods)
 
     logger.info(f"[{env}] keyword='{keyword}' fetched total={len(all_products)} (requested={row_count})")
     return all_products[:row_count], total, total_page

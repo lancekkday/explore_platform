@@ -171,10 +171,35 @@ export default function App() {
   const [stageData, setStageData] = useState(null)
   const [prodData, setProdData] = useState(null)
   const [error, setError] = useState('')
-  const [queryStage, setQueryStage] = useState(true)
-  const [queryProd, setQueryProd] = useState(true)
+  // mode: 'stage' | 'production' | 'compare'
+  const [mode, setMode] = useState('compare')
   const [onlyIssues, setOnlyIssues] = useState(false)
-  const [useCompare, setUseCompare] = useState(false)
+  const [cookieLoading, setCookieLoading] = useState(false)
+
+  const handleAutoFetchCookie = async () => {
+    setCookieLoading(true)
+    setError('')
+    // Use the env relevant to the current mode; compare mode fetches from production
+    const targetEnv = mode === 'stage' ? 'stage' : 'production'
+    try {
+      const res = await fetch(`http://localhost:8000/api/guest-cookie?env=${targetEnv}`)
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}))
+        throw new Error(errBody.detail || `HTTP ${res.status}`)
+      }
+      const data = await res.json()
+      setCookie(data.cookie)
+    } catch (err) {
+      const msg = err.message
+      if (msg === 'Failed to fetch') {
+        setError('無法連線到 Backend (port 8000)，請確認 ./start.sh 已執行')
+      } else {
+        setError(`自動取 Cookie 失敗: ${msg}`)
+      }
+    } finally {
+      setCookieLoading(false)
+    }
+  }
 
   const handleSearch = async (e) => {
     e.preventDefault()
@@ -182,43 +207,34 @@ export default function App() {
     setError(''); setLoading(true); setStageData(null); setProdData(null)
 
     try {
-      if (queryStage && queryProd && useCompare) {
-        // Use /api/compare for rank delta
+      if (mode === 'compare') {
         const res = await fetch('http://localhost:8000/api/compare', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ keyword, cookie, count: 300 })
-        })
-        if (!res.ok) throw new Error(`[Compare 請求失敗] HTTP ${res.status}`)
+        }).catch(() => { throw new Error('無法連線到 Backend (port 8000)，請確認 ./start.sh 已執行') })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(`[Stage vs Prod 請求失敗] HTTP ${res.status}: ${body.detail || ''}`)
+        }
         const data = await res.json()
         if (!data.success) throw new Error(data.detail || 'Compare API Error')
         setStageData({ total: data.stage.total, results: data.stage.results, metrics: data.stage.metrics })
         setProdData({ total: data.production.total, results: data.production.results, metrics: data.production.metrics })
       } else {
-        const fetches = []
-        if (queryStage) fetches.push(
-          fetch('http://localhost:8000/api/verify', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ keyword, env: 'stage', cookie, count: 300 })
-          }).then(async r => {
-            if (!r.ok) throw new Error(`[Stage 環境請求失敗] HTTP ${r.status}`)
-            const d = await r.json()
-            if (!d.success) throw new Error(d.detail || 'Stage Error')
-            setStageData(d)
-          })
-        )
-        if (queryProd) fetches.push(
-          fetch('http://localhost:8000/api/verify', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ keyword, env: 'production', cookie, count: 300 })
-          }).then(async r => {
-            if (!r.ok) throw new Error(`[Production 環境請求失敗] HTTP ${r.status}`)
-            const d = await r.json()
-            if (!d.success) throw new Error(d.detail || 'Prod Error')
-            setProdData(d)
-          })
-        )
-        await Promise.all(fetches)
+        const env = mode
+        const res = await fetch('http://localhost:8000/api/verify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keyword, env, cookie, count: 300 })
+        }).catch(() => { throw new Error('無法連線到 Backend (port 8000)，請確認 ./start.sh 已執行') })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(`[${env} 環境請求失敗] HTTP ${res.status}: ${body.detail || ''}`)
+        }
+        const d = await res.json()
+        if (!d.success) throw new Error(d.detail || `${env} Error`)
+        if (env === 'stage') { setStageData(d); setProdData(null) }
+        else { setProdData(d); setStageData(null) }
       }
     } catch (err) {
       setError(err.message)
@@ -228,7 +244,7 @@ export default function App() {
   }
 
   const hasResults = stageData || prodData
-  const showDelta = !!(stageData && prodData && useCompare)
+  const showDelta = mode === 'compare' && !!(stageData && prodData)
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 font-sans">
@@ -252,11 +268,18 @@ export default function App() {
               </div>
               <div className="flex-[2] min-w-[280px]">
                 <label className="block text-[10px] font-semibold text-gray-500 uppercase mb-1">Cookie</label>
-                <input type="text" value={cookie} onChange={e => setCookie(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400 font-mono"
-                  placeholder="Paste KKDAY_COOKIE..." />
+                <div className="flex gap-2">
+                  <input type="text" value={cookie} onChange={e => setCookie(e.target.value)}
+                    className="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400 font-mono"
+                    placeholder="Paste KKDAY_COOKIE... 或點右邊按鈕自動取得" />
+                  <button type="button" onClick={handleAutoFetchCookie} disabled={cookieLoading}
+                    title="自動向對應環境取得訪客 Cookie"
+                    className="px-3 py-2 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg transition-all disabled:opacity-50 shrink-0 whitespace-nowrap">
+                    {cookieLoading ? '取得中...' : '自動取 Cookie'}
+                  </button>
+                </div>
               </div>
-              <button type="submit" disabled={loading || (!queryStage && !queryProd)}
+              <button type="submit" disabled={loading}
                 className="px-6 py-2 text-sm bg-slate-900 hover:bg-slate-700 text-white font-semibold rounded-lg shadow transition-all active:scale-95 disabled:opacity-40 h-[38px] flex items-center gap-2 shrink-0">
                 {loading
                   ? <><svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>分析中...</>
@@ -264,21 +287,27 @@ export default function App() {
               </button>
             </div>
 
-            {/* Controls */}
-            <div className="flex items-center gap-5 text-sm flex-wrap">
-              {[['查詢 Stage', queryStage, setQueryStage], ['查詢 Production', queryProd, setQueryProd]].map(([label, val, setter]) => (
-                <label key={label} className="flex items-center gap-1.5 cursor-pointer text-slate-600">
-                  <input type="checkbox" checked={val} onChange={e => setter(e.target.checked)} className="w-3.5 h-3.5 rounded" />
-                  {label}
+            {/* Mode Selector */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-gray-400 font-medium">查詢模式：</span>
+              {[
+                { value: 'stage',   label: 'Stage 僅看',      desc: '只查 Stage' },
+                { value: 'production', label: 'Production 僅看', desc: '只查 Production' },
+                { value: 'compare', label: 'Stage vs Prod (含 Rank Delta)', desc: '並排比較，自動計算位移差' },
+              ].map(opt => (
+                <label key={opt.value} title={opt.desc}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border cursor-pointer text-sm transition-all ${
+                    mode === opt.value
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-white text-slate-600 border-gray-200 hover:border-slate-400'
+                  }`}>
+                  <input type="radio" name="mode" value={opt.value} checked={mode === opt.value}
+                    onChange={() => setMode(opt.value)} className="hidden" />
+                  {opt.label}
                 </label>
               ))}
-              <div className="w-px h-4 bg-gray-200" />
-              <label className="flex items-center gap-1.5 cursor-pointer text-blue-600 font-medium">
-                <input type="checkbox" checked={useCompare} onChange={e => setUseCompare(e.target.checked)} className="w-3.5 h-3.5 rounded" />
-                顯示 Rank Delta (需同時查兩環境)
-              </label>
-              <div className="w-px h-4 bg-gray-200" />
-              <label className="flex items-center gap-1.5 cursor-pointer text-red-600 font-medium">
+              <div className="w-px h-4 bg-gray-200 mx-1" />
+              <label className="flex items-center gap-1.5 cursor-pointer text-red-600 text-sm font-medium">
                 <input type="checkbox" checked={onlyIssues} onChange={e => setOnlyIssues(e.target.checked)} className="w-3.5 h-3.5 rounded" />
                 僅顯示有疑慮 (Mismatch / T3)
               </label>

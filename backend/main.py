@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import requests as _requests
 from kkday_api import fetch_kkday_products
 from skills.intent_matcher import IntentMatcher
 from skills.metrics import compute_ndcg, compute_recall_stats, compute_category_distribution, compute_rank_delta
@@ -29,6 +30,38 @@ class CompareRequest(BaseModel):
     keyword: str
     cookie: str
     count: int = 300
+
+
+@app.get("/api/guest-cookie")
+def get_guest_cookie(env: str = "production"):
+    """
+    向 KKDay 首頁發送 GET 請求，取得訪客 Cookie。
+    env: 'stage' | 'production'
+    """
+    if env == "production":
+        url = "https://www.kkday.com/zh-tw"
+    elif env == "stage":
+        url = "https://www.stage.kkday.com/zh-tw"
+    else:
+        raise HTTPException(status_code=400, detail="env must be stage or production")
+
+    try:
+        resp = _requests.get(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "zh-TW,zh;q=0.9",
+            },
+            timeout=15,
+            allow_redirects=True,
+        )
+        # Build cookie string from the response cookies jar
+        cookie_str = "; ".join(f"{k}={v}" for k, v in resp.cookies.items())
+        if not cookie_str:
+            raise HTTPException(status_code=502, detail=f"KKDay 服務在 {env} 未回傳任何 cookie，請檢查環境是否可連線")
+        return {"success": True, "env": env, "cookie": cookie_str}
+    except _requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"[{env}] 接活 KKDay 失敗: {e}")
 
 
 def _build_results(products, keyword):

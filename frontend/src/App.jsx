@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 // ─── SVG 圖示 ──────────────────────────────────────────────────────────────
 const IconMapPin = () => (<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>)
@@ -8,6 +8,17 @@ const IconRefresh = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill=
 const IconSearch = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>)
 const IconBot = () => (<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>)
 const IconGlobe = () => (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>)
+const IconPlay = () => (<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="m7 4 12 8-12 8V4z"/></svg>)
+const IconSquare = () => (<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg>)
+const IconArchive = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect width="22" height="5" x="1" y="3" rx="1"/><path d="M10 12h4"/></svg>)
+
+// ─── 防禦性渲染助手 (v7.8+ 新增, 防止白屏) ───
+const safeString = (val) => {
+  if (val === null || val === undefined) return "";
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object') return val.zh_TW || val.tw || val.name || val.label || val.code || "";
+  return val.toString();
+}
 
 // ─── 工具提示 Component ──────────────────────────────────
 function Tooltip({ title, content, pos = 'up', children }) {
@@ -69,8 +80,15 @@ function CompactMetricBar({ data, color, env, envCode }) {
          待命... {env}
       </div>
     );
-    const metrics = data.metrics || {};
-    const ndcg150 = metrics.ndcg_at_150 !== undefined ? metrics.ndcg_at_150 : (metrics.ndcg_at_300 || 0);
+    // 兼容兩種格式：data.metrics.ndcg_at_10 (單次搜尋) 或 data.ndcg_10 (批次引擎)
+    const m = data.metrics || {};
+    const metrics = {
+      ndcg_at_10: m.ndcg_at_10 ?? m.ndcg_10 ?? data.ndcg_at_10 ?? data.ndcg_10 ?? 0,
+      ndcg_at_50: m.ndcg_at_50 ?? m.ndcg_50 ?? data.ndcg_at_50 ?? data.ndcg_50 ?? 0,
+      ndcg_at_150: m.ndcg_at_150 ?? m.ndcg_150 ?? m.ndcg_at_300 ?? data.ndcg_at_150 ?? data.ndcg_150 ?? data.ndcg_at_300 ?? 0,
+      recall_at_150: m.recall_at_150 ?? m.recall_at_300 ?? data.recall_at_150 ?? data.recall_at_300 ?? 0,
+      mismatch_rate: m.mismatch_rate ?? data.mismatch_rate ?? 0,
+    };
 
     return (
       <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between relative border-l-8 hover:shadow-indigo-50 transition-all group" style={{ borderLeftColor: color }}>
@@ -85,13 +103,13 @@ function CompactMetricBar({ data, color, env, envCode }) {
             <div className="flex items-center gap-3 border-r border-slate-50 pr-6">
                <NdcgGauge value={metrics.ndcg_at_10} label="NDCG@10" tooltip="衡量前 10 名商品的排序品質。影響首屏使用者體驗。" />
                <NdcgGauge value={metrics.ndcg_at_50} label="NDCG@50" tooltip="指標穩定度：前 50 名排序精確度。" />
-               <NdcgGauge value={ndcg150} label="NDCG@150" tooltip="反映長尾搜尋結果的意圖穩定性。" />
+               <NdcgGauge value={metrics.ndcg_at_150} label="NDCG@150" tooltip="反映長尾搜尋結果的意圖穩定性。" />
             </div>
             <div className="flex gap-6 px-1">
                <Tooltip title="召回率 (Recall)" content="衡量在 300 筆商品中，有多少比例是符合意圖的商品。" pos="down">
                   <div className="flex flex-col text-center">
                     <span className="text-[8px] text-slate-400 font-black uppercase tracking-widest">召回</span>
-                    <span className="text-[13px] font-black text-indigo-700 font-mono italic">{Math.round((metrics.recall_at_150 || metrics.recall_at_300 || 0)*100)}%</span>
+                    <span className="text-[13px] font-black text-indigo-700 font-mono italic">{Math.round(metrics.recall_at_150*100)}%</span>
                   </div>
                </Tooltip>
                <Tooltip title="誤判率 (Noise)" content="搜尋結果中完全錯誤 (MISS) 的商品佔比。" pos="down">
@@ -126,9 +144,70 @@ export default function App() {
   const [calibTier, setCalibTier] = useState(1)
   const [calibComment, setCalibComment] = useState('')
 
+  // ─── 批次巡檢 state (v7.8+ 新增) ───
+  const [auditKeywords, setAuditKeywords] = useState([])
+  const [batchStatus, setBatchStatus] = useState({ is_running: false, progress: 0, current_keyword: null })
+  const [batchResults, setBatchResults] = useState({})
+  const [batchHistory, setBatchHistory] = useState([])
+  const [kwEditorVisible, setKwEditorVisible] = useState(false)
+  const [kwInputText, setKwInputText] = useState('')
+
+  const hasAutoSearched = useRef(false);
+  const normalizeKw = (kw) => kw?.toString().trim().toLowerCase() || '';
+
   useEffect(() => {
     autoFetchCookie();
-  }, [])
+    fetchAuditData();
+    // 只有在批次執行中才頻繁輪詢，其餘時間不自動打 API
+    const timer = setInterval(() => {
+       if (batchStatus?.is_running) {
+          fetchAuditData();
+       }
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [batchStatus?.is_running])
+
+  // 當切換 Tab 時主動重刷數據一次
+  useEffect(() => {
+     fetchAuditData();
+  }, [tab])
+
+  const fetchAuditData = async () => {
+    try {
+      const [kwRes, statRes, resRes, histRes] = await Promise.all([
+        fetch('http://localhost:8000/api/keywords').then(r => r.json()),
+        fetch('http://localhost:8000/api/batch/status').then(r => r.json()),
+        fetch('http://localhost:8000/api/batch/results').then(r => r.json()),
+        fetch('http://localhost:8000/api/batch/history').then(r => r.json())
+      ]);
+      if (kwRes?.keywords) setAuditKeywords(kwRes.keywords);
+      if (statRes) setBatchStatus(statRes);
+      if (resRes?.results) setBatchResults(resRes.results);
+      if (histRes?.history) setBatchHistory(histRes.history);
+    } catch (e) {}
+  }
+
+  const findResult = (kw) => {
+    if (!kw || !batchResults) return null;
+    return batchResults[normalizeKw(kw)] || null;
+  }
+
+  // URL keyword 自動載入
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const kw = params.get('keyword');
+    if (kw && !hasAutoSearched.current) {
+      const cached = findResult(kw);
+      if (cached && cached.stage?.results) {
+         setKeyword(kw); setTab('discovery');
+         setStageData(cached.stage); setProdData(cached.production);
+         hasAutoSearched.current = true;
+      } else if (cookie) {
+         setKeyword(kw); handleSearch(kw);
+         hasAutoSearched.current = true;
+      }
+    }
+  }, [cookie, batchResults]);
 
   const handleSearch = async (kw = keyword) => {
     if (!kw) return;
@@ -181,6 +260,42 @@ export default function App() {
     } catch (e) { setStatus({ type: 'error', msg: '標註失敗' }) }
   }
 
+  // ─── 批次巡檢 handlers (v7.8+ 新增) ───
+  const startBatch = async () => {
+    await fetch('http://localhost:8000/api/batch/run', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cookie}) });
+  }
+  const stopBatch = async () => {
+    await fetch('http://localhost:8000/api/batch/stop', { method: 'POST' });
+  }
+  const saveKeywords = async () => {
+    const kws = kwInputText.split(/\n|,/).map(s => s.trim()).filter(s => s);
+    await fetch('http://localhost:8000/api/keywords', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({keywords:kws}) });
+    setKwEditorVisible(false); fetchAuditData();
+  }
+  const [singleHistory, setSingleHistory] = useState([])
+  const [showSingleHistory, setShowSingleHistory] = useState(false)
+
+  const handleRestoreSingle = async (id) => {
+    try {
+      const res = await fetch(`http://localhost:8000/api/single/history/${id}`).then(r => r.json());
+      if (res?.results) {
+        const d = res.results;
+        setKeyword(d.keyword);
+        setStageData(d.stage);
+        setProdData(d.production);
+        setShowSingleHistory(false);
+      }
+    } catch (e) { alert("載入失敗"); }
+  }
+
+  const handleRestoreHistory = async (id) => {
+    if (!window.confirm(`確定要載入存檔 #${String(id).padStart(3,'0')} 嗎？目前的巡檢結果將被覆蓋。`)) return;
+    try {
+      const res = await fetch(`http://localhost:8000/api/batch/history/${id}`).then(r => r.json());
+      if (res?.results) setBatchResults(res.results);
+    } catch (e) {}
+  }
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col h-screen overflow-hidden text-[13px] select-none text-slate-900 antialiased font-sans">
       <header className="bg-white border-b border-slate-200 px-8 py-2.5 flex items-center justify-between shrink-0 z-[100] shadow-sm">
@@ -191,16 +306,16 @@ export default function App() {
           </div>
           <nav className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
             <button onClick={() => setTab('discovery')} className={`px-5 py-1.5 rounded-md text-[10.5px] font-black transition-all ${tab === 'discovery' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>單次巡檢</button>
-            <button onClick={() => setTab('audit')} className={`px-5 py-1.5 rounded-md text-[10.5px] font-black transition-all ${tab === 'audit' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>統計報告</button>
+            <button onClick={() => setTab('audit')} className={`px-5 py-1.5 rounded-md text-[10.5px] font-black transition-all ${tab === 'audit' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>批次巡檢</button>
           </nav>
         </div>
         <div className="flex items-center gap-5 text-[10px] font-black">
-          {error && <div className="px-3 py-1 bg-red-50 text-red-600 border border-red-100 rounded-lg animate-pulse">{error}</div>}
-          <div className="flex items-center gap-3 px-4 py-1.5 bg-slate-50 border border-slate-200 rounded-full">
-             <div className={`w-1.5 h-1.5 rounded-full ${cookieInfo ? 'bg-emerald-500 shadow-[0_0_8px_#10B981]' : 'bg-red-500'}`} />
-             <span className="text-slate-500 tracking-wider uppercase font-mono">{cookieInfo ? '連線正常' : '連線斷開'}</span>
-          </div>
-          <button onClick={autoFetchCookie} className="text-slate-300 hover:text-indigo-600 transition-all active:rotate-180 duration-500"><IconRefresh /></button>
+           {error && <div className="px-3 py-1 bg-red-50 text-red-600 border border-red-100 rounded-lg animate-pulse">{error}</div>}
+           <div className="flex items-center gap-3 px-4 py-1.5 bg-slate-50 border border-slate-200 rounded-full">
+              <div className={`w-1.5 h-1.5 rounded-full ${cookieInfo ? 'bg-emerald-500 shadow-[0_0_8px_#10B981]' : 'bg-red-500'}`} />
+              <span className="text-slate-500 tracking-wider uppercase font-mono">{cookieInfo ? '連線正常' : '連線斷開'}</span>
+           </div>
+           <button onClick={autoFetchCookie} className="text-slate-300 hover:text-indigo-600 transition-all active:rotate-180 duration-500"><IconRefresh /></button>
         </div>
       </header>
 
@@ -210,7 +325,43 @@ export default function App() {
              <div className="px-8 py-2.5 bg-white border-b border-slate-200 flex items-center gap-4 shrink-0 z-20 shadow-sm">
                 <div className="flex-1 relative group">
                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600"><IconSearch /></span>
-                   <input type="text" value={keyword} onChange={e => setKeyword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} className="w-full pl-10 pr-4 py-2 text-[13px] rounded-xl border-2 border-slate-100 bg-slate-50 focus:bg-white focus:border-indigo-500 outline-none transition-all font-black text-slate-900" placeholder="分析關鍵字..." />
+                   <input type="text" value={keyword} onChange={e => setKeyword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} className="w-full pl-10 pr-[80px] py-2 text-[13px] rounded-xl border-2 border-slate-100 bg-slate-50 focus:bg-white focus:border-indigo-500 outline-none transition-all font-black text-slate-900" placeholder="分析關鍵字..." />
+                   <button 
+                     onClick={() => { fetchAuditData(); setShowSingleHistory(!showSingleHistory); }}
+                     className={`absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 flex items-center gap-1.5 bg-white border rounded-lg transition-all font-black shadow-sm z-30 ${showSingleHistory ? 'border-indigo-600 text-indigo-600' : 'border-slate-200 text-slate-500 hover:border-slate-400 hover:text-slate-800'}`}
+                   >
+                      <IconHistory size={14} /> <span className="text-[10px] uppercase tracking-wider">歷史</span>
+                   </button>
+
+                   {showSingleHistory && (
+                     <div className="absolute top-[calc(100%+8px)] left-0 right-0 bg-white border border-slate-200 rounded-2xl shadow-2xl p-4 z-[300] max-h-[400px] overflow-y-auto">
+                       <div className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-3 px-2 flex justify-between items-center">
+                          <span>🕒 最近巡檢紀錄</span>
+                          <button onClick={() => setShowSingleHistory(false)}>✕</button>
+                       </div>
+                       {singleHistory && singleHistory.length > 0 ? (
+                          <div className="grid grid-cols-1 gap-1">
+                             {singleHistory.map(h => (
+                                <div key={h.id} onClick={() => handleRestoreSingle(h.id)} className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 cursor-pointer border border-transparent hover:border-slate-100 group">
+                                   <div className="flex flex-col">
+                                      <span className="font-black text-[13px] text-slate-800 tracking-tight">{h.keyword}</span>
+                                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{new Date(h.timestamp).toLocaleString()}</span>
+                                   </div>
+                                   <div className="flex items-center gap-4">
+                                      <div className="flex flex-col items-end">
+                                         <span className="text-[10px] font-black text-indigo-500 uppercase leading-none">nDCG Score</span>
+                                         <span className="text-[14px] font-black text-slate-900">{(h.ndcg * 100).toFixed(1)}%</span>
+                                      </div>
+                                      <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:text-indigo-600 transition-all">→</div>
+                                   </div>
+                                </div>
+                             ))}
+                          </div>
+                       ) : (
+                          <div className="py-10 text-center text-slate-300 font-black italic tracking-widest uppercase">No Records</div>
+                       )}
+                     </div>
+                   )}
                 </div>
                 
                 <div className="flex items-center bg-slate-50 border-2 border-slate-100 rounded-xl px-3 py-1.5 hover:border-slate-300 transition-all">
@@ -231,8 +382,17 @@ export default function App() {
                    </button>
                 </div>
 
-                <button onClick={() => handleSearch()} disabled={loading} className={`px-10 py-2 rounded-xl font-black text-[11px] tracking-[4px] uppercase transition-all shadow-lg ${loading ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-[#0F172A] text-white hover:bg-black active:scale-95'}`}>
-                   {loading ? 'ANALYZING...' : '開始巡檢'}
+                <button
+                   onClick={() => handleSearch()}
+                   disabled={loading || !cookieInfo}
+                   title={!cookieInfo ? '尚未取得 Cookie，請等待連線完成後再試' : undefined}
+                   className={`px-10 py-2 rounded-xl font-black text-[11px] tracking-[4px] uppercase transition-all shadow-lg ${
+                     (loading || !cookieInfo)
+                       ? 'bg-slate-200 text-slate-400 cursor-not-allowed border-2 border-slate-300'
+                       : 'bg-[#0F172A] text-white hover:bg-black active:scale-95 border-2 border-[#0F172A]'
+                   }`}
+                >
+                   {loading ? 'ANALYZING...' : !cookieInfo ? '等待連線...' : '開始巡檢'}
                 </button>
              </div>
 
@@ -260,18 +420,113 @@ export default function App() {
              </div>
           </div>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-slate-100 flex-col opacity-10 select-none py-32">
-             <div className="text-8xl mb-8">📊</div>
-             <div className="text-4xl font-black uppercase tracking-[30px]">Summary Statistics</div>
+          /* ─── 批次巡檢 Tab (v7.8+ 新增) ─── */
+          <div className="flex-1 flex flex-col min-h-0 bg-slate-50 overflow-hidden">
+             <div className="px-8 py-2.5 bg-white border-b border-slate-200 shadow-sm flex items-center gap-4 shrink-0 z-20">
+                <h2 className="text-[14px] font-black text-slate-900 tracking-tight uppercase leading-none shrink-0">批次指令中心</h2>
+
+                <div className="flex items-center bg-slate-50 border-2 border-slate-100 rounded-xl px-3 py-1.5 hover:border-slate-300 transition-all shrink-0">
+                   <IconGlobe />
+                   <select value={searchMode} onChange={e => setSearchMode(e.target.value)} className="bg-transparent text-[10.5px] font-black text-slate-800 outline-none cursor-pointer pl-1.5">
+                      <option value="both">⚔️ 雙環境比對巡檢</option>
+                      <option value="stage">🧪 僅 Stage 巡檢</option>
+                      <option value="prod">🚀 僅 Production 巡檢</option>
+                   </select>
+                </div>
+
+                <button onClick={() => setSingleAiMode(!singleAiMode)} className={`flex items-center gap-2 px-5 py-2 rounded-xl border-2 text-[10.5px] font-black transition-all shrink-0 ${singleAiMode ? 'bg-[#0F172A] text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-800'}`}>
+                   <IconBot /> AI 解析: {singleAiMode ? '啟用' : '關閉'}
+                </button>
+
+                <div className="flex-1 max-w-xs">
+                   <div className="flex justify-between items-end mb-1"><span className="text-[8px] font-black text-slate-400 font-mono uppercase">Progress</span><span className="text-[11px] font-black text-indigo-700 font-mono italic">{batchStatus.progress}%</span></div>
+                   <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden border border-slate-200 shadow-inner"><div className="h-full bg-indigo-600 transition-all duration-700" style={{ width: `${batchStatus.progress}%` }} /></div>
+                </div>
+
+                <div className="flex gap-2 shrink-0">
+                   <button onClick={() => {setKwInputText(auditKeywords.map(k => k.keyword).join(', ')); setKwEditorVisible(true)}} className="px-6 py-2 border border-slate-200 bg-white text-slate-500 rounded-xl text-[10.5px] font-black hover:border-slate-800 transition-all shadow-sm">任務配置</button>
+                   {batchStatus.is_running ? (
+                      <button onClick={stopBatch} className="px-10 py-2 bg-rose-500 text-white rounded-xl text-[11px] font-black shadow-lg flex items-center gap-2"><IconSquare /> 終止</button>
+                   ) : (
+                      <button onClick={startBatch} disabled={auditKeywords.length === 0} title={auditKeywords.length === 0 ? '請先至「任務配置」新增關鍵字' : undefined} className={`px-10 py-2 rounded-xl text-[11px] font-black shadow-xl tracking-[4px] uppercase flex items-center gap-2 ${auditKeywords.length === 0 ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[#0F172A] text-white active:scale-95'}`}><IconPlay /> 啟動</button>
+                   )}
+                </div>
+             </div>
+             <div className="flex-1 overflow-hidden flex flex-col p-4 gap-4">
+                <div className="flex-1 bg-white border border-slate-200 rounded-[1.5rem] shadow-sm overflow-hidden flex flex-col">
+                   <div className="overflow-y-auto flex-1 custom-scroll">
+                      <table className="w-full text-left">
+                        <thead>
+                           <tr className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10 font-mono text-[9px] text-slate-400 uppercase tracking-widest">
+                              <th className="px-8 py-3">核心關鍵字</th>
+                              <th className="px-4 py-3 text-center border-l border-slate-100">Status</th>
+                              <th className="px-6 py-3 text-center border-l border-slate-100">STG ND@10</th>
+                              <th className="px-6 py-3 text-center border-l border-slate-100">PRD ND@10</th>
+                              <th className="px-6 py-3 text-center border-l border-slate-100">誤判率</th>
+                              <th className="px-8 py-3 text-right border-l border-slate-100">ACTION</th>
+                           </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                           {auditKeywords.map((kwObj) => {
+                              const kwStr = kwObj.keyword;
+                              const res = findResult(kwStr);
+                              const isDone = !!res;
+                              const isActive = normalizeKw(kwStr) === normalizeKw(batchStatus.current_keyword);
+                              const m = res?.stage?.metrics || res?.stage || {};
+                              const pm = res?.production?.metrics || res?.production || {};
+                              return (
+                                 <tr key={kwStr} className={`hover:bg-slate-50 transition-all ${isActive ? 'bg-indigo-50/50 border-l-[6px] border-l-indigo-600' : ''}`}>
+                                    <td className="px-8 py-3.5 font-black text-[14px] text-slate-900 uppercase tracking-tight">{kwStr}</td>
+                                    <td className="px-4 py-3.5 text-center border-l border-slate-50">
+                                       {isDone ? <span className="text-[10px] font-black text-emerald-600 uppercase font-mono italic">Done</span> : isActive ? <span className="text-[10px] font-black text-indigo-700 animate-pulse font-mono uppercase tracking-widest">Active</span> : <span className="text-[10px] font-black text-slate-200 font-mono uppercase">Wait</span>}
+                                    </td>
+                                    <td className="px-6 py-3.5 border-l border-slate-50 text-center font-mono font-black text-emerald-600">{isDone ? `${Math.round((m.ndcg_at_10 || m.ndcg_10 || 0)*100)}%` : '-'}</td>
+                                    <td className="px-6 py-3.5 border-l border-slate-50 text-center font-mono font-black text-blue-600">{isDone ? `${Math.round((pm.ndcg_at_10 || pm.ndcg_10 || 0)*100)}%` : '-'}</td>
+                                    <td className="px-6 py-3.5 border-l border-slate-50 text-center font-black text-rose-500 text-[11px]">{isDone ? `${Math.round((m.mismatch_rate || 0)*100)}%` : '-'}</td>
+                                    <td className="px-8 py-3.5 text-right border-l border-slate-50">
+                                       <button onClick={() => window.open(`/?keyword=${encodeURIComponent(kwStr)}`, '_blank')} disabled={!isDone} className={`px-4 py-1.5 rounded-lg border text-[10px] font-black shadow-sm ${isDone ? 'bg-white border-slate-200 text-slate-800 hover:border-slate-800 hover:bg-slate-900 hover:text-white transition-all' : 'bg-slate-50 text-slate-200 cursor-not-allowed'}`}>詳細報告</button>
+                                    </td>
+                                 </tr>
+                              );
+                           })}
+                        </tbody>
+                      </table>
+                   </div>
+                </div>
+                {/* 巡檢紀錄 */}
+                <div className="h-52 bg-white border border-slate-200 rounded-[1.5rem] shadow-sm flex flex-col shrink-0 overflow-hidden">
+                   <div className="px-8 py-2.5 bg-slate-50/80 border-b border-slate-200 flex items-center gap-2">
+                      <IconArchive />
+                      <span className="text-[11px] font-black text-slate-800 uppercase tracking-[3px] font-mono">巡檢紀錄 (Inspection Archives)</span>
+                   </div>
+                   <div className="flex-1 overflow-y-auto custom-scroll">
+                      <table className="w-full text-left">
+                         <thead className="bg-white sticky top-0 z-10 border-b border-slate-100 font-mono text-[9px] text-slate-400 uppercase tracking-widest italic opacity-60">
+                            <tr><th className="px-8 py-2">ID</th><th className="px-6 py-2 text-center">Timestamp</th><th className="px-6 py-2 text-center">ND@10</th><th className="px-8 py-2 text-right">ACTION</th></tr>
+                         </thead>
+                         <tbody className="divide-y divide-slate-50">
+                            {batchHistory.map((h) => (
+                               <tr key={h.id} className="hover:bg-indigo-50/20 transition-all font-bold">
+                                  <td className="px-8 py-2.5 text-slate-900 font-mono">#{h.id.toString().padStart(3,'0')}</td>
+                                  <td className="px-6 py-2.5 text-center text-slate-500">{h.timestamp.split('T')[0]} <span className="opacity-40 italic ml-1">{h.timestamp.split('T')[1].slice(0,5)}</span></td>
+                                  <td className="px-6 py-2.5 text-center"><span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 font-black font-mono rounded border border-emerald-100">{Math.round(h.avg_ndcg*100)}%</span></td>
+                                  <td className="px-8 py-2.5 text-right"><button onClick={() => handleRestoreHistory(h.id)} className="px-4 py-1.5 bg-white border border-slate-200 text-slate-800 rounded-lg text-[9px] font-black hover:border-slate-800 hover:bg-slate-900 hover:text-white transition-all shadow-sm">載入存檔</button></td>
+                               </tr>
+                            ))}
+                         </tbody>
+                      </table>
+                   </div>
+                </div>
+             </div>
           </div>
         )}
       </main>
 
-      {/* 校正視窗 */}
+      {/* 校正視窗 — 原版 99ab38a */}
       {edittingProduct && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-xl animate-in fade-in transition-all">
            <div className="absolute inset-0" onClick={() => setEdittingProduct(null)} />
-           <div className="relative bg-white w-full max-w-[34rem] rounded-[2.5rem] shadow-2xl border border-white/20 overflow-hidden text-slate-900">
+           <div className="relative z-10 bg-white w-full max-w-[34rem] rounded-[2.5rem] shadow-2xl border border-white/20 overflow-hidden text-slate-900">
               <div className="bg-[#0F172A] px-10 py-7 flex justify-between items-center text-white">
                  <h2 className="text-xl font-black tracking-tight flex items-center gap-4">
                     <span className="w-1.5 h-8 bg-indigo-500 rounded-full" />
@@ -282,7 +537,7 @@ export default function App() {
               <div className="p-10">
                  <div className="px-7 py-6 bg-slate-50 border border-slate-200 rounded-3xl mb-10 font-bold text-[14.5px] text-slate-800 leading-relaxed shadow-inner">
                     <div className="text-[9px] text-slate-400 font-black uppercase tracking-[3px] mb-2 font-mono">PRODUCT REF: {edittingProduct.id}</div>
-                    {edittingProduct.name}
+                    {safeString(edittingProduct.name)}
                  </div>
                  <div className="mb-10 grid grid-cols-2 gap-4">
                     {[
@@ -303,6 +558,28 @@ export default function App() {
                     <button onClick={submitCalibration} className="flex-[2] py-5 bg-[#0F172A] text-white rounded-3xl text-[13px] font-black shadow-2xl hover:bg-black uppercase tracking-[6px] active:scale-95 transition-all">
                        儲存校正結果
                     </button>
+                 </div>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* 名單配置 */}
+      {kwEditorVisible && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-xl animate-in fade-in transition-all">
+           <div className="absolute inset-0" onClick={() => setKwEditorVisible(false)} />
+           <div className="relative z-10 bg-white w-full max-w-[34rem] rounded-[2.5rem] shadow-2xl border border-white/20 overflow-hidden text-slate-900">
+              <div className="bg-[#0F172A] px-10 py-7 text-white">
+                 <h2 className="text-xl font-black tracking-tight flex items-center gap-4">
+                    <span className="w-1.5 h-8 bg-indigo-500 rounded-full" />
+                    巡檢名單配置
+                 </h2>
+              </div>
+              <div className="p-10">
+                 <textarea value={kwInputText} onChange={e => setKwInputText(e.target.value)} className="w-full h-80 bg-slate-100 border-2 border-slate-50 rounded-3xl p-6 text-[13px] font-bold focus:bg-white focus:border-indigo-500 transition-all outline-none resize-none mb-10 text-slate-900 shadow-inner" placeholder="esim, 日本旅遊, 大阪周遊券..." />
+                 <div className="flex gap-6 items-center">
+                    <button onClick={() => setKwEditorVisible(false)} className="flex-1 py-5 text-xs font-black text-slate-400 uppercase tracking-[4px] hover:text-slate-950 transition-colors">取消</button>
+                    <button onClick={saveKeywords} className="flex-[2] py-5 bg-[#0F172A] text-white rounded-3xl text-[13px] font-black shadow-2xl hover:bg-black uppercase tracking-[6px] active:scale-95 transition-all">儲存名單</button>
                  </div>
               </div>
            </div>
@@ -350,13 +627,29 @@ function ResultList({ items, title, total, color, onCalibrate, doubtOnly }) {
                          )}
                       </div>
                       <div className="flex-1 min-w-0">
-                         <div className="text-[13px] font-bold text-slate-800 truncate leading-tight select-all tracking-tight group-hover:text-slate-950 transition-colors" title={it.name}>{it.name}</div>
+                         <div className="text-[13px] font-bold text-slate-800 truncate leading-tight select-all tracking-tight group-hover:text-slate-950 transition-colors" title={safeString(it.name)}>{safeString(it.name)}</div>
+                         
+                         {/* ─── AI 判定診斷理由 (New: Direct Display) ─── */}
+                         {it.mismatch_reasons && it.mismatch_reasons.length > 0 && (
+                            <div className="mt-1 flex items-center gap-1.5 px-2 py-0.5 bg-rose-50/50 border border-rose-100/50 rounded text-[9px] font-black text-rose-500/80 italic leading-none w-fit">
+                               <div className="w-1 h-1 bg-rose-400 rounded-full animate-pulse" />
+                               {it.mismatch_reasons.join(' | ')}
+                            </div>
+                         )}
+
                          <div className="flex items-center gap-3 mt-1.5 opacity-70">
                             <span className="flex items-center gap-1 text-[9px] font-black text-slate-500">
-                               <IconTag /><span className="uppercase tracking-[1px] leading-none">{it.main_cat_key || "UNIDENTIFIED"}</span>
+                               <IconTag /><span className="uppercase tracking-[1px] leading-none">{safeString(it.main_cat_key) || "UNIDENTIFIED"}</span>
                             </span>
                             <span className="flex items-center gap-1 text-[9px] font-black text-slate-500">
-                               <IconMapPin /><span className="uppercase tracking-[1px] leading-none">{it.destinations?.[0] || "GLOBAL"}</span>
+                               <span className="uppercase tracking-[1px] leading-none">
+                                 {(() => {
+                                    const dests = Array.isArray(it.destinations) ? it.destinations : [];
+                                    if (dests.length === 0) return "GLOBAL";
+                                    const first = dests[0];
+                                    return typeof first === 'object' ? safeString(first.name) : safeString(first);
+                                 })()}
+                               </span>
                             </span>
                          </div>
                       </div>
@@ -380,3 +673,10 @@ function ResultList({ items, title, total, color, onCalibrate, doubtOnly }) {
       </div>
     )
  }
+
+// ─── SVG Icons (v9.1+ Unique Repair) ───
+const IconHistory = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>
+  </svg>
+);

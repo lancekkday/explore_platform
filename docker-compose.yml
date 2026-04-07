@@ -1,24 +1,27 @@
 services:
   backend:
-    build: ./backend
-    ports:
-      - "8000:8000"
-    env_file: ./.env
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sip_backend
+    restart: always
+    env_file:
+      - ./.env
     volumes:
-      # Persist SQLite DB, keywords, feedback, and destination data across restarts
-      - ./backend/data:/app/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/keywords"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
+      - sip_data:/app/data
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sip_frontend
+    restart: always
     ports:
-      - "80:80"
+      - "${FRONTEND_PORT:-80}:80"
     depends_on:
-      backend:
-        condition: service_healthy
-    restart: unless-stopped
+      - backend
+
+volumes:
+  sip_data:

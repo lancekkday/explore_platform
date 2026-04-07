@@ -145,7 +145,7 @@ class BatchEngine:
 
         return {
             "rank": rank,
-            "id": str(p.get("oid") or p.get("product_id") or rank),
+            "id": str(p.get("prod_oid") or p.get("oid") or p.get("product_id") or rank),
             "name": p.get("name", ""),
             "img_url": p.get("img_url", ""), 
             "tier": tier_val,

@@ -43,7 +43,7 @@ npm run lint       # ESLint
 # Run individual test files
 cd backend && source venv/bin/activate
 pytest test_intent_matcher.py -v          # Unit tests for IntentMatcher
-pytest ../tests/e2e_api_test.py -v        # E2E API tests
+pytest ../tests/test_e2e_api.py -v        # E2E API tests (14 cases, all endpoints)
 ```
 
 ## Architecture
@@ -113,10 +113,27 @@ DEST_DUMP_DIR=/app/data   # Docker default
 
 ### Frontend Structure
 
-`frontend/src/App.jsx` is a single ~1500-line component with three tabs:
-- **Discovery** — single keyword search + inline calibration
-- **Audit** — batch keyword management + batch run controls
-- **Results** — batch history viewer + drilldown per keyword
+`frontend/src/App.jsx` is the root component (~300 lines after refactor). Extracted components live under `frontend/src/`:
+
+```
+src/
+├── api.js                          — all fetch calls as named exports
+├── utils/safeString.js             — safeString(), normalizeKw()
+└── components/
+    ├── icons/Icons.jsx             — all SVG icon components
+    ├── ui/
+    │   ├── Tooltip.jsx
+    │   ├── TierBadge.jsx
+    │   ├── NdcgGauge.jsx
+    │   └── CompactMetricBar.jsx
+    ├── ResultList.jsx              — product inspection list
+    ├── CalibrationModal.jsx        — tier correction modal
+    └── KeywordEditorModal.jsx      — batch keyword config modal
+```
+
+Two tabs:
+- **單次巡檢** — single keyword search + inline calibration + single history dropdown
+- **批次巡檢** — batch keyword management, batch run controls, inspection archives
 
 ## Environment
 
@@ -144,3 +161,14 @@ AI parsing is optional and falls back gracefully if the key is missing or the ca
 - **Calibrations are additive** — feedback.json is append-only; re-running a search re-applies all saved corrections automatically
 - **No TypeScript** — frontend is plain JavaScript/JSX
 - **No DB migration system** — SQLite schema is created inline in `batch_engine.py` on startup
+
+## Known Limitations & Gotchas
+
+### Destination Matching Granularity
+`intent_matcher.py` matches destinations using string containment against product API `destinations[]` field (district-level codes like 新宿, 銅鑼灣). Hierarchical lookups (e.g. 札幌 → 北海道 → 日本) are **not** supported natively. The matcher adds a fallback: if the searched location appears in the product's **name or description**, `dest_match` is still True. This handles common cases like "日本eSIM" products whose title contains 日本 but whose destination field lists only a district code.
+
+### Calibration API Method Name
+`CalibrationManager` exposes `save_feedback()` (not `add_feedback()`). `main.py` must call `calibration_manager.save_feedback(...)`.
+
+### eslint-plugin-react-hooks v7
+Version 7 adds `react-hooks/set-state-in-effect` and `react-hooks/immutability` rules that flag async setState in effects (a common pattern here). These are downgraded to `warn` in `eslint.config.js` — the pattern is intentional.

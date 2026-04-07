@@ -118,7 +118,7 @@ def compare_envs(req: CompareRequest):
 
 @app.post("/api/feedback")
 def calibrate_feedback(req: FeedbackRequest):
-    calibration_manager.add_feedback(req.keyword, req.product_id, req.user_tier, req.comment)
+    calibration_manager.save_feedback(req.keyword, req.product_id, req.user_tier, req.comment)
     return {"success": True}
 
 @app.get("/api/keywords")

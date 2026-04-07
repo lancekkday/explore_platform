@@ -237,10 +237,13 @@ class IntentMatcher:
                 actual_dest_names.append(str(d).lower())
 
         target_loc = effective_dest.lower()
+        title_intro_for_dest = product.get("name", "").lower() + " " + product.get("introduction", "").lower()
         dest_match = (
             any(target_loc in n for n in actual_dest_names)
             or self.name_to_code.get(effective_dest) in actual_dest_codes
             or "glb" in actual_dest_codes
+            # 商品名稱或描述中直接包含目標地點（例如搜尋「日本」可命中「KDDI 日本 eSIM」）
+            or target_loc in title_intro_for_dest
         )
 
         # ── Category 匹配 ──────────────────────────────────────────────────

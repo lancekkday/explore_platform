@@ -85,3 +85,63 @@ def parse_intent_with_ai(keyword: str) -> tuple[SearchIntent, dict]:
     except Exception as e:
         logger.error(f"AI parsing failed for keyword '{keyword}': {e}")
         return SearchIntent(core_product=keyword, location=None, category=None, theme=None, reason="Fallback due to API error"), _zero_usage
+
+
+TIER_LABELS = {1: "T1 完全相關", 2: "T2 部分相關", 3: "T3 疑似相關", 0: "MISS 不相關"}
+
+def explain_product_match(keyword: str, product_name: str, tier: int,
+                          mismatch_reasons: list, destinations: list,
+                          main_cat_key: str) -> tuple[str, dict]:
+    """
+    Ask GPT to explain in plain Chinese why a product received its tier judgment.
+    Returns (explanation_text, usage_dict).
+    """
+    dest_names = []
+    for d in (destinations or []):
+        if isinstance(d, dict):
+            n = d.get("name", "")
+        else:
+            n = str(d)
+        if n and n != "GLOBAL":
+            dest_names.append(n)
+
+    tier_label = TIER_LABELS.get(tier, str(tier))
+    reasons_text = " | ".join(mismatch_reasons) if mismatch_reasons else "無（全部條件符合）"
+
+    prompt = f"""用戶在 KKDay 搜尋「{keyword}」，系統對以下商品進行意圖比對：
+
+商品名稱：{product_name}
+判定等級：{tier_label}
+商品目的地：{', '.join(dest_names) or '（未指定）'}
+商品分類：{main_cat_key or '（未知）'}
+系統判定原因：{reasons_text}
+
+請用 2～3 句繁體中文，簡潔說明：
+1. 為何判定為「{tier_label}」
+2. 這個判定是否合理；如果有疑問請直接點出
+
+請直接說明結論，不要有開場白或「根據以上」等語氣詞。"""
+
+    _zero = {"prompt_tokens": 0, "completion_tokens": 0, "estimated_cost_usd": 0.0}
+    try:
+        completion = client.chat.completions.create(
+            model=AI_MODEL,
+            messages=[
+                {"role": "system", "content": "你是 KKDay 搜尋品質分析師，專門用簡短繁體中文解釋商品意圖比對結果。"},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=200,
+            temperature=0.3,
+        )
+        text = completion.choices[0].message.content.strip()
+        usage = completion.usage
+        cost = (usage.prompt_tokens * AI_PRICE_INPUT + usage.completion_tokens * AI_PRICE_OUTPUT) / 1_000_000
+        logger.info(f"Explain '{keyword}'/'{product_name[:30]}' tier={tier} tokens={usage.total_tokens} cost=${cost:.6f}")
+        return text, {
+            "prompt_tokens": usage.prompt_tokens,
+            "completion_tokens": usage.completion_tokens,
+            "estimated_cost_usd": round(cost, 8),
+        }
+    except Exception as e:
+        logger.error(f"explain_product_match failed: {e}")
+        return "AI 解釋暫時無法使用。", _zero

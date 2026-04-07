@@ -54,3 +54,17 @@ export const fetchSingleHistory = () =>
 
 export const fetchSingleHistoryDetail = (id) =>
   fetch(`${API_BASE}/single/history/${id}`).then(r => r.json())
+
+export const explainProduct = (keyword, product) =>
+  fetch(`${API_BASE}/explain`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      keyword,
+      product_name:     product.name,
+      tier:             product.tier,
+      mismatch_reasons: product.mismatch_reasons || [],
+      destinations:     product.destinations     || [],
+      main_cat_key:     product.main_cat_key     || '',
+    }),
+  }).then(r => r.json())

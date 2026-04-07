@@ -47,9 +47,6 @@ def _fetch_page(base_url, params, post_body, headers, env, keyword, page):
         resp = requests.post(base_url, params=p, data=post_body, headers=headers, timeout=60)
         resp.raise_for_status()
         products, total, total_page = _parse_ajax_product_list_json(resp.json())
-        if products:
-            # logger.info(f"Sample product keys: {list(products[0].keys())}")
-            logger.info(f"Sample product_category: {products[0].get('product_category')}")
         logger.info(f"[{env}] keyword='{keyword}' page={page} got={len(products)} total={total} total_page={total_page}")
         return products, total, total_page
     except Exception as e:
@@ -80,6 +77,8 @@ def fetch_kkday_products(keyword: str, env: str, cookie: str, row_count: int = 3
         csrf_m = re.search(r"csrf_ks_name=([^;\s]+)", cookie or "")
         csrf = csrf_m.group(1) if csrf_m else ""
 
+    # filter_trusted_partner is intentionally omitted: including it restricts results
+    # to KKDay-verified partners only, which reduces recall for intent verification purposes.
     post_body = f"csrf_token_name={csrf}" if csrf else ""
 
     base_params = {

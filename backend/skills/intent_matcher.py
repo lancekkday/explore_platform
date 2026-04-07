@@ -295,7 +295,9 @@ class IntentMatcher:
             else:
                 tier = 0
 
-        # 反向校正
+        # 反向校正：已知誤判規則
+        # 阿里山搜尋會因 destination code 命中嘉義，導致「台北西門町」商品被錯誤拉高 tier。
+        # 排除條件：商品提及西門町但未提及環島（環島行程可能合理途經嘉義/阿里山）。
         if target_loc == "阿里山" and "西門町" in title_intro and "環島" not in title_intro:
             tier = 0
 

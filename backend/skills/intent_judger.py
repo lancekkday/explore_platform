@@ -8,7 +8,9 @@ from skills.calibration_manager import calibration_manager
 from loguru import logger
 
 # Initialize underlying rule-based matcher
-MATCHER = IntentMatcher("/Users/kkday_borrow_f/Documents/workspace/Search_data/be2_destinations_dump")
+# DEST_DUMP_DIR: local dev points to Search_data dump; Docker uses /app/data
+DEST_DUMP_DIR = os.getenv("DEST_DUMP_DIR", os.path.join(os.path.dirname(__file__), "../../data"))
+MATCHER = IntentMatcher(DEST_DUMP_DIR)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "data", "history.db")

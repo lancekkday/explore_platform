@@ -10,6 +10,12 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "../../.env"))
 
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
+# Model config — override via env vars to switch models or update pricing
+AI_MODEL = os.getenv("AI_MODEL_NAME", "gpt-4o-mini")
+# Pricing per 1M tokens (USD) — update when OpenAI changes pricing
+AI_PRICE_INPUT  = float(os.getenv("AI_PRICE_INPUT_PER_1M",  "0.150"))
+AI_PRICE_OUTPUT = float(os.getenv("AI_PRICE_OUTPUT_PER_1M", "0.600"))
+
 class SearchIntent(BaseModel):
     """Semantic breakdown of a search keyword."""
     core_product: str
@@ -56,7 +62,7 @@ def parse_intent_with_ai(keyword: str) -> tuple[SearchIntent, dict]:
 
     try:
         completion = client.beta.chat.completions.parse(
-            model="gpt-4o-mini",
+            model=AI_MODEL,
             messages=[
                 {"role": "system", "content": "你是一位專業的電商搜尋意圖分析師。"},
                 {"role": "user", "content": prompt}
@@ -65,9 +71,8 @@ def parse_intent_with_ai(keyword: str) -> tuple[SearchIntent, dict]:
         )
         res = completion.choices[0].message.parsed
 
-        # gpt-4o-mini pricing: $0.150/1M input, $0.600/1M output (as of 2025-04)
         usage = completion.usage
-        cost = (usage.prompt_tokens * 0.150 + usage.completion_tokens * 0.600) / 1_000_000
+        cost = (usage.prompt_tokens * AI_PRICE_INPUT + usage.completion_tokens * AI_PRICE_OUTPUT) / 1_000_000
         usage_dict = {
             "prompt_tokens": usage.prompt_tokens,
             "completion_tokens": usage.completion_tokens,

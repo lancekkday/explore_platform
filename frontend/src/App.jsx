@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 
+const API_BASE = import.meta.env.VITE_API_URL ?? '/api'
+
 // ─── SVG 圖示 ──────────────────────────────────────────────────────────────
 const IconMapPin = () => (<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>)
 const IconTag = () => (<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2H2v10l9.29 9.29a1 1 0 0 0 1.41 0l7.3-7.3a1 1 0 0 0 0-1.41Z"/><path d="M7 7h.01"/></svg>)
@@ -175,10 +177,10 @@ export default function App() {
   const fetchAuditData = async () => {
     try {
       const [kwRes, statRes, resRes, histRes] = await Promise.all([
-        fetch('/api/keywords').then(r => r.json()),
-        fetch('/api/batch/status').then(r => r.json()),
-        fetch('/api/batch/results').then(r => r.json()),
-        fetch('/api/batch/history').then(r => r.json())
+        fetch(`${API_BASE}/keywords`).then(r => r.json()),
+        fetch(`${API_BASE}/batch/status`).then(r => r.json()),
+        fetch(`${API_BASE}/batch/results`).then(r => r.json()),
+        fetch(`${API_BASE}/batch/history`).then(r => r.json())
       ]);
       if (kwRes?.keywords) setAuditKeywords(kwRes.keywords);
       if (statRes) setBatchStatus(statRes);
@@ -213,7 +215,7 @@ export default function App() {
     if (!kw) return;
     setLoading(true); setError(''); setTab('discovery');
     try {
-      const resp = await fetch('/api/compare', {
+      const resp = await fetch(`${API_BASE}/compare`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keyword: kw, cookie: cookie, count: 300, ai_enabled: singleAiMode })
@@ -232,7 +234,7 @@ export default function App() {
 
   const autoFetchCookie = async () => {
     try {
-      const res = await fetch('/api/guest-cookie?env=production').then(r => r.json());
+      const res = await fetch(`${API_BASE}/guest-cookie?env=production`).then(r => r.json());
       if (res && res.cookie) { setCookie(res.cookie); setCookieInfo(res); return res; }
       return null;
     } catch (e) { setError('憑證對接異常'); return null; }
@@ -248,7 +250,7 @@ export default function App() {
   const submitCalibration = async () => {
     if (!edittingProduct) return;
     try {
-      const res = await fetch('/api/feedback', {
+      const res = await fetch(`${API_BASE}/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keyword, product_id: edittingProduct.id, user_tier: parseInt(calibTier), comment: calibComment })
@@ -262,14 +264,14 @@ export default function App() {
 
   // ─── 批次巡檢 handlers (v7.8+ 新增) ───
   const startBatch = async () => {
-    await fetch('/api/batch/run', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cookie}) });
+    await fetch(`${API_BASE}/batch/run`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cookie}) });
   }
   const stopBatch = async () => {
-    await fetch('/api/batch/stop', { method: 'POST' });
+    await fetch(`${API_BASE}/batch/stop`, { method: 'POST' });
   }
   const saveKeywords = async () => {
     const kws = kwInputText.split(/\n|,/).map(s => s.trim()).filter(s => s);
-    await fetch('/api/keywords', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({keywords:kws}) });
+    await fetch(`${API_BASE}/keywords`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({keywords:kws}) });
     setKwEditorVisible(false); fetchAuditData();
   }
   const [singleHistory, setSingleHistory] = useState([])
@@ -277,7 +279,7 @@ export default function App() {
 
   const handleRestoreSingle = async (id) => {
     try {
-      const res = await fetch(`/api/single/history/${id}`).then(r => r.json());
+      const res = await fetch(`${API_BASE}/single/history/${id}`).then(r => r.json());
       if (res?.results) {
         const d = res.results;
         setKeyword(d.keyword);
@@ -291,7 +293,7 @@ export default function App() {
   const handleRestoreHistory = async (id) => {
     if (!window.confirm(`確定要載入存檔 #${String(id).padStart(3,'0')} 嗎？目前的巡檢結果將被覆蓋。`)) return;
     try {
-      const res = await fetch(`/api/batch/history/${id}`).then(r => r.json());
+      const res = await fetch(`${API_BASE}/batch/history/${id}`).then(r => r.json());
       if (res?.results) setBatchResults(res.results);
     } catch (e) {}
   }

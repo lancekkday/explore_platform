@@ -16,6 +16,9 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_BASE_URL: ${VITE_BASE_URL:-/}
     container_name: sip_frontend
     restart: always
     ports:

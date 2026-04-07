@@ -1,3 +1,4 @@
+import glob
 import json
 import re
 import os
@@ -77,25 +78,66 @@ class IntentMatcher:
 
     def load_destinations(self):
         """
-        載入由 JSONL 整合而成的全站目的地大表 (unified_destinations.json)。
+        載入目的地資料：
+        1. unified_destinations.json (name → code 快速查詢)
+        2. be2_destinations_dump/my_run JSONL (建立 code_to_parent 階層樹，
+           用於比對「同國家 ancestor」邏輯)
         """
-        unified_file = os.path.join(os.path.dirname(self.dest_dump_dir), "unified_destinations.json")
+        # ── 1. unified name→code mapping ──────────────────────────────────
+        # dest_dump_dir 即 data/ 目錄，unified_destinations.json 直接在同層
+        unified_file = os.path.join(self.dest_dump_dir, "unified_destinations.json")
         self.name_to_code = {}
-        
+
         if os.path.exists(unified_file):
             try:
                 with open(unified_file, 'r', encoding='utf-8') as f:
                     self.name_to_code = json.load(f)
-                logger.info(f"Matcher successfully loaded {len(self.name_to_code)} unified destinations.")
+                logger.info(f"Matcher loaded {len(self.name_to_code)} unified destinations.")
             except Exception as e:
                 logger.error(f"Failed to load unified destinations: {e}")
-        
+
+        # ── 2. 階層 code_to_parent（從 JSONL dump 建立）──────────────────
+        self.code_to_parent: dict[str, str] = {}
+        dump_base = os.path.join(self.dest_dump_dir, "be2_destinations_dump", "my_run")
+        if os.path.exists(dump_base):
+            jsonl_files = glob.glob(os.path.join(dump_base, "**", "destinations.jsonl"), recursive=True)
+            loaded = 0
+            for path in jsonl_files:
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            obj = json.loads(line)
+                            code   = obj.get("code")
+                            parent = obj.get("parentCode")
+                            if code and parent:
+                                self.code_to_parent[code] = parent
+                            loaded += 1
+                except Exception as e:
+                    logger.warning(f"Failed to load {path}: {e}")
+            logger.info(f"Matcher loaded hierarchy: {len(self.code_to_parent)} parent links from {len(jsonl_files)} JSONL files.")
+        else:
+            logger.warning(f"Destination dump not found at {dump_base}; hierarchy matching disabled.")
+
         # 內建幾個絕對關鍵的關聯 (避免數據漏失)
         self.name_to_code.update({
             "阿里山": "A01-002-00008", # 阿里山門票/小火車 -> 嘉義 code
             "太魯閣": "A01-002-00003", # 花蓮
             "九份": "A01-002-00003",   # 新北/九份
         })
+
+    def _get_ancestors(self, code: str) -> set:
+        """回傳某 code 的所有 ancestor codes（向上走到 root）。"""
+        ancestors = set()
+        current = self.code_to_parent.get(code)
+        seen = set()
+        while current and current not in seen:
+            seen.add(current)
+            ancestors.add(current)
+            current = self.code_to_parent.get(current)
+        return ancestors
 
     def _extract_compound_intent(self, keyword):
         """
@@ -245,6 +287,25 @@ class IntentMatcher:
             # 商品名稱或描述中直接包含目標地點（例如搜尋「日本」可命中「KDDI 日本 eSIM」）
             or target_loc in title_intro_for_dest
         )
+
+        # ── 階層式地點比對（同國 ancestor 邏輯）──────────────────────────
+        # 例：搜尋「日本」(D-JP-112) 商品在「札幌」(D-JP-3414) → 日本是札幌的 ancestor → match
+        #     搜尋「札幌」商品 destination 是「日本」         → 日本是札幌的 ancestor → product 涵蓋範圍包含搜尋地點 → match
+        if not dest_match and actual_dest_codes:
+            search_code = self.name_to_code.get(effective_dest)
+            if search_code:
+                search_ancestors = self._get_ancestors(search_code)
+                for prod_code in actual_dest_codes:
+                    if not prod_code:
+                        continue
+                    # Case A：product destination 是搜尋地點的 ancestor（product 範圍較廣，含搜尋城市）
+                    if prod_code in search_ancestors:
+                        dest_match = True
+                        break
+                    # Case B：搜尋地點是 product destination 的 ancestor（搜尋範圍較廣，product 在其下）
+                    if search_code in self._get_ancestors(prod_code):
+                        dest_match = True
+                        break
 
         # ── Category 匹配 ──────────────────────────────────────────────────
         prod_cat_code = self._get_product_cat_code(product)

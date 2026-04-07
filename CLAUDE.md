@@ -77,11 +77,27 @@ Backend (FastAPI, :8000)
 
 | File | Purpose |
 |------|---------|
-| `backend/data/history.db` | SQLite — `inspection_history` (batch runs) + `single_inspections` |
+| `backend/data/history.db` | SQLite — `inspection_history` (batch runs) + `single_inspections` + `ai_usage_log` |
 | `backend/data/keywords.json` | Keyword list for batch audit (with `ai_enabled` flag per keyword) |
 | `backend/data/feedback.json` | Human calibrations: `{keyword: {product_id: {user_tier, comment}}}` |
 | `backend/data/batch_state.json` | Batch progress/state (survives restarts) |
-| `backend/data/unified_destinations.json` | Destination name ↔ code mapping |
+| `backend/data/unified_destinations.json` | Destination name ↔ code mapping (used by `intent_matcher.py`) |
+| `backend/data/be2_destinations_dump/` | Raw destination JSONL dump — source for rebuilding `unified_destinations.json` |
+
+#### Destination Data Notes
+
+`intent_matcher.py` loads `unified_destinations.json` from the **parent directory** of `DEST_DUMP_DIR`:
+
+```
+backend/data/
+├── unified_destinations.json        ← loaded at runtime by intent_matcher
+└── be2_destinations_dump/           ← raw dump, used to rebuild unified_destinations.json
+```
+
+`DEST_DUMP_DIR` defaults to `backend/data`. Override via env var for Docker or other environments:
+```env
+DEST_DUMP_DIR=/app/data   # Docker default
+```
 
 ### Key API Endpoints
 
@@ -104,9 +120,21 @@ Backend (FastAPI, :8000)
 
 ## Environment
 
-Backend reads `backend/.env` for:
-- `OPENAI_API_KEY` — required for AI-powered intent parsing (`ai_enabled: true` keywords)
-- `SECRET_SERVICE_URL` / `AUTOMATION_TOKEN` — KKDay internal QA service (Playwright cookie fetching)
+All environment variables are maintained in the **root `.env`** (single source of truth). Copy from `.env.example` to get started.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OPENAI_API_KEY` | — | Required for AI intent parsing |
+| `AI_MODEL_NAME` | `gpt-4o-mini` | OpenAI model to use |
+| `AI_PRICE_INPUT_PER_1M` | `0.150` | Input token price (USD/1M) for cost tracking |
+| `AI_PRICE_OUTPUT_PER_1M` | `0.600` | Output token price (USD/1M) for cost tracking |
+| `DEST_DUMP_DIR` | `backend/data` | Path to destination data directory |
+| `BACKEND_URL` | `http://localhost:8000` | Vite dev proxy target (local dev only) |
+| `VITE_API_URL` | `/api` | API base path baked into frontend build |
+| `VITE_BASE_URL` | `/` | Frontend base path (use `/explore_platform/` for EC2 subpath) |
+| `BACKEND_PORT` | `8000` | Docker host port for backend |
+| `FRONTEND_PORT` | `80` | Docker host port for frontend |
+| `SECRET_SERVICE_URL` / `AUTOMATION_TOKEN` | — | KKDay internal QA service (Playwright cookie fetching) |
 
 AI parsing is optional and falls back gracefully if the key is missing or the call fails.
 

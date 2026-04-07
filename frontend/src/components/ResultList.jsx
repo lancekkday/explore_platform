@@ -1,6 +1,5 @@
 import { safeString } from '../utils/safeString'
 import TierBadge from './ui/TierBadge'
-import Tooltip from './ui/Tooltip'
 import { IconTag } from './icons/Icons'
 
 export default function ResultList({ items, title, total, color, onCalibrate, doubtOnly }) {
@@ -69,11 +68,6 @@ export default function ResultList({ items, title, total, color, onCalibrate, do
                        <button onClick={() => onCalibrate(it)} className="h-7.5 px-4 rounded-lg border border-slate-200 bg-white text-slate-800 font-black text-[11px] shadow-sm hover:border-slate-800 hover:bg-slate-900 hover:text-white transition-all outline-none">
                           校正
                        </button>
-                       {it.mismatch_reasons && it.mismatch_reasons.length > 0 && (
-                          <Tooltip title="判定診斷詳情" content={it.mismatch_reasons.join(' | ')}>
-                             <div className="w-5.5 h-5.5 flex items-center justify-center bg-rose-600 text-white font-black rounded-lg animate-pulse text-[11px] shadow-[0_0_8px_rgba(225,29,72,0.4)]">!</div>
-                          </Tooltip>
-                       )}
                     </div>
                   </div>
                 );

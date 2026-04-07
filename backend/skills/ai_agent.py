@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from loguru import logger
 
 # Load environment variables
-load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "../../.env"))
 
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 

@@ -13,7 +13,8 @@ frontend/dist/
 backend/data/history.db
 backend/data/batch_state.json
 
-# Secrets
+# Secrets — maintained at project root, injected via docker-compose env_file
+.env
 backend/.env
 
 # Git / IDE

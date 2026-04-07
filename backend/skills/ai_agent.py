@@ -41,8 +41,7 @@ def parse_intent_with_ai(keyword: str) -> tuple[SearchIntent, dict]:
        - 門票/景點: CATEGORY_001
        - SIM卡/eSIM/WIFI: CATEGORY_081
        - 一日遊/行程/tour: CATEGORY_020
-       - 美食/餐廳: CATEGORY_125
-       - 自助餐/buffet: CATEGORY_134
+       - 美食/餐廳/自助餐/buffet/下午茶: CATEGORY_079
        - 交通/接送/新幹線/JR: CATEGORY_120
        若不確定則提供最接近的代碼或 null。
     4. theme: 活動主題標籤，若關鍵字含有季節性/活動性主題則填入，例如:

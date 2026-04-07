@@ -72,7 +72,7 @@ class IntentMatcher:
         # Broad category expansions logic
         self.BROAD_CATEGORIES = {
             "一日遊": ["CATEGORY_021", "CATEGORY_022", "CATEGORY_019"],
-            "自助餐": ["CATEGORY_125"],
+            "自助餐": ["CATEGORY_079"],
         }
 
     def load_destinations(self):

@@ -53,7 +53,7 @@ class TestLocationKeyword:
         r = m.verify(
             {"name": "北海道拉麵美食饗宴", "introduction": "",
              "destinations": [{"name": "北海道"}],
-             "product_category": {"main": "CATEGORY_125"}},
+             "product_category": {"main": "CATEGORY_079"}},
             "北海道一日遊"
         )
         assert tier(r) == 2

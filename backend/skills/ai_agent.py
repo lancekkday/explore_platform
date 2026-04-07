@@ -108,6 +108,13 @@ def explain_product_match(keyword: str, product_name: str, tier: int,
     tier_label = TIER_LABELS.get(tier, str(tier))
     reasons_text = " | ".join(mismatch_reasons) if mismatch_reasons else "無（全部條件符合）"
 
+    has_cat_mismatch = any("類別" in r for r in (mismatch_reasons or []))
+    priority_hint = (
+        "【重要】商品類別與搜尋詞的產品類型明顯不符，這是判定 MISS 的核心原因。"
+        "請優先說明類別/產品類型的差異，地點是否匹配為次要考量，不需強調。"
+        if has_cat_mismatch else ""
+    )
+
     prompt = f"""用戶在 KKDay 搜尋「{keyword}」，系統對以下商品進行意圖比對：
 
 商品名稱：{product_name}
@@ -115,9 +122,9 @@ def explain_product_match(keyword: str, product_name: str, tier: int,
 商品目的地：{', '.join(dest_names) or '（未指定）'}
 商品分類：{main_cat_key or '（未知）'}
 系統判定原因：{reasons_text}
-
+{priority_hint}
 請用 2～3 句繁體中文，簡潔說明：
-1. 為何判定為「{tier_label}」
+1. 為何判定為「{tier_label}」（點出最關鍵的不符原因）
 2. 這個判定是否合理；如果有疑問請直接點出
 
 請直接說明結論，不要有開場白或「根據以上」等語氣詞。"""

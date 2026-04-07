@@ -86,6 +86,9 @@ export default function ResultList({ items, title, total, color, onCalibrate, do
                                  })()}
                                </span>
                             </span>
+                            {it.show_order_count && (
+                              <span className="text-[9px] font-black text-slate-400 tabular-nums">✦ {it.show_order_count}</span>
+                            )}
                          </div>
                       </div>
                       <div className="flex items-center gap-2.5 shrink-0">

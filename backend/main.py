@@ -55,12 +55,15 @@ class ExplainRequest(BaseModel):
 
 @app.post("/api/explain")
 def explain_match(req: ExplainRequest):
-    from skills.ai_agent import explain_product_match
-    text, usage = explain_product_match(
-        req.keyword, req.product_name, req.tier,
-        req.mismatch_reasons, req.destinations, req.main_cat_key,
-    )
-    return {"success": True, "explanation": text, "usage": usage}
+    try:
+        from skills.ai_agent import explain_product_match
+        text, usage = explain_product_match(
+            req.keyword, req.product_name, req.tier,
+            req.mismatch_reasons, req.destinations, req.main_cat_key,
+        )
+        return {"success": True, "explanation": text, "usage": usage}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/guest-cookie")
 def get_guest_cookie(env: str = "production"):
@@ -102,6 +105,7 @@ def _slim_product(p, rank, result, keyword):
         "rank_delta": None,
         "main_cat_key": cat_code,
         "destinations": sanitizer.get_destinations(p),
+        "show_order_count": p.get("show_order_count", ""),
     }
 
 @app.post("/api/compare")

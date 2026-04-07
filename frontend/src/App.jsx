@@ -295,13 +295,13 @@ export default function App() {
                    {(searchMode === 'both' || searchMode === 'stage') && (
                      <div className="flex-1 min-w-0 flex flex-col min-h-0 gap-4">
                         <CompactMetricBar data={stageData} env="STAGE 測試" envCode="STG-01" color="#10B981" />
-                        <ResultList items={stageData?.results} title="STAGE 巡檢清單" total={stageData?.total || 0} color="#10B981" onCalibrate={handleCalibrate} doubtOnly={doubtOnly} env="stage" />
+                        <ResultList items={stageData?.results} title="STAGE 巡檢清單" total={stageData?.total || 0} color="#10B981" onCalibrate={handleCalibrate} doubtOnly={doubtOnly} />
                      </div>
                    )}
                    {(searchMode === 'both' || searchMode === 'prod') && (
                      <div className="flex-1 min-w-0 flex flex-col min-h-0 gap-4">
                         <CompactMetricBar data={prodData} env="PROD 正式" envCode="LIVE-01" color="#3B82F6" />
-                        <ResultList items={prodData?.results} title="PROD 巡檢清單" total={prodData?.total || 0} color="#3B82F6" onCalibrate={handleCalibrate} doubtOnly={doubtOnly} env="production" />
+                        <ResultList items={prodData?.results} title="PROD 巡檢清單" total={prodData?.total || 0} color="#3B82F6" onCalibrate={handleCalibrate} doubtOnly={doubtOnly} />
                      </div>
                    )}
                 </div>

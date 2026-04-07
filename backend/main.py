@@ -80,7 +80,7 @@ def _slim_product(p, rank, result, keyword):
     cat_code = p.get("main_cat_key") or pc.get("main") or pc.get("key") or ""
     return {
         "rank": rank, "id": str(p.get("prod_oid") or p.get("oid") or p.get("product_id") or rank),
-        "name": p.get("name", ""), "img_url": p.get("img_url", ""),
+        "name": p.get("name", ""), "img_url": p.get("img_url", ""), "url": p.get("url", ""),
         "tier": result["tier"], "mismatch_reasons": result["mismatch_reasons"],
         "rank_delta": None,
         "main_cat_key": cat_code,

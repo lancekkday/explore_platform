@@ -2,14 +2,8 @@ import { safeString } from '../utils/safeString'
 import TierBadge from './ui/TierBadge'
 import { IconTag } from './icons/Icons'
 
-const PRODUCT_BASE = {
-  stage:      'https://www.stage.kkday.com/zh-tw/product',
-  production: 'https://www.kkday.com/zh-tw/product',
-}
-
-export default function ResultList({ items, title, total, color, onCalibrate, doubtOnly, env = 'production' }) {
+export default function ResultList({ items, title, total, color, onCalibrate, doubtOnly }) {
   const rawItems = Array.isArray(items) ? items : [];
-  const productBase = PRODUCT_BASE[env] ?? PRODUCT_BASE.production;
   const displayed = doubtOnly
     ? rawItems.filter(it => it && (it.tier === 0 || it.tier === 3 || it.is_calibrated))
     : rawItems;
@@ -46,7 +40,7 @@ export default function ResultList({ items, title, total, color, onCalibrate, do
                        )}
                     </div>
                     <div className="flex-1 min-w-0">
-                       <a href={`${productBase}/${it.id}`} target="_blank" rel="noopener noreferrer" className="text-[13px] font-bold text-slate-800 truncate leading-tight tracking-tight group-hover:text-indigo-600 hover:underline transition-colors block" title={safeString(it.name)}>{safeString(it.name)}</a>
+                       <a href={it.url || undefined} target="_blank" rel="noopener noreferrer" className={`text-[13px] font-bold text-slate-800 truncate leading-tight tracking-tight transition-colors block ${it.url ? 'group-hover:text-indigo-600 hover:underline cursor-pointer' : ''}`} title={safeString(it.name)}>{safeString(it.name)}</a>
                        {it.mismatch_reasons && it.mismatch_reasons.length > 0 && (
                           <div className="mt-1 flex items-center gap-1.5 px-2 py-0.5 bg-rose-50/50 border border-rose-100/50 rounded text-[9px] font-black text-rose-500/80 italic leading-none w-fit">
                              <div className="w-1 h-1 bg-rose-400 rounded-full animate-pulse" />

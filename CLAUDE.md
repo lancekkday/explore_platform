@@ -54,6 +54,8 @@ Frontend (React + Vite, :5173)
 Backend (FastAPI, :8000)
     ├── main.py              — all API endpoints
     ├── kkday_api.py         — KKDay product fetching (stage & prod), paginated 50/page
+    ├── be2_api.py           — Be2Session: reusable requests wrapper with auto token refresh (importable)
+    ├── fetch_be2_destination_hierarchy.py — CLI tool: crawl BE2 svc-geo destination tree → data/be2_destinations_dump/
     ├── batch_engine.py      — batch keyword processing, SQLite persistence
     └── skills/
         ├── intent_judger.py     — orchestrates judgment + calibration overrides
@@ -92,12 +94,67 @@ Backend (FastAPI, :8000)
 backend/data/
 ├── unified_destinations.json        ← loaded at runtime by intent_matcher
 └── be2_destinations_dump/           ← raw dump, used to rebuild unified_destinations.json
+    └── <UTC timestamp>/             ← one folder per crawl run
+        ├── meta.json
+        ├── destinations.jsonl
+        └── destinations.sqlite
 ```
 
 `DEST_DUMP_DIR` defaults to `backend/data`. Override via env var for Docker or other environments:
 ```env
 DEST_DUMP_DIR=/app/data   # Docker default
 ```
+
+#### Re-crawling BE2 Destination Hierarchy
+
+Use `fetch_be2_destination_hierarchy.py` to pull the full destination tree from BE2 stage (`svc-geo`). Output lands in `backend/data/be2_destinations_dump/<UTC timestamp>/`.
+
+**Prerequisites — tokens (never commit these):**
+```bash
+# access JWT — read from file on every request (supports mid-run hot-swap)
+export KKDAY_BE2_BEARER_TOKEN_FILE="$HOME/.kkday_be2_bearer"
+printf '%s\n' 'eyJ...' > "$KKDAY_BE2_BEARER_TOKEN_FILE" && chmod 600 "$KKDAY_BE2_BEARER_TOKEN_FILE"
+
+# refresh JWT (optional but recommended for long runs — auto-rotates on each refresh)
+export KKDAY_BE2_REFRESH_TOKEN_FILE="$HOME/.kkday_be2_refresh"
+printf '%s\n' 'eyJ...' > "$KKDAY_BE2_REFRESH_TOKEN_FILE" && chmod 600 "$KKDAY_BE2_REFRESH_TOKEN_FILE"
+```
+
+**Run:**
+```bash
+cd backend && source venv/bin/activate
+
+# Full crawl — by country, into data/be2_destinations_dump/<timestamp>/
+python fetch_be2_destination_hierarchy.py --by-country
+
+# Resume an interrupted run (same output-dir)
+python fetch_be2_destination_hierarchy.py --by-country --resume \
+  --output-dir data/be2_destinations_dump/<previous-timestamp>
+
+# Crawl only specific countries
+python fetch_be2_destination_hierarchy.py --by-country --only-iso TW,JP
+
+# Adjust throttle (default: 1s delay + 0.5s jitter)
+python fetch_be2_destination_hierarchy.py --by-country --delay 0.5 --jitter 0.3
+```
+
+Each completed run produces three files per country folder:
+- `meta.json` — crawl metadata and counts
+- `destinations.jsonl` — one destination per line (code, name, isoCountryCode, tier, status, hasHierarchy, parentCode)
+- `destinations.sqlite` — same data as SQLite with indexes on parent / tier / iso
+
+**Programmatic use (`be2_api.py`):**
+```python
+from be2_api import Be2Session
+
+with Be2Session() as s:
+    resp = s.get(
+        "https://api-gateway.stage.kkday.com/svc-geo/api/admin/destinations/hierarchy-with-groups",
+        params={"lang": "zh-tw", "parentDestinationCode": ""},
+    )
+    data = resp.json()
+```
+`Be2Session` handles proactive refresh (before expiry) and reactive refresh (on 401/403) automatically. Both tokens are rotated back to their files after each successful refresh.
 
 ### Key API Endpoints
 
@@ -152,6 +209,13 @@ All environment variables are maintained in the **root `.env`** (single source o
 | `BACKEND_PORT` | `8000` | Docker host port for backend |
 | `FRONTEND_PORT` | `80` | Docker host port for frontend |
 | `SECRET_SERVICE_URL` / `AUTOMATION_TOKEN` | — | KKDay internal QA service (Playwright cookie fetching) |
+| `KKDAY_BE2_BEARER_TOKEN_FILE` | — | Path to file containing BE2 access JWT (re-read on every request; supports mid-run hot-swap) |
+| `KKDAY_BE2_REFRESH_TOKEN_FILE` | — | Path to file containing BE2 refresh JWT (auto-rotated after each successful refresh) |
+| `KKDAY_BE2_REFRESH_BEFORE_EXPIRY_SEC` | `120` | Proactively refresh access token this many seconds before expiry (0 = disabled) |
+| `KKDAY_BE2_AUTH_COOKIE` | — | Browser Cookie string for auth requests (may be needed to bypass AU9997) |
+| `KKDAY_BE2_GEO_BASE` | BE2 stage svc-geo URL | Override base URL for hierarchy-with-groups API |
+| `KKDAY_BE2_REQUEST_DELAY` | `1.0` | Seconds to wait between each geo API request |
+| `KKDAY_BE2_REQUEST_JITTER` | `0.5` | Extra random wait (0~jitter seconds) added to each delay |
 
 AI parsing is optional and falls back gracefully if the key is missing or the call fails.
 

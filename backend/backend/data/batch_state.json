@@ -1,0 +1,2040 @@
+{
+  "last_updated": "2026-04-03T15:17:16.126235",
+  "progress": 56,
+  "results": {
+    "esim": {
+      "keyword": "esim",
+      "timestamp": "2026-04-03T14:57:51.462304",
+      "stage": {
+        "total": 614,
+        "ndcg_10": 1.0,
+        "ndcg_50": 1.0,
+        "ndcg_300": 1.0,
+        "mismatch_rate": 0.0
+      },
+      "production": {
+        "total": 616,
+        "ndcg_10": 1.0,
+        "ndcg_50": 1.0,
+        "ndcg_300": 1.0,
+        "mismatch_rate": 0.0
+      }
+    },
+    "酒店自助餐優惠": {
+      "keyword": "酒店自助餐優惠",
+      "timestamp": "2026-04-03T14:57:57.466374",
+      "stage": {
+        "total": 75,
+        "ndcg_10": 0.3979,
+        "ndcg_50": 0.59,
+        "ndcg_300": 0.7042,
+        "mismatch_rate": 0.72
+      },
+      "production": {
+        "total": 75,
+        "ndcg_10": 0.3764,
+        "ndcg_50": 0.5695,
+        "ndcg_300": 0.6851,
+        "mismatch_rate": 0.72
+      }
+    },
+    "機場接送": {
+      "keyword": "機場接送",
+      "timestamp": "2026-04-03T14:58:14.055620",
+      "stage": {
+        "total": 27730,
+        "ndcg_10": 0.6122,
+        "ndcg_50": 0.5859,
+        "ndcg_300": 0.8638,
+        "mismatch_rate": 0.5267
+      },
+      "production": {
+        "total": 27703,
+        "ndcg_10": 0.6719,
+        "ndcg_50": 0.5197,
+        "ndcg_300": 0.8503,
+        "mismatch_rate": 0.5467
+      }
+    },
+    "沖繩": {
+      "keyword": "沖繩",
+      "timestamp": "2026-04-03T14:58:28.211938",
+      "stage": {
+        "total": 5058,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9305,
+        "ndcg_300": 0.9805,
+        "mismatch_rate": 0.1133
+      },
+      "production": {
+        "total": 5058,
+        "ndcg_10": 0.9216,
+        "ndcg_50": 0.918,
+        "ndcg_300": 0.9745,
+        "mismatch_rate": 0.1433
+      }
+    },
+    "日本esim": {
+      "keyword": "日本esim",
+      "timestamp": "2026-04-03T14:58:33.404678",
+      "stage": {
+        "total": 84,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.8128,
+        "ndcg_300": 0.9664,
+        "mismatch_rate": 0.3214
+      },
+      "production": {
+        "total": 85,
+        "ndcg_10": 0.9337,
+        "ndcg_50": 0.7855,
+        "ndcg_300": 0.9503,
+        "mismatch_rate": 0.3176
+      }
+    },
+    "香港自助餐": {
+      "keyword": "香港自助餐",
+      "timestamp": "2026-04-03T14:58:38.312827",
+      "stage": {
+        "total": 86,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0577,
+        "ndcg_300": 0.3094,
+        "mismatch_rate": 0.9302
+      },
+      "production": {
+        "total": 85,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0573,
+        "ndcg_300": 0.3087,
+        "mismatch_rate": 0.9294
+      }
+    },
+    "釜山": {
+      "keyword": "釜山",
+      "timestamp": "2026-04-03T14:58:52.255811",
+      "stage": {
+        "total": 1220,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9534,
+        "ndcg_300": 0.9869,
+        "mismatch_rate": 0.0667
+      },
+      "production": {
+        "total": 1218,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9536,
+        "ndcg_300": 0.987,
+        "mismatch_rate": 0.0667
+      }
+    },
+    "永東巴士": {
+      "keyword": "永東巴士",
+      "timestamp": "2026-04-03T14:58:56.187711",
+      "stage": {
+        "total": 37,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9699,
+        "ndcg_300": 0.9699,
+        "mismatch_rate": 0.4595
+      },
+      "production": {
+        "total": 37,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9858,
+        "ndcg_300": 0.9858,
+        "mismatch_rate": 0.4595
+      }
+    },
+    "東京": {
+      "keyword": "東京",
+      "timestamp": "2026-04-03T14:59:10.460791",
+      "stage": {
+        "total": 29131,
+        "ndcg_10": 0.8263,
+        "ndcg_50": 0.8176,
+        "ndcg_300": 0.9523,
+        "mismatch_rate": 0.1867
+      },
+      "production": {
+        "total": 29098,
+        "ndcg_10": 0.8669,
+        "ndcg_50": 0.7972,
+        "ndcg_300": 0.9508,
+        "mismatch_rate": 0.2
+      }
+    },
+    "大阪": {
+      "keyword": "大阪",
+      "timestamp": "2026-04-03T14:59:25.947994",
+      "stage": {
+        "total": 13947,
+        "ndcg_10": 0.9364,
+        "ndcg_50": 0.8558,
+        "ndcg_300": 0.9558,
+        "mismatch_rate": 0.2067
+      },
+      "production": {
+        "total": 13976,
+        "ndcg_10": 0.9364,
+        "ndcg_50": 0.8341,
+        "ndcg_300": 0.952,
+        "mismatch_rate": 0.1967
+      }
+    },
+    "香港": {
+      "keyword": "香港",
+      "timestamp": "2026-04-03T14:59:40.571890",
+      "stage": {
+        "total": 2472,
+        "ndcg_10": 0.9306,
+        "ndcg_50": 0.8788,
+        "ndcg_300": 0.9466,
+        "mismatch_rate": 0.33
+      },
+      "production": {
+        "total": 2470,
+        "ndcg_10": 0.9052,
+        "ndcg_50": 0.8338,
+        "ndcg_300": 0.9362,
+        "mismatch_rate": 0.3367
+      }
+    },
+    "迪士尼": {
+      "keyword": "迪士尼",
+      "timestamp": "2026-04-03T14:59:58.614837",
+      "stage": {
+        "total": 372,
+        "ndcg_10": 0.9337,
+        "ndcg_50": 0.876,
+        "ndcg_300": 0.971,
+        "mismatch_rate": 0.1067
+      },
+      "production": {
+        "total": 372,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.874,
+        "ndcg_300": 0.9746,
+        "mismatch_rate": 0.1133
+      }
+    },
+    "名古屋": {
+      "keyword": "名古屋",
+      "timestamp": "2026-04-03T15:00:14.935361",
+      "stage": {
+        "total": 4469,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9859,
+        "ndcg_300": 0.9903,
+        "mismatch_rate": 0.07
+      },
+      "production": {
+        "total": 4473,
+        "ndcg_10": 0.9306,
+        "ndcg_50": 0.9755,
+        "ndcg_300": 0.9891,
+        "mismatch_rate": 0.0567
+      }
+    },
+    "福岡": {
+      "keyword": "福岡",
+      "timestamp": "2026-04-03T15:00:28.867634",
+      "stage": {
+        "total": 4939,
+        "ndcg_10": 0.6848,
+        "ndcg_50": 0.7079,
+        "ndcg_300": 0.9295,
+        "mismatch_rate": 0.2067
+      },
+      "production": {
+        "total": 4952,
+        "ndcg_10": 0.6365,
+        "ndcg_50": 0.7044,
+        "ndcg_300": 0.923,
+        "mismatch_rate": 0.2367
+      }
+    },
+    "澳門": {
+      "keyword": "澳門",
+      "timestamp": "2026-04-03T15:00:43.336713",
+      "stage": {
+        "total": 606,
+        "ndcg_10": 0.6036,
+        "ndcg_50": 0.7174,
+        "ndcg_300": 0.9141,
+        "mismatch_rate": 0.2667
+      },
+      "production": {
+        "total": 602,
+        "ndcg_10": 0.4899,
+        "ndcg_50": 0.7166,
+        "ndcg_300": 0.9113,
+        "mismatch_rate": 0.26
+      }
+    },
+    "釜山pass": {
+      "keyword": "釜山pass",
+      "timestamp": "2026-04-03T15:00:46.822246",
+      "stage": {
+        "total": 9,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      },
+      "production": {
+        "total": 9,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      }
+    },
+    "富士山": {
+      "keyword": "富士山",
+      "timestamp": "2026-04-03T15:01:01.341056",
+      "stage": {
+        "total": 913,
+        "ndcg_10": 0.7417,
+        "ndcg_50": 0.7829,
+        "ndcg_300": 0.9456,
+        "mismatch_rate": 0.22
+      },
+      "production": {
+        "total": 916,
+        "ndcg_10": 0.684,
+        "ndcg_50": 0.8137,
+        "ndcg_300": 0.9476,
+        "mismatch_rate": 0.2133
+      }
+    },
+    "台北": {
+      "keyword": "台北",
+      "timestamp": "2026-04-03T15:01:15.628232",
+      "stage": {
+        "total": 2584,
+        "ndcg_10": 0.8263,
+        "ndcg_50": 0.7091,
+        "ndcg_300": 0.9245,
+        "mismatch_rate": 0.3167
+      },
+      "production": {
+        "total": 2551,
+        "ndcg_10": 0.7975,
+        "ndcg_50": 0.7388,
+        "ndcg_300": 0.9187,
+        "mismatch_rate": 0.32
+      }
+    },
+    "韓國esim": {
+      "keyword": "韓國esim",
+      "timestamp": "2026-04-03T15:01:20.932244",
+      "stage": {
+        "total": 66,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.8312,
+        "ndcg_300": 0.9568,
+        "mismatch_rate": 0.303
+      },
+      "production": {
+        "total": 67,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.7988,
+        "ndcg_300": 0.9522,
+        "mismatch_rate": 0.3134
+      }
+    },
+    "Esim": {
+      "keyword": "Esim",
+      "timestamp": "2026-04-03T15:01:34.968669",
+      "stage": {
+        "total": 614,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      },
+      "production": {
+        "total": 616,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      }
+    },
+    "首爾": {
+      "keyword": "首爾",
+      "timestamp": "2026-04-03T15:01:53.552034",
+      "stage": {
+        "total": 3051,
+        "ndcg_10": 0.7163,
+        "ndcg_50": 0.8275,
+        "ndcg_300": 0.9431,
+        "mismatch_rate": 0.1867
+      },
+      "production": {
+        "total": 3034,
+        "ndcg_10": 0.6699,
+        "ndcg_50": 0.8084,
+        "ndcg_300": 0.9328,
+        "mismatch_rate": 0.2267
+      }
+    },
+    "曼谷": {
+      "keyword": "曼谷",
+      "timestamp": "2026-04-03T15:02:10.626918",
+      "stage": {
+        "total": 5921,
+        "ndcg_10": 0.9266,
+        "ndcg_50": 0.9431,
+        "ndcg_300": 0.9807,
+        "mismatch_rate": 0.1
+      },
+      "production": {
+        "total": 5925,
+        "ndcg_10": 0.9337,
+        "ndcg_50": 0.9239,
+        "ndcg_300": 0.9793,
+        "mismatch_rate": 0.0933
+      }
+    },
+    "香港迪士尼": {
+      "keyword": "香港迪士尼",
+      "timestamp": "2026-04-03T15:02:13.812367",
+      "stage": {
+        "total": 36,
+        "ndcg_10": 0.6332,
+        "ndcg_50": 0.8674,
+        "ndcg_300": 0.8674,
+        "mismatch_rate": 0.6111
+      },
+      "production": {
+        "total": 34,
+        "ndcg_10": 0.6168,
+        "ndcg_50": 0.8664,
+        "ndcg_300": 0.8664,
+        "mismatch_rate": 0.5882
+      }
+    },
+    "澎湖": {
+      "keyword": "澎湖",
+      "timestamp": "2026-04-03T15:02:28.281981",
+      "stage": {
+        "total": 456,
+        "ndcg_10": 0.7543,
+        "ndcg_50": 0.7667,
+        "ndcg_300": 0.9592,
+        "mismatch_rate": 0.1
+      },
+      "production": {
+        "total": 455,
+        "ndcg_10": 0.9306,
+        "ndcg_50": 0.8697,
+        "ndcg_300": 0.9774,
+        "mismatch_rate": 0.0967
+      }
+    },
+    "下午茶": {
+      "keyword": "下午茶",
+      "timestamp": "2026-04-03T15:02:44.124315",
+      "stage": {
+        "total": 690,
+        "ndcg_10": 0.499,
+        "ndcg_50": 0.7547,
+        "ndcg_300": 0.9091,
+        "mismatch_rate": 0.6033
+      },
+      "production": {
+        "total": 692,
+        "ndcg_10": 0.6033,
+        "ndcg_50": 0.7905,
+        "ndcg_300": 0.9312,
+        "mismatch_rate": 0.5767
+      }
+    },
+    "高鐵": {
+      "keyword": "高鐵",
+      "timestamp": "2026-04-03T15:02:59.790867",
+      "stage": {
+        "total": 1461,
+        "ndcg_10": 0.6311,
+        "ndcg_50": 0.834,
+        "ndcg_300": 0.9629,
+        "mismatch_rate": 0.0467
+      },
+      "production": {
+        "total": 1457,
+        "ndcg_10": 0.6699,
+        "ndcg_50": 0.833,
+        "ndcg_300": 0.9631,
+        "mismatch_rate": 0.0533
+      }
+    },
+    "小琉球": {
+      "keyword": "小琉球",
+      "timestamp": "2026-04-03T15:03:12.141543",
+      "stage": {
+        "total": 223,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9545,
+        "ndcg_300": 0.9603,
+        "mismatch_rate": 0.3229
+      },
+      "production": {
+        "total": 222,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9554,
+        "ndcg_300": 0.9607,
+        "mismatch_rate": 0.3243
+      }
+    },
+    "北海道": {
+      "keyword": "北海道",
+      "timestamp": "2026-04-03T15:03:26.703072",
+      "stage": {
+        "total": 5462,
+        "ndcg_10": 0.776,
+        "ndcg_50": 0.8731,
+        "ndcg_300": 0.957,
+        "mismatch_rate": 0.1867
+      },
+      "production": {
+        "total": 5469,
+        "ndcg_10": 0.7097,
+        "ndcg_50": 0.8494,
+        "ndcg_300": 0.9549,
+        "mismatch_rate": 0.2167
+      }
+    },
+    "酒店自助餐": {
+      "keyword": "酒店自助餐",
+      "timestamp": "2026-04-03T15:03:42.407308",
+      "stage": {
+        "total": 376,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.2651,
+        "ndcg_300": 0.5754,
+        "mismatch_rate": 0.8867
+      },
+      "production": {
+        "total": 376,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.2487,
+        "ndcg_300": 0.5762,
+        "mismatch_rate": 0.8867
+      }
+    },
+    "京都": {
+      "keyword": "京都",
+      "timestamp": "2026-04-03T15:03:57.575069",
+      "stage": {
+        "total": 6526,
+        "ndcg_10": 0.8611,
+        "ndcg_50": 0.6697,
+        "ndcg_300": 0.9218,
+        "mismatch_rate": 0.22
+      },
+      "production": {
+        "total": 6538,
+        "ndcg_10": 0.9266,
+        "ndcg_50": 0.7314,
+        "ndcg_300": 0.9342,
+        "mismatch_rate": 0.2067
+      }
+    },
+    "自助餐": {
+      "keyword": "自助餐",
+      "timestamp": "2026-04-03T15:04:11.925723",
+      "stage": {
+        "total": 2859,
+        "ndcg_10": 1.0,
+        "ndcg_50": 1.0,
+        "ndcg_300": 1.0,
+        "mismatch_rate": 0.0
+      },
+      "production": {
+        "total": 2859,
+        "ndcg_10": 1.0,
+        "ndcg_50": 1.0,
+        "ndcg_300": 1.0,
+        "mismatch_rate": 0.0
+      }
+    },
+    "感謝祭超抵中餐推薦": {
+      "keyword": "感謝祭超抵中餐推薦",
+      "timestamp": "2026-04-03T15:04:15.956499",
+      "stage": {
+        "total": 0,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 0.0
+      },
+      "production": {
+        "total": 0,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 0.0
+      }
+    },
+    "品牌聯乘微醺下午茶": {
+      "keyword": "品牌聯乘微醺下午茶",
+      "timestamp": "2026-04-03T15:04:18.966908",
+      "stage": {
+        "total": 0,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 0.0
+      },
+      "production": {
+        "total": 0,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 0.0
+      }
+    },
+    "澳門自助餐": {
+      "keyword": "澳門自助餐",
+      "timestamp": "2026-04-03T15:04:22.521786",
+      "stage": {
+        "total": 31,
+        "ndcg_10": 0.7564,
+        "ndcg_50": 0.9134,
+        "ndcg_300": 0.9134,
+        "mismatch_rate": 0.4194
+      },
+      "production": {
+        "total": 31,
+        "ndcg_10": 0.89,
+        "ndcg_50": 0.9423,
+        "ndcg_300": 0.9423,
+        "mismatch_rate": 0.3548
+      }
+    },
+    "環球影城": {
+      "keyword": "環球影城",
+      "timestamp": "2026-04-03T15:04:31.620548",
+      "stage": {
+        "total": 164,
+        "ndcg_10": 0.8701,
+        "ndcg_50": 0.7246,
+        "ndcg_300": 0.9304,
+        "mismatch_rate": 0.3232
+      },
+      "production": {
+        "total": 165,
+        "ndcg_10": 0.9337,
+        "ndcg_50": 0.7294,
+        "ndcg_300": 0.9324,
+        "mismatch_rate": 0.3212
+      }
+    },
+    "深圳": {
+      "keyword": "深圳",
+      "timestamp": "2026-04-03T15:04:45.534213",
+      "stage": {
+        "total": 1404,
+        "ndcg_10": 0.89,
+        "ndcg_50": 0.9326,
+        "ndcg_300": 0.9858,
+        "mismatch_rate": 0.0333
+      },
+      "production": {
+        "total": 1408,
+        "ndcg_10": 0.9306,
+        "ndcg_50": 0.9182,
+        "ndcg_300": 0.9868,
+        "mismatch_rate": 0.0367
+      }
+    },
+    "阿里山": {
+      "keyword": "阿里山",
+      "timestamp": "2026-04-03T15:04:53.350965",
+      "stage": {
+        "total": 119,
+        "ndcg_10": 0.9149,
+        "ndcg_50": 0.9075,
+        "ndcg_300": 0.9746,
+        "mismatch_rate": 0.1092
+      },
+      "production": {
+        "total": 119,
+        "ndcg_10": 0.89,
+        "ndcg_50": 0.9113,
+        "ndcg_300": 0.9692,
+        "mismatch_rate": 0.1092
+      }
+    },
+    "高雄": {
+      "keyword": "高雄",
+      "timestamp": "2026-04-03T15:05:08.194154",
+      "stage": {
+        "total": 1217,
+        "ndcg_10": 0.7878,
+        "ndcg_50": 0.8164,
+        "ndcg_300": 0.9401,
+        "mismatch_rate": 0.29
+      },
+      "production": {
+        "total": 1214,
+        "ndcg_10": 0.776,
+        "ndcg_50": 0.7806,
+        "ndcg_300": 0.9348,
+        "mismatch_rate": 0.2933
+      }
+    },
+    "台中": {
+      "keyword": "台中",
+      "timestamp": "2026-04-03T15:05:23.535587",
+      "stage": {
+        "total": 1469,
+        "ndcg_10": 0.9216,
+        "ndcg_50": 0.7712,
+        "ndcg_300": 0.9384,
+        "mismatch_rate": 0.3033
+      },
+      "production": {
+        "total": 1456,
+        "ndcg_10": 0.8482,
+        "ndcg_50": 0.7414,
+        "ndcg_300": 0.9279,
+        "mismatch_rate": 0.3
+      }
+    },
+    "九份ツアー": {
+      "keyword": "九份ツアー",
+      "timestamp": "2026-04-03T15:05:27.077481",
+      "stage": {
+        "total": 48,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      },
+      "production": {
+        "total": 49,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      }
+    },
+    "新加坡": {
+      "keyword": "新加坡",
+      "timestamp": "2026-04-03T15:05:41.756262",
+      "stage": {
+        "total": 2210,
+        "ndcg_10": 0.9052,
+        "ndcg_50": 0.9011,
+        "ndcg_300": 0.9674,
+        "mismatch_rate": 0.1167
+      },
+      "production": {
+        "total": 2209,
+        "ndcg_10": 0.8611,
+        "ndcg_50": 0.9007,
+        "ndcg_300": 0.9649,
+        "mismatch_rate": 0.1233
+      }
+    },
+    "機票": {
+      "keyword": "機票",
+      "timestamp": "2026-04-03T15:05:57.134637",
+      "stage": {
+        "total": 300,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.965,
+        "ndcg_300": 0.963,
+        "mismatch_rate": 0.3
+      },
+      "production": {
+        "total": 299,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9715,
+        "ndcg_300": 0.9712,
+        "mismatch_rate": 0.2977
+      }
+    },
+    "點心放題": {
+      "keyword": "點心放題",
+      "timestamp": "2026-04-03T15:06:00.364983",
+      "stage": {
+        "total": 23,
+        "ndcg_10": 0.5567,
+        "ndcg_50": 0.7937,
+        "ndcg_300": 0.7937,
+        "mismatch_rate": 0.6087
+      },
+      "production": {
+        "total": 23,
+        "ndcg_10": 0.6038,
+        "ndcg_50": 0.8374,
+        "ndcg_300": 0.8374,
+        "mismatch_rate": 0.6087
+      }
+    },
+    "迪士尼郵輪": {
+      "keyword": "迪士尼郵輪",
+      "timestamp": "2026-04-03T15:06:03.405259",
+      "stage": {
+        "total": 25,
+        "ndcg_10": 0.299,
+        "ndcg_50": 0.5752,
+        "ndcg_300": 0.5752,
+        "mismatch_rate": 0.72
+      },
+      "production": {
+        "total": 24,
+        "ndcg_10": 0.3483,
+        "ndcg_50": 0.5728,
+        "ndcg_300": 0.5728,
+        "mismatch_rate": 0.75
+      }
+    },
+    "上海": {
+      "keyword": "上海",
+      "timestamp": "2026-04-03T15:06:18.740661",
+      "stage": {
+        "total": 2728,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9863,
+        "ndcg_300": 0.9896,
+        "mismatch_rate": 0.06
+      },
+      "production": {
+        "total": 2728,
+        "ndcg_10": 0.7799,
+        "ndcg_50": 0.8798,
+        "ndcg_300": 0.9692,
+        "mismatch_rate": 0.06
+      }
+    },
+    "台南": {
+      "keyword": "台南",
+      "timestamp": "2026-04-03T15:06:33.458730",
+      "stage": {
+        "total": 864,
+        "ndcg_10": 0.7257,
+        "ndcg_50": 0.7341,
+        "ndcg_300": 0.9221,
+        "mismatch_rate": 0.3
+      },
+      "production": {
+        "total": 858,
+        "ndcg_10": 0.6406,
+        "ndcg_50": 0.6952,
+        "ndcg_300": 0.9129,
+        "mismatch_rate": 0.29
+      }
+    },
+    "清邁": {
+      "keyword": "清邁",
+      "timestamp": "2026-04-03T15:06:48.366313",
+      "stage": {
+        "total": 2208,
+        "ndcg_10": 1.0,
+        "ndcg_50": 1.0,
+        "ndcg_300": 0.9983,
+        "mismatch_rate": 0.02
+      },
+      "production": {
+        "total": 2210,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9851,
+        "ndcg_300": 0.9977,
+        "mismatch_rate": 0.01
+      }
+    },
+    "環球影城快速通關": {
+      "keyword": "環球影城快速通關",
+      "timestamp": "2026-04-03T15:06:51.584582",
+      "stage": {
+        "total": 5,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      },
+      "production": {
+        "total": 5,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      }
+    },
+    "東京迪士尼": {
+      "keyword": "東京迪士尼",
+      "timestamp": "2026-04-03T15:07:01.592572",
+      "stage": {
+        "total": 183,
+        "ndcg_10": 0.4636,
+        "ndcg_50": 0.5935,
+        "ndcg_300": 0.8935,
+        "mismatch_rate": 0.2787
+      },
+      "production": {
+        "total": 183,
+        "ndcg_10": 0.478,
+        "ndcg_50": 0.6076,
+        "ndcg_300": 0.8994,
+        "mismatch_rate": 0.2787
+      }
+    },
+    "香港澳門船": {
+      "keyword": "香港澳門船",
+      "timestamp": "2026-04-03T15:07:05.202745",
+      "stage": {
+        "total": 9,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      },
+      "production": {
+        "total": 9,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      }
+    },
+    "宜蘭": {
+      "keyword": "宜蘭",
+      "timestamp": "2026-04-03T15:07:19.648398",
+      "stage": {
+        "total": 912,
+        "ndcg_10": 0.8358,
+        "ndcg_50": 0.8701,
+        "ndcg_300": 0.9431,
+        "mismatch_rate": 0.36
+      },
+      "production": {
+        "total": 909,
+        "ndcg_10": 0.8268,
+        "ndcg_50": 0.9102,
+        "ndcg_300": 0.9507,
+        "mismatch_rate": 0.3233
+      }
+    },
+    "Skyliner": {
+      "keyword": "Skyliner",
+      "timestamp": "2026-04-03T15:07:22.306169",
+      "stage": {
+        "total": 6,
+        "ndcg_10": 1.0,
+        "ndcg_50": 1.0,
+        "ndcg_300": 1.0,
+        "mismatch_rate": 0.6667
+      },
+      "production": {
+        "total": 6,
+        "ndcg_10": 1.0,
+        "ndcg_50": 1.0,
+        "ndcg_300": 1.0,
+        "mismatch_rate": 0.6667
+      }
+    },
+    "自助山": {
+      "keyword": "自助山",
+      "timestamp": "2026-04-03T15:07:37.077165",
+      "stage": {
+        "total": 633,
+        "ndcg_10": 0.5307,
+        "ndcg_50": 0.6575,
+        "ndcg_300": 0.6575,
+        "mismatch_rate": 0.99
+      },
+      "production": {
+        "total": 636,
+        "ndcg_10": 0.5307,
+        "ndcg_50": 0.6508,
+        "ndcg_300": 0.6508,
+        "mismatch_rate": 0.99
+      }
+    },
+    "韓國": {
+      "keyword": "韓國",
+      "timestamp": "2026-04-03T15:07:52.895782",
+      "stage": {
+        "total": 15311,
+        "ndcg_10": 0.839,
+        "ndcg_50": 0.7355,
+        "ndcg_300": 0.9076,
+        "mismatch_rate": 0.4933
+      },
+      "production": {
+        "total": 15310,
+        "ndcg_10": 0.8416,
+        "ndcg_50": 0.6517,
+        "ndcg_300": 0.8884,
+        "mismatch_rate": 0.5267
+      }
+    },
+    "Shibuya sky": {
+      "keyword": "Shibuya sky",
+      "timestamp": "2026-04-03T15:07:56.612062",
+      "stage": {
+        "total": 30,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      },
+      "production": {
+        "total": 30,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      }
+    },
+    "泰國": {
+      "keyword": "泰國",
+      "timestamp": "2026-04-03T15:08:12.582126",
+      "stage": {
+        "total": 23509,
+        "ndcg_10": 0.7827,
+        "ndcg_50": 0.7506,
+        "ndcg_300": 0.9211,
+        "mismatch_rate": 0.3467
+      },
+      "production": {
+        "total": 23518,
+        "ndcg_10": 0.8048,
+        "ndcg_50": 0.7409,
+        "ndcg_300": 0.9185,
+        "mismatch_rate": 0.3733
+      }
+    },
+    "水舞間": {
+      "keyword": "水舞間",
+      "timestamp": "2026-04-03T15:08:15.862924",
+      "stage": {
+        "total": 6,
+        "ndcg_10": 1.0,
+        "ndcg_50": 1.0,
+        "ndcg_300": 1.0,
+        "mismatch_rate": 0.0
+      },
+      "production": {
+        "total": 6,
+        "ndcg_10": 1.0,
+        "ndcg_50": 1.0,
+        "ndcg_300": 1.0,
+        "mismatch_rate": 0.0
+      }
+    },
+    "上海迪士尼": {
+      "keyword": "上海迪士尼",
+      "timestamp": "2026-04-03T15:08:19.103573",
+      "stage": {
+        "total": 36,
+        "ndcg_10": 0.7885,
+        "ndcg_50": 0.9142,
+        "ndcg_300": 0.9142,
+        "mismatch_rate": 0.6389
+      },
+      "production": {
+        "total": 36,
+        "ndcg_10": 0.7273,
+        "ndcg_50": 0.9152,
+        "ndcg_300": 0.9152,
+        "mismatch_rate": 0.6389
+      }
+    },
+    "濟州島": {
+      "keyword": "濟州島",
+      "timestamp": "2026-04-03T15:08:33.376142",
+      "stage": {
+        "total": 1345,
+        "ndcg_10": 0.7097,
+        "ndcg_50": 0.8121,
+        "ndcg_300": 0.9648,
+        "mismatch_rate": 0.0467
+      },
+      "production": {
+        "total": 1344,
+        "ndcg_10": 0.7255,
+        "ndcg_50": 0.7916,
+        "ndcg_300": 0.9611,
+        "mismatch_rate": 0.0467
+      }
+    },
+    "台湾": {
+      "keyword": "台湾",
+      "timestamp": "2026-04-03T15:08:48.079798",
+      "stage": {
+        "total": 10350,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      },
+      "production": {
+        "total": 10191,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      }
+    },
+    "機場快綫": {
+      "keyword": "機場快綫",
+      "timestamp": "2026-04-03T15:08:51.136887",
+      "stage": {
+        "total": 47,
+        "ndcg_10": 0.2935,
+        "ndcg_50": 0.6419,
+        "ndcg_300": 0.6419,
+        "mismatch_rate": 0.7872
+      },
+      "production": {
+        "total": 47,
+        "ndcg_10": 0.2985,
+        "ndcg_50": 0.6504,
+        "ndcg_300": 0.6504,
+        "mismatch_rate": 0.7872
+      }
+    },
+    "中國esim": {
+      "keyword": "中國esim",
+      "timestamp": "2026-04-03T15:08:54.967190",
+      "stage": {
+        "total": 86,
+        "ndcg_10": 0.471,
+        "ndcg_50": 0.5375,
+        "ndcg_300": 0.7406,
+        "mismatch_rate": 0.6744
+      },
+      "production": {
+        "total": 87,
+        "ndcg_10": 0.4124,
+        "ndcg_50": 0.5553,
+        "ndcg_300": 0.7386,
+        "mismatch_rate": 0.6782
+      }
+    },
+    "海洋公園": {
+      "keyword": "海洋公園",
+      "timestamp": "2026-04-03T15:09:06.556139",
+      "stage": {
+        "total": 236,
+        "ndcg_10": 0.6,
+        "ndcg_50": 0.694,
+        "ndcg_300": 0.8864,
+        "mismatch_rate": 0.4915
+      },
+      "production": {
+        "total": 237,
+        "ndcg_10": 0.5501,
+        "ndcg_50": 0.712,
+        "ndcg_300": 0.8926,
+        "mismatch_rate": 0.4937
+      }
+    },
+    "涩谷sky": {
+      "keyword": "涩谷sky",
+      "timestamp": "2026-04-03T15:09:09.730617",
+      "stage": {
+        "total": 13,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      },
+      "production": {
+        "total": 13,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      }
+    },
+    "膠囊列車": {
+      "keyword": "膠囊列車",
+      "timestamp": "2026-04-03T15:09:12.924274",
+      "stage": {
+        "total": 45,
+        "ndcg_10": 0.8166,
+        "ndcg_50": 0.9507,
+        "ndcg_300": 0.9507,
+        "mismatch_rate": 0.1333
+      },
+      "production": {
+        "total": 45,
+        "ndcg_10": 0.8166,
+        "ndcg_50": 0.9457,
+        "ndcg_300": 0.9457,
+        "mismatch_rate": 0.1333
+      }
+    },
+    "台灣": {
+      "keyword": "台灣",
+      "timestamp": "2026-04-03T15:09:27.468838",
+      "stage": {
+        "total": 10326,
+        "ndcg_10": 0.1389,
+        "ndcg_50": 0.1939,
+        "ndcg_300": 0.6633,
+        "mismatch_rate": 0.7867
+      },
+      "production": {
+        "total": 10167,
+        "ndcg_10": 0.2201,
+        "ndcg_50": 0.2012,
+        "ndcg_300": 0.6676,
+        "mismatch_rate": 0.8
+      }
+    },
+    "熊本": {
+      "keyword": "熊本",
+      "timestamp": "2026-04-03T15:09:41.734019",
+      "stage": {
+        "total": 1807,
+        "ndcg_10": 0.6529,
+        "ndcg_50": 0.7385,
+        "ndcg_300": 0.9486,
+        "mismatch_rate": 0.1267
+      },
+      "production": {
+        "total": 1805,
+        "ndcg_10": 0.4768,
+        "ndcg_50": 0.6654,
+        "ndcg_300": 0.9297,
+        "mismatch_rate": 0.12
+      }
+    },
+    "天橋立": {
+      "keyword": "天橋立",
+      "timestamp": "2026-04-03T15:09:52.187758",
+      "stage": {
+        "total": 177,
+        "ndcg_10": 0.7968,
+        "ndcg_50": 0.7432,
+        "ndcg_300": 0.9314,
+        "mismatch_rate": 0.3559
+      },
+      "production": {
+        "total": 178,
+        "ndcg_10": 0.9216,
+        "ndcg_50": 0.7531,
+        "ndcg_300": 0.9401,
+        "mismatch_rate": 0.3539
+      }
+    },
+    "埃及展": {
+      "keyword": "埃及展",
+      "timestamp": "2026-04-03T15:09:55.497549",
+      "stage": {
+        "total": 11,
+        "ndcg_10": 0.3155,
+        "ndcg_50": 0.3155,
+        "ndcg_300": 0.3155,
+        "mismatch_rate": 0.9091
+      },
+      "production": {
+        "total": 11,
+        "ndcg_10": 0.3155,
+        "ndcg_50": 0.3155,
+        "ndcg_300": 0.3155,
+        "mismatch_rate": 0.9091
+      }
+    },
+    "珠海": {
+      "keyword": "珠海",
+      "timestamp": "2026-04-03T15:10:09.092189",
+      "stage": {
+        "total": 395,
+        "ndcg_10": 0.5779,
+        "ndcg_50": 0.8195,
+        "ndcg_300": 0.9595,
+        "mismatch_rate": 0.0833
+      },
+      "production": {
+        "total": 396,
+        "ndcg_10": 0.6817,
+        "ndcg_50": 0.8526,
+        "ndcg_300": 0.9661,
+        "mismatch_rate": 0.08
+      }
+    },
+    "花蓮": {
+      "keyword": "花蓮",
+      "timestamp": "2026-04-03T15:10:24.446247",
+      "stage": {
+        "total": 793,
+        "ndcg_10": 0.5626,
+        "ndcg_50": 0.7358,
+        "ndcg_300": 0.9414,
+        "mismatch_rate": 0.0933
+      },
+      "production": {
+        "total": 792,
+        "ndcg_10": 0.641,
+        "ndcg_50": 0.7671,
+        "ndcg_300": 0.9484,
+        "mismatch_rate": 0.0833
+      }
+    },
+    "富國島": {
+      "keyword": "富國島",
+      "timestamp": "2026-04-03T15:10:38.251428",
+      "stage": {
+        "total": 913,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.925,
+        "ndcg_300": 0.9773,
+        "mismatch_rate": 0.2267
+      },
+      "production": {
+        "total": 920,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9387,
+        "ndcg_300": 0.9807,
+        "mismatch_rate": 0.2167
+      }
+    },
+    "奇美": {
+      "keyword": "奇美",
+      "timestamp": "2026-04-03T15:10:41.335223",
+      "stage": {
+        "total": 26,
+        "ndcg_10": 0.7779,
+        "ndcg_50": 0.931,
+        "ndcg_300": 0.931,
+        "mismatch_rate": 0.2692
+      },
+      "production": {
+        "total": 26,
+        "ndcg_10": 0.8572,
+        "ndcg_50": 0.948,
+        "ndcg_300": 0.948,
+        "mismatch_rate": 0.2692
+      }
+    },
+    "日月潭": {
+      "keyword": "日月潭",
+      "timestamp": "2026-04-03T15:10:55.878608",
+      "stage": {
+        "total": 354,
+        "ndcg_10": 0.7538,
+        "ndcg_50": 0.7258,
+        "ndcg_300": 0.8858,
+        "mismatch_rate": 0.53
+      },
+      "production": {
+        "total": 356,
+        "ndcg_10": 0.7026,
+        "ndcg_50": 0.6779,
+        "ndcg_300": 0.8693,
+        "mismatch_rate": 0.52
+      }
+    },
+    "Haruka": {
+      "keyword": "Haruka",
+      "timestamp": "2026-04-03T15:10:59.473524",
+      "stage": {
+        "total": 44,
+        "ndcg_10": 0.2686,
+        "ndcg_50": 0.6451,
+        "ndcg_300": 0.6451,
+        "mismatch_rate": 0.6818
+      },
+      "production": {
+        "total": 44,
+        "ndcg_10": 0.2579,
+        "ndcg_50": 0.6211,
+        "ndcg_300": 0.6211,
+        "mismatch_rate": 0.6818
+      }
+    },
+    "仙台": {
+      "keyword": "仙台",
+      "timestamp": "2026-04-03T15:11:14.117027",
+      "stage": {
+        "total": 1230,
+        "ndcg_10": 0.8611,
+        "ndcg_50": 0.8942,
+        "ndcg_300": 0.975,
+        "mismatch_rate": 0.0767
+      },
+      "production": {
+        "total": 1233,
+        "ndcg_10": 0.5677,
+        "ndcg_50": 0.7875,
+        "ndcg_300": 0.9513,
+        "mismatch_rate": 0.0867
+      }
+    },
+    "由布院": {
+      "keyword": "由布院",
+      "timestamp": "2026-04-03T15:11:27.568636",
+      "stage": {
+        "total": 306,
+        "ndcg_10": 0.567,
+        "ndcg_50": 0.6775,
+        "ndcg_300": 0.8871,
+        "mismatch_rate": 0.4233
+      },
+      "production": {
+        "total": 310,
+        "ndcg_10": 0.5885,
+        "ndcg_50": 0.6874,
+        "ndcg_300": 0.8904,
+        "mismatch_rate": 0.4167
+      }
+    },
+    "中國": {
+      "keyword": "中國",
+      "timestamp": "2026-04-03T15:11:42.668560",
+      "stage": {
+        "total": 34422,
+        "ndcg_10": 0.6948,
+        "ndcg_50": 0.6156,
+        "ndcg_300": 0.8764,
+        "mismatch_rate": 0.4633
+      },
+      "production": {
+        "total": 34434,
+        "ndcg_10": 0.7015,
+        "ndcg_50": 0.6576,
+        "ndcg_300": 0.8736,
+        "mismatch_rate": 0.4733
+      }
+    },
+    "環球": {
+      "keyword": "環球",
+      "timestamp": "2026-04-03T15:11:59.011680",
+      "stage": {
+        "total": 409,
+        "ndcg_10": 0.7968,
+        "ndcg_50": 0.6932,
+        "ndcg_300": 0.9429,
+        "mismatch_rate": 0.2567
+      },
+      "production": {
+        "total": 410,
+        "ndcg_10": 0.9306,
+        "ndcg_50": 0.7289,
+        "ndcg_300": 0.9441,
+        "mismatch_rate": 0.2433
+      }
+    },
+    "日本": {
+      "keyword": "日本",
+      "timestamp": "2026-04-03T15:12:15.309271",
+      "stage": {
+        "total": 109998,
+        "ndcg_10": 0.7968,
+        "ndcg_50": 0.507,
+        "ndcg_300": 0.8685,
+        "mismatch_rate": 0.4967
+      },
+      "production": {
+        "total": 110027,
+        "ndcg_10": 0.684,
+        "ndcg_50": 0.4574,
+        "ndcg_300": 0.849,
+        "mismatch_rate": 0.51
+      }
+    },
+    "泰國esim": {
+      "keyword": "泰國esim",
+      "timestamp": "2026-04-03T15:12:20.911212",
+      "stage": {
+        "total": 69,
+        "ndcg_10": 0.7975,
+        "ndcg_50": 0.8007,
+        "ndcg_300": 0.8758,
+        "mismatch_rate": 0.5797
+      },
+      "production": {
+        "total": 69,
+        "ndcg_10": 0.7281,
+        "ndcg_50": 0.7566,
+        "ndcg_300": 0.851,
+        "mismatch_rate": 0.5797
+      }
+    },
+    "시부야스카이": {
+      "keyword": "시부야스카이",
+      "timestamp": "2026-04-03T15:12:24.044278",
+      "stage": {
+        "total": 6,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      },
+      "production": {
+        "total": 6,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      }
+    },
+    "長隆": {
+      "keyword": "長隆",
+      "timestamp": "2026-04-03T15:12:31.495752",
+      "stage": {
+        "total": 139,
+        "ndcg_10": 1.0,
+        "ndcg_50": 1.0,
+        "ndcg_300": 0.9975,
+        "mismatch_rate": 0.2086
+      },
+      "production": {
+        "total": 139,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9863,
+        "ndcg_300": 0.9973,
+        "mismatch_rate": 0.2086
+      }
+    },
+    "宮古島": {
+      "keyword": "宮古島",
+      "timestamp": "2026-04-03T15:12:46.131053",
+      "stage": {
+        "total": 579,
+        "ndcg_10": 0.8611,
+        "ndcg_50": 0.9143,
+        "ndcg_300": 0.9811,
+        "mismatch_rate": 0.0467
+      },
+      "production": {
+        "total": 579,
+        "ndcg_10": 0.8611,
+        "ndcg_50": 0.9353,
+        "ndcg_300": 0.9818,
+        "mismatch_rate": 0.06
+      }
+    },
+    "郵輪": {
+      "keyword": "郵輪",
+      "timestamp": "2026-04-03T15:13:01.722298",
+      "stage": {
+        "total": 1756,
+        "ndcg_10": 0.6531,
+        "ndcg_50": 0.5392,
+        "ndcg_300": 0.8119,
+        "mismatch_rate": 0.6233
+      },
+      "production": {
+        "total": 1753,
+        "ndcg_10": 0.5211,
+        "ndcg_50": 0.5001,
+        "ndcg_300": 0.8132,
+        "mismatch_rate": 0.58
+      }
+    },
+    "麗晶": {
+      "keyword": "麗晶",
+      "timestamp": "2026-04-03T15:13:09.401201",
+      "stage": {
+        "total": 105,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9796,
+        "ndcg_300": 0.9905,
+        "mismatch_rate": 0.1905
+      },
+      "production": {
+        "total": 105,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9616,
+        "ndcg_300": 0.9869,
+        "mismatch_rate": 0.1905
+      }
+    },
+    "越南esim": {
+      "keyword": "越南esim",
+      "timestamp": "2026-04-03T15:13:14.642672",
+      "stage": {
+        "total": 66,
+        "ndcg_10": 0.7917,
+        "ndcg_50": 0.7822,
+        "ndcg_300": 0.8703,
+        "mismatch_rate": 0.5
+      },
+      "production": {
+        "total": 66,
+        "ndcg_10": 0.5735,
+        "ndcg_50": 0.7005,
+        "ndcg_300": 0.8062,
+        "mismatch_rate": 0.5
+      }
+    },
+    "峴港": {
+      "keyword": "峴港",
+      "timestamp": "2026-04-03T15:13:29.489581",
+      "stage": {
+        "total": 1624,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9676,
+        "ndcg_300": 0.9923,
+        "mismatch_rate": 0.04
+      },
+      "production": {
+        "total": 1635,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9821,
+        "ndcg_300": 0.9934,
+        "mismatch_rate": 0.03
+      }
+    },
+    "Wowpass": {
+      "keyword": "Wowpass",
+      "timestamp": "2026-04-03T15:13:31.949973",
+      "stage": {
+        "total": 7,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      },
+      "production": {
+        "total": 7,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      }
+    },
+    "越南": {
+      "keyword": "越南",
+      "timestamp": "2026-04-03T15:13:46.851710",
+      "stage": {
+        "total": 17656,
+        "ndcg_10": 0.7467,
+        "ndcg_50": 0.8092,
+        "ndcg_300": 0.9355,
+        "mismatch_rate": 0.37
+      },
+      "production": {
+        "total": 17705,
+        "ndcg_10": 0.6242,
+        "ndcg_50": 0.7907,
+        "ndcg_300": 0.9214,
+        "mismatch_rate": 0.3733
+      }
+    },
+    "ハロン湾 クルーズ": {
+      "keyword": "ハロン湾 クルーズ",
+      "timestamp": "2026-04-03T15:13:57.268112",
+      "stage": {
+        "total": 152,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      },
+      "production": {
+        "total": 158,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      }
+    },
+    "由布院之森": {
+      "keyword": "由布院之森",
+      "timestamp": "2026-04-03T15:14:00.950805",
+      "stage": {
+        "total": 28,
+        "ndcg_10": 0.7788,
+        "ndcg_50": 0.9429,
+        "ndcg_300": 0.9429,
+        "mismatch_rate": 0.2857
+      },
+      "production": {
+        "total": 29,
+        "ndcg_10": 0.7885,
+        "ndcg_50": 0.9484,
+        "ndcg_300": 0.9484,
+        "mismatch_rate": 0.3103
+      }
+    },
+    "新幹線": {
+      "keyword": "新幹線",
+      "timestamp": "2026-04-03T15:14:16.726816",
+      "stage": {
+        "total": 1750,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.1545,
+        "ndcg_300": 0.6356,
+        "mismatch_rate": 0.72
+      },
+      "production": {
+        "total": 1751,
+        "ndcg_10": 0.0734,
+        "ndcg_50": 0.1233,
+        "ndcg_300": 0.629,
+        "mismatch_rate": 0.7333
+      }
+    },
+    "香港esim": {
+      "keyword": "香港esim",
+      "timestamp": "2026-04-03T15:14:21.752915",
+      "stage": {
+        "total": 60,
+        "ndcg_10": 0.5366,
+        "ndcg_50": 0.7051,
+        "ndcg_300": 0.7723,
+        "mismatch_rate": 0.6167
+      },
+      "production": {
+        "total": 60,
+        "ndcg_10": 0.4698,
+        "ndcg_50": 0.7213,
+        "ndcg_300": 0.7662,
+        "mismatch_rate": 0.6167
+      }
+    },
+    "勝尾寺": {
+      "keyword": "勝尾寺",
+      "timestamp": "2026-04-03T15:14:24.870500",
+      "stage": {
+        "total": 27,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9832,
+        "ndcg_300": 0.9832,
+        "mismatch_rate": 0.2593
+      },
+      "production": {
+        "total": 29,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9888,
+        "ndcg_300": 0.9888,
+        "mismatch_rate": 0.2069
+      }
+    },
+    "北京": {
+      "keyword": "北京",
+      "timestamp": "2026-04-03T15:14:39.428193",
+      "stage": {
+        "total": 2118,
+        "ndcg_10": 0.9149,
+        "ndcg_50": 0.9558,
+        "ndcg_300": 0.9883,
+        "mismatch_rate": 0.0367
+      },
+      "production": {
+        "total": 2118,
+        "ndcg_10": 0.9216,
+        "ndcg_50": 0.958,
+        "ndcg_300": 0.9883,
+        "mismatch_rate": 0.0333
+      }
+    },
+    "shibuya sky": {
+      "keyword": "shibuya sky",
+      "timestamp": "2026-04-03T15:14:42.770907",
+      "stage": {
+        "total": 30,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      },
+      "production": {
+        "total": 30,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      }
+    },
+    "ソウル": {
+      "keyword": "ソウル",
+      "timestamp": "2026-04-03T15:14:57.304183",
+      "stage": {
+        "total": 2998,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.281,
+        "mismatch_rate": 0.9733
+      },
+      "production": {
+        "total": 2982,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.2645,
+        "mismatch_rate": 0.9767
+      }
+    },
+    "九州": {
+      "keyword": "九州",
+      "timestamp": "2026-04-03T15:15:12.250153",
+      "stage": {
+        "total": 10421,
+        "ndcg_10": 0.8365,
+        "ndcg_50": 0.801,
+        "ndcg_300": 0.9143,
+        "mismatch_rate": 0.66
+      },
+      "production": {
+        "total": 10430,
+        "ndcg_10": 0.7606,
+        "ndcg_50": 0.7274,
+        "ndcg_300": 0.9008,
+        "mismatch_rate": 0.6233
+      }
+    },
+    "酒店下午茶優惠": {
+      "keyword": "酒店下午茶優惠",
+      "timestamp": "2026-04-03T15:15:17.984091",
+      "stage": {
+        "total": 63,
+        "ndcg_10": 0.0663,
+        "ndcg_50": 0.5329,
+        "ndcg_300": 0.5633,
+        "mismatch_rate": 0.7778
+      },
+      "production": {
+        "total": 62,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.5256,
+        "ndcg_300": 0.5561,
+        "mismatch_rate": 0.7742
+      }
+    },
+    "珠海長隆": {
+      "keyword": "珠海長隆",
+      "timestamp": "2026-04-03T15:15:22.990184",
+      "stage": {
+        "total": 53,
+        "ndcg_10": 0.4205,
+        "ndcg_50": 0.7232,
+        "ndcg_300": 0.7232,
+        "mismatch_rate": 0.6792
+      },
+      "production": {
+        "total": 53,
+        "ndcg_10": 0.3854,
+        "ndcg_50": 0.7338,
+        "ndcg_300": 0.7338,
+        "mismatch_rate": 0.6792
+      }
+    },
+    "韓服": {
+      "keyword": "韓服",
+      "timestamp": "2026-04-03T15:15:34.653914",
+      "stage": {
+        "total": 203,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.8847,
+        "ndcg_300": 0.9695,
+        "mismatch_rate": 0.3941
+      },
+      "production": {
+        "total": 203,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.8973,
+        "ndcg_300": 0.9694,
+        "mismatch_rate": 0.3941
+      }
+    },
+    "台東": {
+      "keyword": "台東",
+      "timestamp": "2026-04-03T15:15:48.257297",
+      "stage": {
+        "total": 2077,
+        "ndcg_10": 0.2212,
+        "ndcg_50": 0.4842,
+        "ndcg_300": 0.7979,
+        "mismatch_rate": 0.63
+      },
+      "production": {
+        "total": 2078,
+        "ndcg_10": 0.2844,
+        "ndcg_50": 0.4168,
+        "ndcg_300": 0.7797,
+        "mismatch_rate": 0.6033
+      }
+    },
+    "埃及": {
+      "keyword": "埃及",
+      "timestamp": "2026-04-03T15:15:52.938299",
+      "stage": {
+        "total": 65,
+        "ndcg_10": 0.6141,
+        "ndcg_50": 0.7554,
+        "ndcg_300": 0.8562,
+        "mismatch_rate": 0.4615
+      },
+      "production": {
+        "total": 64,
+        "ndcg_10": 0.5361,
+        "ndcg_50": 0.7198,
+        "ndcg_300": 0.8389,
+        "mismatch_rate": 0.4688
+      }
+    },
+    "札幌": {
+      "keyword": "札幌",
+      "timestamp": "2026-04-03T15:16:07.760394",
+      "stage": {
+        "total": 2573,
+        "ndcg_10": 0.9149,
+        "ndcg_50": 0.9029,
+        "ndcg_300": 0.9784,
+        "mismatch_rate": 0.0633
+      },
+      "production": {
+        "total": 2583,
+        "ndcg_10": 0.9216,
+        "ndcg_50": 0.9272,
+        "ndcg_300": 0.9819,
+        "mismatch_rate": 0.0633
+      }
+    },
+    "峇里島": {
+      "keyword": "峇里島",
+      "timestamp": "2026-04-03T15:16:22.601691",
+      "stage": {
+        "total": 5805,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.874,
+        "ndcg_300": 0.964,
+        "mismatch_rate": 0.2167
+      },
+      "production": {
+        "total": 5817,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.9314,
+        "ndcg_300": 0.9712,
+        "mismatch_rate": 0.15
+      }
+    },
+    "河內": {
+      "keyword": "河內",
+      "timestamp": "2026-04-03T15:16:37.191337",
+      "stage": {
+        "total": 2987,
+        "ndcg_10": 0.9306,
+        "ndcg_50": 0.9079,
+        "ndcg_300": 0.973,
+        "mismatch_rate": 0.12
+      },
+      "production": {
+        "total": 3000,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.8038,
+        "ndcg_300": 0.9687,
+        "mismatch_rate": 0.1033
+      }
+    },
+    "大阪環球": {
+      "keyword": "大阪環球",
+      "timestamp": "2026-04-03T15:16:44.849092",
+      "stage": {
+        "total": 108,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.2325,
+        "mismatch_rate": 0.9722
+      },
+      "production": {
+        "total": 109,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.2342,
+        "mismatch_rate": 0.9725
+      }
+    },
+    "日本 esim": {
+      "keyword": "日本 esim",
+      "timestamp": "2026-04-03T15:16:50.637603",
+      "stage": {
+        "total": 84,
+        "ndcg_10": 1.0,
+        "ndcg_50": 0.8128,
+        "ndcg_300": 0.9664,
+        "mismatch_rate": 0.3214
+      },
+      "production": {
+        "total": 85,
+        "ndcg_10": 0.9306,
+        "ndcg_50": 0.7846,
+        "ndcg_300": 0.9494,
+        "mismatch_rate": 0.3176
+      }
+    },
+    "六福村": {
+      "keyword": "六福村",
+      "timestamp": "2026-04-03T15:16:53.546784",
+      "stage": {
+        "total": 7,
+        "ndcg_10": 1.0,
+        "ndcg_50": 1.0,
+        "ndcg_300": 1.0,
+        "mismatch_rate": 0.0
+      },
+      "production": {
+        "total": 7,
+        "ndcg_10": 1.0,
+        "ndcg_50": 1.0,
+        "ndcg_300": 1.0,
+        "mismatch_rate": 0.0
+      }
+    },
+    "立山黑部 出發": {
+      "keyword": "立山黑部 出發",
+      "timestamp": "2026-04-03T15:16:59.211875",
+      "stage": {
+        "total": 95,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      },
+      "production": {
+        "total": 97,
+        "ndcg_10": 0.0,
+        "ndcg_50": 0.0,
+        "ndcg_300": 0.0,
+        "mismatch_rate": 1.0
+      }
+    },
+    "廈門": {
+      "keyword": "廈門",
+      "timestamp": "2026-04-03T15:17:12.883788",
+      "stage": {
+        "total": 336,
+        "ndcg_10": 0.4729,
+        "ndcg_50": 0.7162,
+        "ndcg_300": 0.9322,
+        "mismatch_rate": 0.15
+      },
+      "production": {
+        "total": 336,
+        "ndcg_10": 0.5751,
+        "ndcg_50": 0.7057,
+        "ndcg_300": 0.9342,
+        "mismatch_rate": 0.1567
+      }
+    },
+    "機場快線": {
+      "keyword": "機場快線",
+      "timestamp": "2026-04-03T15:17:16.123591",
+      "stage": {
+        "total": 47,
+        "ndcg_10": 0.2895,
+        "ndcg_50": 0.6223,
+        "ndcg_300": 0.6223,
+        "mismatch_rate": 0.8085
+      },
+      "production": {
+        "total": 47,
+        "ndcg_10": 0.4045,
+        "ndcg_50": 0.6743,
+        "ndcg_300": 0.6743,
+        "mismatch_rate": 0.8085
+      }
+    }
+  }
+}

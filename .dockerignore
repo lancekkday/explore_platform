@@ -1,0 +1,22 @@
+# Python
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/.pytest_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Data (mounted as volume at runtime)
+backend/data/history.db
+backend/data/batch_state.json
+
+# Secrets
+backend/.env
+
+# Git / IDE
+.git/
+.gitignore
+**/.DS_Store

@@ -175,10 +175,10 @@ export default function App() {
   const fetchAuditData = async () => {
     try {
       const [kwRes, statRes, resRes, histRes] = await Promise.all([
-        fetch('http://localhost:8000/api/keywords').then(r => r.json()),
-        fetch('http://localhost:8000/api/batch/status').then(r => r.json()),
-        fetch('http://localhost:8000/api/batch/results').then(r => r.json()),
-        fetch('http://localhost:8000/api/batch/history').then(r => r.json())
+        fetch('/api/keywords').then(r => r.json()),
+        fetch('/api/batch/status').then(r => r.json()),
+        fetch('/api/batch/results').then(r => r.json()),
+        fetch('/api/batch/history').then(r => r.json())
       ]);
       if (kwRes?.keywords) setAuditKeywords(kwRes.keywords);
       if (statRes) setBatchStatus(statRes);
@@ -213,7 +213,7 @@ export default function App() {
     if (!kw) return;
     setLoading(true); setError(''); setTab('discovery');
     try {
-      const resp = await fetch('http://localhost:8000/api/compare', {
+      const resp = await fetch('/api/compare', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keyword: kw, cookie: cookie, count: 300, ai_enabled: singleAiMode })
@@ -232,7 +232,7 @@ export default function App() {
 
   const autoFetchCookie = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/guest-cookie?env=production').then(r => r.json());
+      const res = await fetch('/api/guest-cookie?env=production').then(r => r.json());
       if (res && res.cookie) { setCookie(res.cookie); setCookieInfo(res); return res; }
       return null;
     } catch (e) { setError('憑證對接異常'); return null; }
@@ -248,7 +248,7 @@ export default function App() {
   const submitCalibration = async () => {
     if (!edittingProduct) return;
     try {
-      const res = await fetch('http://localhost:8000/api/feedback', {
+      const res = await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keyword, product_id: edittingProduct.id, user_tier: parseInt(calibTier), comment: calibComment })
@@ -262,14 +262,14 @@ export default function App() {
 
   // ─── 批次巡檢 handlers (v7.8+ 新增) ───
   const startBatch = async () => {
-    await fetch('http://localhost:8000/api/batch/run', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cookie}) });
+    await fetch('/api/batch/run', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cookie}) });
   }
   const stopBatch = async () => {
-    await fetch('http://localhost:8000/api/batch/stop', { method: 'POST' });
+    await fetch('/api/batch/stop', { method: 'POST' });
   }
   const saveKeywords = async () => {
     const kws = kwInputText.split(/\n|,/).map(s => s.trim()).filter(s => s);
-    await fetch('http://localhost:8000/api/keywords', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({keywords:kws}) });
+    await fetch('/api/keywords', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({keywords:kws}) });
     setKwEditorVisible(false); fetchAuditData();
   }
   const [singleHistory, setSingleHistory] = useState([])
@@ -277,7 +277,7 @@ export default function App() {
 
   const handleRestoreSingle = async (id) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/single/history/${id}`).then(r => r.json());
+      const res = await fetch(`/api/single/history/${id}`).then(r => r.json());
       if (res?.results) {
         const d = res.results;
         setKeyword(d.keyword);
@@ -291,7 +291,7 @@ export default function App() {
   const handleRestoreHistory = async (id) => {
     if (!window.confirm(`確定要載入存檔 #${String(id).padStart(3,'0')} 嗎？目前的巡檢結果將被覆蓋。`)) return;
     try {
-      const res = await fetch(`http://localhost:8000/api/batch/history/${id}`).then(r => r.json());
+      const res = await fetch(`/api/batch/history/${id}`).then(r => r.json());
       if (res?.results) setBatchResults(res.results);
     } catch (e) {}
   }

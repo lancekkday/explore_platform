@@ -2,7 +2,7 @@
 
 # --- Environment Setup ---
 export PYTHONPATH=$PYTHONPATH:$(pwd)/backend
-export PYTEST_BASE_URL="http://localhost:8000"
+export PYTEST_BASE_URL="http://localhost:19426"
 
 # --- Colors ---
 GREEN='\033[0;32m'

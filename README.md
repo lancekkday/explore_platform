@@ -22,7 +22,7 @@ KKDay 搜尋意圖驗證平台，用於稽核 stage / production 兩套搜尋引
 cp .env.example .env
 # 填入 OPENAI_API_KEY（選填，AI 功能需要）
 
-# 2. 啟動服務（backend :8000 + frontend :5173）
+# 2. 啟動服務（backend :19426 + frontend :5888）
 ./start.sh
 
 # 重啟（自動 kill 舊 process）
@@ -51,8 +51,8 @@ VITE_API_URL=/explore_platform/api
 | `OPENAI_API_KEY` | — | AI 判定與解釋功能（選填） |
 | `AI_MODEL_NAME` | `gpt-4o-mini` | 使用的 OpenAI 模型 |
 | `DEST_DUMP_DIR` | `backend/data` | 目的地資料目錄 |
-| `BACKEND_PORT` | `8000` | Docker backend port |
-| `FRONTEND_PORT` | `80` | Docker frontend port |
+| `BACKEND_PORT` | `19426` | Docker backend host port (EC2) |
+| `FRONTEND_PORT` | `8086` | Docker frontend host port (EC2) |
 | `VITE_BASE_URL` | `/` | 前端 base path |
 | `VITE_API_URL` | `/api` | API base path |
 

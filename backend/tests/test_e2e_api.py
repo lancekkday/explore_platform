@@ -1,15 +1,16 @@
 """
 E2E API tests — validates all endpoints used by the React frontend components.
-Requires backend running on http://localhost:8000.
+Requires backend running on $PYTEST_BASE_URL (default: http://localhost:19426).
 
 Run:
     cd backend && source venv/bin/activate
     pytest ../tests/test_e2e_api.py -v
 """
+import os
 import pytest
 import requests
 
-BASE = "http://localhost:8000/api"
+BASE = os.environ.get("PYTEST_BASE_URL", "http://localhost:19426") + "/api"
 
 
 @pytest.fixture(scope="session")

@@ -44,7 +44,8 @@ class BatchEngine:
                     timestamp TEXT,
                     keyword_count INTEGER,
                     avg_ndcg_10 REAL,
-                    results_json TEXT
+                    results_json TEXT,
+                    keywords_json TEXT
                 )
             ''')
             # 新增單次紀錄表 (記錄每一發手動點擊)
@@ -132,9 +133,8 @@ class BatchEngine:
         """
         使用 DataSanitizer 將 API 回傳的原始商品數據進行結構化與清洗。
         """
-        # 提取分類 code 與目的地（與 main.py _slim_product 保持一致）
-        pc = p.get("product_category") or {}
-        cat_name = p.get("main_cat_key") or pc.get("main") or pc.get("key") or ""
+        # 提取分類 code 與目的地
+        cat_name = sanitizer.get_category_key(p)
         destinations = sanitizer.get_destinations(p)
 
         # 判定結果解構
@@ -261,8 +261,10 @@ class BatchEngine:
             all_ndcg = [r.get("stage", {}).get("metrics", {}).get("ndcg_10", 0) for r in self.results.values()]
             avg_ndcg = sum(all_ndcg) / kw_count if kw_count > 0 else 0
             cur.execute(
-                "INSERT INTO inspection_history (timestamp, keyword_count, avg_ndcg_10, results_json) VALUES (?, ?, ?, ?)",
-                (datetime.now().isoformat(), kw_count, avg_ndcg, json.dumps(self.results, ensure_ascii=False))
+                "INSERT INTO inspection_history (timestamp, keyword_count, avg_ndcg_10, results_json, keywords_json) VALUES (?, ?, ?, ?, ?)",
+                (datetime.now().isoformat(), kw_count, avg_ndcg,
+                 json.dumps(self.results, ensure_ascii=False),
+                 json.dumps(list(self.results.keys()), ensure_ascii=False))
             )
             conn.commit()
             conn.close()
@@ -273,17 +275,15 @@ class BatchEngine:
         try:
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
-            cur.execute("SELECT id, timestamp, keyword_count, avg_ndcg_10, results_json FROM inspection_history ORDER BY id DESC LIMIT 50")
+            cur.execute("SELECT id, timestamp, keyword_count, avg_ndcg_10, keywords_json FROM inspection_history ORDER BY id DESC LIMIT 50")
             rows = cur.fetchall()
             conn.close()
             result = []
             for r in rows:
-                keywords = []
                 try:
-                    data = json.loads(r[4] or "{}")
-                    keywords = list(data.keys())
+                    keywords = json.loads(r[4] or "[]")
                 except Exception:
-                    pass
+                    keywords = []
                 result.append({"id": r[0], "timestamp": r[1], "count": r[2], "avg_ndcg": r[3], "keywords": keywords})
             return result
         except Exception as e:

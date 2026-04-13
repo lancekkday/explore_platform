@@ -57,9 +57,16 @@ class DataSanitizer:
         outer_name = p.get("main_cat_name")
         pc = p.get("product_category", {})
         inner_name = pc.get("name") if isinstance(pc, dict) else None
-        
+
         # 優先回傳最具體的名字
         return inner_name or outer_name or p.get("main_cat_key") or "UNSPECIFIED"
+
+    def get_category_key(self, p):
+        """
+        提取分類 code/key（與 main.py _slim_product 保持一致）。
+        """
+        pc = p.get("product_category") or {}
+        return p.get("main_cat_key") or pc.get("main") or pc.get("key") or ""
 
 # 初始化全局實例 (假設路徑)
 sanitizer = DataSanitizer(os.path.join(os.path.dirname(__file__), "..", "data", "unified_destinations.json"))

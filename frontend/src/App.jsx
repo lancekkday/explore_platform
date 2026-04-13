@@ -378,7 +378,7 @@ export default function App() {
                                     <td className="px-6 py-3.5 border-l border-slate-50 text-center font-mono font-black text-blue-600">{isDone ? `${Math.round((pm.ndcg_at_10 || pm.ndcg_10 || 0)*100)}%` : '-'}</td>
                                     <td className="px-6 py-3.5 border-l border-slate-50 text-center font-black text-rose-500 text-[11px]">{isDone ? `${Math.round((m.mismatch_rate || 0)*100)}%` : '-'}</td>
                                     <td className="px-8 py-3.5 text-right border-l border-slate-50">
-                                       <button onClick={() => window.open(`/?keyword=${encodeURIComponent(kwStr)}`, '_blank')} disabled={!isDone} className={`px-4 py-1.5 rounded-lg border text-[10px] font-black shadow-sm ${isDone ? 'bg-white border-slate-200 text-slate-800 hover:border-slate-800 hover:bg-slate-900 hover:text-white transition-all' : 'bg-slate-50 text-slate-200 cursor-not-allowed'}`}>詳細報告</button>
+                                       <button onClick={() => window.open(`${import.meta.env.BASE_URL}?keyword=${encodeURIComponent(kwStr)}`, '_blank')} disabled={!isDone} className={`px-4 py-1.5 rounded-lg border text-[10px] font-black shadow-sm ${isDone ? 'bg-white border-slate-200 text-slate-800 hover:border-slate-800 hover:bg-slate-900 hover:text-white transition-all' : 'bg-slate-50 text-slate-200 cursor-not-allowed'}`}>詳細報告</button>
                                     </td>
                                  </tr>
                               );

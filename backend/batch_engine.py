@@ -200,8 +200,7 @@ class BatchEngine:
                         "ndcg_10": compute_ndcg(s_res, 10),
                         "ndcg_50": compute_ndcg(s_res, 50),
                         "ndcg_150": compute_ndcg(s_res, 150),
-                        "mismatch_rate": s_stats.get("mismatch_rate", 0),
-                        "recall_at_150": s_stats.get("recall_rate", 0)
+                        **s_stats,
                     }
                 },
                 "production": {
@@ -211,8 +210,7 @@ class BatchEngine:
                         "ndcg_10": compute_ndcg(p_res, 10),
                         "ndcg_50": compute_ndcg(p_res, 50),
                         "ndcg_150": compute_ndcg(p_res, 150),
-                        "mismatch_rate": p_stats.get("mismatch_rate", 0),
-                        "recall_at_150": p_stats.get("recall_rate", 0)
+                        **p_stats,
                     }
                 }
             }

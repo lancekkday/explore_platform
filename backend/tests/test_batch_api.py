@@ -3,7 +3,7 @@ import time
 import json
 import os
 
-BASE_URL = "http://localhost:19426/api"
+BASE_URL = os.environ.get("PYTEST_BASE_URL", "http://localhost:19426") + "/api"
 TEST_KEYWORDS = ["esim", "ESIM", "酒店自助餐優惠", "機場接送"]
 
 def test_batch_flow():

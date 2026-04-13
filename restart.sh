@@ -19,11 +19,11 @@ kill_port() {
   fi
 }
 
-echo "🧹 [1/3] Clearing Ports (8000, 5173)..."
+echo "🧹 [1/3] Clearing Ports (19426, 5888)..."
 # Backend API Port
-kill_port 8000
+kill_port 19426
 # Vite Frontend Port
-kill_port 5173
+kill_port 5888
 
 # Give OS a moment to free up the sockets
 sleep 1

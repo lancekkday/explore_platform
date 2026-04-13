@@ -22,7 +22,7 @@ KKDay 搜尋意圖驗證平台，用於稽核 stage / production 兩套搜尋引
 cp .env.example .env
 # 填入 OPENAI_API_KEY（選填，AI 功能需要）
 
-# 2. 啟動服務（backend :8000 + frontend :5888）
+# 2. 啟動服務（backend :19426 + frontend :5888）
 ./start.sh
 
 # 重啟（自動 kill 舊 process）

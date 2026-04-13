@@ -1,8 +1,9 @@
+import os
 import requests
 import pytest
 import time
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = os.environ.get("PYTEST_BASE_URL", "http://localhost:19426")
 
 @pytest.fixture(scope="session")
 def shared_cookie():

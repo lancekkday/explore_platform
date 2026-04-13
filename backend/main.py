@@ -124,11 +124,11 @@ def compare_envs(req: CompareRequest):
         "success": True, "keyword": req.keyword,
         "stage": {"total": stage_total, "results": stage_res, "metrics": {
             "ndcg_at_10": compute_ndcg(stage_res, 10), "ndcg_at_50": compute_ndcg(stage_res, 50),
-            "ndcg_at_150": compute_ndcg(stage_res, 150), **compute_recall_stats(stage_res, k_list=(10, 50, 150))
+            "ndcg_at_150": compute_ndcg(stage_res, 150), **compute_recall_stats(stage_res)
         }},
         "production": {"total": prod_total, "results": prod_res, "metrics": {
             "ndcg_at_10": compute_ndcg(prod_res, 10), "ndcg_at_50": compute_ndcg(prod_res, 50),
-            "ndcg_at_150": compute_ndcg(prod_res, 150), **compute_recall_stats(prod_res, k_list=(10, 50, 150))
+            "ndcg_at_150": compute_ndcg(prod_res, 150), **compute_recall_stats(prod_res)
         }}
     }
 

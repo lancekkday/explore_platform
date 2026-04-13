@@ -186,8 +186,8 @@ class BatchEngine:
             calibration_manager.apply_overrides(keyword, s_res)
             calibration_manager.apply_overrides(keyword, p_res)
 
-            s_stats = compute_recall_stats(s_res, k_list=(10, 50, 150))
-            p_stats = compute_recall_stats(p_res, k_list=(10, 50, 150))
+            s_stats = compute_recall_stats(s_res)
+            p_stats = compute_recall_stats(p_res)
 
             return {
                 "keyword": keyword,
@@ -200,8 +200,7 @@ class BatchEngine:
                         "ndcg_10": compute_ndcg(s_res, 10),
                         "ndcg_50": compute_ndcg(s_res, 50),
                         "ndcg_150": compute_ndcg(s_res, 150),
-                        "mismatch_rate": s_stats.get("mismatch_rate", 0),
-                        "recall_at_150": s_stats.get("recall_at_150", 0)
+                        **s_stats,
                     }
                 },
                 "production": {
@@ -211,8 +210,7 @@ class BatchEngine:
                         "ndcg_10": compute_ndcg(p_res, 10),
                         "ndcg_50": compute_ndcg(p_res, 50),
                         "ndcg_150": compute_ndcg(p_res, 150),
-                        "mismatch_rate": p_stats.get("mismatch_rate", 0),
-                        "recall_at_150": p_stats.get("recall_at_150", 0)
+                        **p_stats,
                     }
                 }
             }

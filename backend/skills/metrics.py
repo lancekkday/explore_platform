@@ -20,34 +20,31 @@ def compute_ndcg(results, k=10):
     return round(dcg / idcg, 4) if idcg > 0 else 0.0
 
 
-def compute_recall_stats(results, k_list=(10, 50, 100)):
+def compute_recall_stats(results, k_list=None):
     """
-    Recall@K: 在 Top K 中，Tier-1+2 符合意圖的商品佔比。
-    也計算 Mismatch 比率。
+    計算召回率、T3 鬆散率、誤判率與 Tier 分佈。
+    - relevance_rate: 全部結果中 T1+T2 佔比（有效召回）
+    - tier3_rate:     全部結果中 T3 佔比（鬆散相關）
+    - mismatch_rate:  全部結果中 T0/Miss 佔比（完全不相關）
+    三者加總 = 1.0
     """
-    stats = {}
     total = len(results)
-    mismatch_count = sum(1 for p in results if p["tier"] in (0, None))
-
-    for k in k_list:
-        top_k = results[:k]
-        if not top_k:
-            stats[f"recall_at_{k}"] = None
-            continue
-        matched = sum(1 for p in top_k if p["tier"] in (1, 2))
-        stats[f"recall_at_{k}"] = round(matched / len(top_k), 4)
-
-    # Tier breakdown across all results
     tier_counts = Counter(p["tier"] for p in results)
-    stats["tier_breakdown"] = {
-        "tier1": tier_counts.get(1, 0),
-        "tier2": tier_counts.get(2, 0),
-        "tier3": tier_counts.get(3, 0),
-        "mismatch": tier_counts.get(None, 0),
-        "total": total,
-    }
-    stats["mismatch_rate"] = round(mismatch_count / total, 4) if total else 0.0
 
+    t1 = tier_counts.get(1, 0)
+    t2 = tier_counts.get(2, 0)
+    t3 = tier_counts.get(3, 0)
+    miss = tier_counts.get(0, 0) + tier_counts.get(None, 0)
+
+    stats = {
+        "relevance_rate": round((t1 + t2) / total, 4) if total else 0.0,
+        "tier3_rate":     round(t3 / total, 4)         if total else 0.0,
+        "mismatch_rate":  round(miss / total, 4)        if total else 0.0,
+        "tier_breakdown": {
+            "tier1": t1, "tier2": t2, "tier3": t3,
+            "mismatch": miss, "total": total,
+        },
+    }
     return stats
 
 

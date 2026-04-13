@@ -76,7 +76,7 @@ class BatchEngine:
             
             cur.execute(
                 "INSERT INTO single_inspections (keyword, timestamp, ndcg_10, mismatch, data_json) VALUES (?, ?, ?, ?, ?)",
-                (datetime.now().isoformat(), keyword, ndcg, mismatch, json.dumps(results, ensure_ascii=False))
+                (keyword, datetime.now().isoformat(), ndcg, mismatch, json.dumps(results, ensure_ascii=False))
             )
             conn.commit()
             conn.close()
@@ -132,8 +132,9 @@ class BatchEngine:
         """
         使用 DataSanitizer 將 API 回傳的原始商品數據進行結構化與清洗。
         """
-        # 提取分類名稱與目的地 (使用 Sanitizer)
-        cat_name = sanitizer.get_category(p)
+        # 提取分類 code 與目的地（與 main.py _slim_product 保持一致）
+        pc = p.get("product_category") or {}
+        cat_name = p.get("main_cat_key") or pc.get("main") or pc.get("key") or ""
         destinations = sanitizer.get_destinations(p)
 
         # 判定結果解構
@@ -272,10 +273,19 @@ class BatchEngine:
         try:
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
-            cur.execute("SELECT id, timestamp, keyword_count, avg_ndcg_10 FROM inspection_history ORDER BY id DESC LIMIT 50")
+            cur.execute("SELECT id, timestamp, keyword_count, avg_ndcg_10, results_json FROM inspection_history ORDER BY id DESC LIMIT 50")
             rows = cur.fetchall()
             conn.close()
-            return [{"id": r[0], "timestamp": r[1], "count": r[2], "avg_ndcg": r[3]} for r in rows]
+            result = []
+            for r in rows:
+                keywords = []
+                try:
+                    data = json.loads(r[4] or "{}")
+                    keywords = list(data.keys())
+                except Exception:
+                    pass
+                result.append({"id": r[0], "timestamp": r[1], "count": r[2], "avg_ndcg": r[3], "keywords": keywords})
+            return result
         except Exception as e:
             logger.error(f"History Fetch Failed: {e}")
             return []

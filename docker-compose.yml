@@ -10,7 +10,7 @@ services:
     volumes:
       - sip_data:/app/data
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "${BACKEND_PORT:-19426}:8000"
 
   frontend:
     build:
@@ -22,7 +22,7 @@ services:
     container_name: sip_frontend
     restart: always
     ports:
-      - "${FRONTEND_PORT:-80}:80"
+      - "${FRONTEND_PORT:-8086}:80"
     depends_on:
       - backend
 

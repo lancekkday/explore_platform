@@ -8,13 +8,18 @@ export default function CompactMetricBar({ data, color, env, envCode }) {
     </div>
   );
   const m = data.metrics || {};
+  // Detect legacy format: has tier_breakdown but no relevance_rate
+  const tb = m.tier_breakdown || data.tier_breakdown;
+  const tbTotal = tb?.total || 0;
+  const isLegacy = tb && tbTotal > 0 && m.relevance_rate === undefined && data.relevance_rate === undefined;
+  const fromTb = (field) => isLegacy ? (tb[field] || 0) / tbTotal : 0;
   const metrics = {
     ndcg_at_10:      m.ndcg_at_10  ?? m.ndcg_10  ?? data.ndcg_at_10  ?? data.ndcg_10  ?? 0,
     ndcg_at_50:      m.ndcg_at_50  ?? m.ndcg_50  ?? data.ndcg_at_50  ?? data.ndcg_50  ?? 0,
     ndcg_at_150:     m.ndcg_at_150 ?? m.ndcg_150 ?? data.ndcg_at_150 ?? data.ndcg_150 ?? 0,
-    relevance_rate:  m.relevance_rate  ?? data.relevance_rate  ?? 0,
-    tier3_rate:      m.tier3_rate      ?? data.tier3_rate      ?? 0,
-    mismatch_rate:   m.mismatch_rate   ?? data.mismatch_rate   ?? 0,
+    relevance_rate:  isLegacy ? fromTb('tier1') + fromTb('tier2') : (m.relevance_rate  ?? data.relevance_rate  ?? 0),
+    tier3_rate:      isLegacy ? fromTb('tier3')                   : (m.tier3_rate      ?? data.tier3_rate      ?? 0),
+    mismatch_rate:   isLegacy ? fromTb('mismatch')                : (m.mismatch_rate   ?? data.mismatch_rate   ?? 0),
   };
 
   const rel  = Math.round(metrics.relevance_rate * 100);

@@ -20,7 +20,7 @@ def compute_ndcg(results, k=10):
     return round(dcg / idcg, 4) if idcg > 0 else 0.0
 
 
-def compute_recall_stats(results, k_list=None):
+def compute_recall_stats(results):
     """
     計算召回率、T3 鬆散率、誤判率與 Tier 分佈。
     - relevance_rate: 全部結果中 T1+T2 佔比（有效召回）

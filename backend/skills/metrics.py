@@ -1,7 +1,7 @@
 import math
 from collections import Counter
 
-TIER_RELEVANCE = {1: 3, 2: 2, 3: 1, None: 0}
+TIER_RELEVANCE = {1: 3, 2: 2, 3: 1, 0: 0, None: 0}
 
 def compute_ndcg(results, k=10):
     """
@@ -27,7 +27,7 @@ def compute_recall_stats(results, k_list=(10, 50, 100)):
     """
     stats = {}
     total = len(results)
-    mismatch_count = sum(1 for p in results if p["tier"] is None)
+    mismatch_count = sum(1 for p in results if p["tier"] in (0, None))
 
     for k in k_list:
         top_k = results[:k]

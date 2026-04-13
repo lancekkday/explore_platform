@@ -44,7 +44,8 @@ class BatchEngine:
                     timestamp TEXT,
                     keyword_count INTEGER,
                     avg_ndcg_10 REAL,
-                    results_json TEXT
+                    results_json TEXT,
+                    keywords_json TEXT
                 )
             ''')
             # 新增單次紀錄表 (記錄每一發手動點擊)
@@ -76,7 +77,7 @@ class BatchEngine:
             
             cur.execute(
                 "INSERT INTO single_inspections (keyword, timestamp, ndcg_10, mismatch, data_json) VALUES (?, ?, ?, ?, ?)",
-                (datetime.now().isoformat(), keyword, ndcg, mismatch, json.dumps(results, ensure_ascii=False))
+                (keyword, datetime.now().isoformat(), ndcg, mismatch, json.dumps(results, ensure_ascii=False))
             )
             conn.commit()
             conn.close()
@@ -132,8 +133,8 @@ class BatchEngine:
         """
         使用 DataSanitizer 將 API 回傳的原始商品數據進行結構化與清洗。
         """
-        # 提取分類名稱與目的地 (使用 Sanitizer)
-        cat_name = sanitizer.get_category(p)
+        # 提取分類 code 與目的地
+        cat_name = sanitizer.get_category_key(p)
         destinations = sanitizer.get_destinations(p)
 
         # 判定結果解構
@@ -260,8 +261,10 @@ class BatchEngine:
             all_ndcg = [r.get("stage", {}).get("metrics", {}).get("ndcg_10", 0) for r in self.results.values()]
             avg_ndcg = sum(all_ndcg) / kw_count if kw_count > 0 else 0
             cur.execute(
-                "INSERT INTO inspection_history (timestamp, keyword_count, avg_ndcg_10, results_json) VALUES (?, ?, ?, ?)",
-                (datetime.now().isoformat(), kw_count, avg_ndcg, json.dumps(self.results, ensure_ascii=False))
+                "INSERT INTO inspection_history (timestamp, keyword_count, avg_ndcg_10, results_json, keywords_json) VALUES (?, ?, ?, ?, ?)",
+                (datetime.now().isoformat(), kw_count, avg_ndcg,
+                 json.dumps(self.results, ensure_ascii=False),
+                 json.dumps(list(self.results.keys()), ensure_ascii=False))
             )
             conn.commit()
             conn.close()
@@ -272,10 +275,17 @@ class BatchEngine:
         try:
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
-            cur.execute("SELECT id, timestamp, keyword_count, avg_ndcg_10 FROM inspection_history ORDER BY id DESC LIMIT 50")
+            cur.execute("SELECT id, timestamp, keyword_count, avg_ndcg_10, keywords_json FROM inspection_history ORDER BY id DESC LIMIT 50")
             rows = cur.fetchall()
             conn.close()
-            return [{"id": r[0], "timestamp": r[1], "count": r[2], "avg_ndcg": r[3]} for r in rows]
+            result = []
+            for r in rows:
+                try:
+                    keywords = json.loads(r[4] or "[]")
+                except Exception:
+                    keywords = []
+                result.append({"id": r[0], "timestamp": r[1], "count": r[2], "avg_ndcg": r[3], "keywords": keywords})
+            return result
         except Exception as e:
             logger.error(f"History Fetch Failed: {e}")
             return []

@@ -65,7 +65,8 @@ export default function App() {
 
   async function autoFetchCookie() {
     try {
-      const res = await fetchGuestCookie('production');
+      const cookieEnv = searchMode === 'stage' ? 'stage' : 'production';
+      const res = await fetchGuestCookie(cookieEnv);
       if (res && res.cookie) { setCookie(res.cookie); setCookieInfo(res); return res; }
       return null;
     } catch {
@@ -142,8 +143,14 @@ export default function App() {
     } catch { /* silent */ }
   }
 
-  const handleStartBatch = () => apiBatchStart(cookie)
-  const handleStopBatch = () => apiBatchStop()
+  const handleStartBatch = async () => {
+    await apiBatchStart(cookie)
+    fetchAuditData()
+  }
+  const handleStopBatch = async () => {
+    await apiBatchStop()
+    fetchAuditData()
+  }
 
   const saveKeywords = async () => {
     const kws = kwInputText.split(/\n|,/).map(s => s.trim()).filter(s => s);
@@ -388,17 +395,49 @@ export default function App() {
                    <div className="flex-1 overflow-y-auto custom-scroll">
                       <table className="w-full text-left">
                          <thead className="bg-white sticky top-0 z-10 border-b border-slate-100 font-mono text-[9px] text-slate-400 uppercase tracking-widest italic opacity-60">
-                            <tr><th className="px-8 py-2">ID</th><th className="px-6 py-2 text-center">Timestamp</th><th className="px-6 py-2 text-center">ND@10</th><th className="px-8 py-2 text-right">ACTION</th></tr>
+                            <tr>
+                              <th className="px-8 py-2">Run</th>
+                              <th className="px-6 py-2">時間</th>
+                              <th className="px-6 py-2">搜索詞</th>
+                              <th className="px-6 py-2 text-center">平均 NDCG@10</th>
+                              <th className="px-8 py-2 text-right">Action</th>
+                            </tr>
                          </thead>
                          <tbody className="divide-y divide-slate-50">
-                            {batchHistory.map((h) => (
-                               <tr key={h.id} className="hover:bg-indigo-50/20 transition-all font-bold">
-                                  <td className="px-8 py-2.5 text-slate-900 font-mono">#{h.id.toString().padStart(3,'0')}</td>
-                                  <td className="px-6 py-2.5 text-center text-slate-500">{h.timestamp.split('T')[0]} <span className="opacity-40 italic ml-1">{h.timestamp.split('T')[1].slice(0,5)}</span></td>
-                                  <td className="px-6 py-2.5 text-center"><span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 font-black font-mono rounded border border-emerald-100">{Math.round(h.avg_ndcg*100)}%</span></td>
-                                  <td className="px-8 py-2.5 text-right"><button onClick={() => handleRestoreHistory(h.id)} className="px-4 py-1.5 bg-white border border-slate-200 text-slate-800 rounded-lg text-[9px] font-black hover:border-slate-800 hover:bg-slate-900 hover:text-white transition-all shadow-sm">載入存檔</button></td>
-                               </tr>
-                            ))}
+                            {batchHistory.map((h) => {
+                               const ndcg = Math.round((h.avg_ndcg || 0) * 100)
+                               const ndcgColor = ndcg >= 80 ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                 : ndcg >= 50 ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                 : 'bg-rose-50 text-rose-600 border-rose-100'
+                               const [datePart, timePart] = (h.timestamp || '').split('T')
+                               return (
+                                 <tr key={h.id} className="hover:bg-indigo-50/20 transition-all font-bold">
+                                   <td className="px-8 py-2.5 text-slate-400 font-mono text-[11px]">#{h.id.toString().padStart(3,'0')}</td>
+                                   <td className="px-6 py-2.5 text-slate-700 text-[12px]">
+                                     {datePart} <span className="text-slate-400 font-mono ml-1">{timePart?.slice(0,5)}</span>
+                                   </td>
+                                   <td className="px-6 py-2.5 max-w-[280px]">
+                                     {(() => {
+                                       const kws = h.keywords || []
+                                       const preview = kws.slice(0, 4).join('、')
+                                       const overflow = kws.length > 4
+                                       return (
+                                         <span className="text-[11px] text-slate-600 font-bold">
+                                           {preview || '-'}
+                                           {overflow && <span className="text-slate-400 ml-1">…+{kws.length - 4}</span>}
+                                         </span>
+                                       )
+                                     })()}
+                                   </td>
+                                   <td className="px-6 py-2.5 text-center">
+                                     <span className={`px-2 py-0.5 font-black font-mono rounded border text-[11px] ${ndcgColor}`}>{ndcg}%</span>
+                                   </td>
+                                   <td className="px-8 py-2.5 text-right">
+                                     <button onClick={() => handleRestoreHistory(h.id)} className="px-4 py-1.5 bg-white border border-slate-200 text-slate-800 rounded-lg text-[9px] font-black hover:border-slate-800 hover:bg-slate-900 hover:text-white transition-all shadow-sm">載入存檔</button>
+                                   </td>
+                                 </tr>
+                               )
+                            })}
                          </tbody>
                       </table>
                    </div>

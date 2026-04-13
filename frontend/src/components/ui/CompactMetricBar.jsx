@@ -16,7 +16,7 @@ export default function CompactMetricBar({ data, color, env, envCode }) {
   const metrics = {
     ndcg_at_10:      m.ndcg_at_10  ?? m.ndcg_10  ?? data.ndcg_at_10  ?? data.ndcg_10  ?? 0,
     ndcg_at_50:      m.ndcg_at_50  ?? m.ndcg_50  ?? data.ndcg_at_50  ?? data.ndcg_50  ?? 0,
-    ndcg_at_150:     m.ndcg_at_150 ?? m.ndcg_150 ?? data.ndcg_at_150 ?? data.ndcg_150 ?? 0,
+    ndcg_at_150:     m.ndcg_at_150 ?? m.ndcg_150 ?? m.ndcg_at_300 ?? data.ndcg_at_150 ?? data.ndcg_150 ?? data.ndcg_at_300 ?? 0,
     relevance_rate:  isLegacy ? fromTb('tier1') + fromTb('tier2') : (m.relevance_rate  ?? data.relevance_rate  ?? 0),
     tier3_rate:      isLegacy ? fromTb('tier3')                   : (m.tier3_rate      ?? data.tier3_rate      ?? 0),
     mismatch_rate:   isLegacy ? fromTb('mismatch')                : (m.mismatch_rate   ?? data.mismatch_rate   ?? 0),

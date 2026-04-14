@@ -3,8 +3,10 @@ import os
 import threading
 import time
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from loguru import logger
+
+TZ_TAIPEI = timezone(timedelta(hours=8))  # UTC+8, no system tzdata needed
 
 from kkday_api import fetch_kkday_products
 from skills.metrics import compute_ndcg, compute_recall_stats, compute_category_distribution
@@ -101,7 +103,7 @@ class BatchEngine:
             
             cur.execute(
                 "INSERT INTO single_inspections (keyword, timestamp, ndcg_10, mismatch, data_json) VALUES (?, ?, ?, ?, ?)",
-                (keyword, datetime.now().isoformat(), ndcg, mismatch, json.dumps(results, ensure_ascii=False))
+                (keyword, datetime.now(TZ_TAIPEI).isoformat(), ndcg, mismatch, json.dumps(results, ensure_ascii=False))
             )
             conn.commit()
             conn.close()
@@ -146,7 +148,7 @@ class BatchEngine:
         try:
             with open(BATCH_STATE_FILE, "w") as f:
                 json.dump({
-                    "last_updated": datetime.now().isoformat(),
+                    "last_updated": datetime.now(TZ_TAIPEI).isoformat(),
                     "progress": self.progress,
                     "results": self.results
                 }, f, indent=2, ensure_ascii=False)
@@ -210,7 +212,7 @@ class BatchEngine:
             return {
                 "keyword": keyword,
                 "ai_enabled": ai_enabled,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(TZ_TAIPEI).isoformat(),
                 "stage": {
                     "total": s_total,
                     "results": s_res,
@@ -300,7 +302,7 @@ class BatchEngine:
             avg_ndcg = sum(all_ndcg) / kw_count if kw_count > 0 else 0
             cur.execute(
                 "INSERT INTO inspection_history (timestamp, keyword_count, avg_ndcg_10, results_json, keywords_json) VALUES (?, ?, ?, ?, ?)",
-                (datetime.now().isoformat(), kw_count, avg_ndcg,
+                (datetime.now(TZ_TAIPEI).isoformat(), kw_count, avg_ndcg,
                  json.dumps(self.results, ensure_ascii=False),
                  json.dumps(list(self.results.keys()), ensure_ascii=False))
             )
@@ -401,7 +403,7 @@ class BatchEngine:
             kw_json = json.dumps(keywords, ensure_ascii=False) if keywords else None
             cur.execute(
                 "INSERT INTO batch_schedule (freq, hour, minute, day_of_week, env, ai_enabled, slack_notify, auto_diff, enabled, created_at, keywords_json) VALUES (?,?,?,?,?,?,?,?,1,?,?)",
-                (freq, hour, minute, day_of_week, env, int(ai_enabled), int(slack_notify), int(auto_diff), datetime.now().isoformat(), kw_json)
+                (freq, hour, minute, day_of_week, env, int(ai_enabled), int(slack_notify), int(auto_diff), datetime.now(TZ_TAIPEI).isoformat(), kw_json)
             )
             new_id = cur.lastrowid
             conn.commit()
@@ -435,6 +437,6 @@ class BatchEngine:
             logger.error(f"delete_schedule failed: {e}")
 
     def update_last_run(self, schedule_id: int, next_run: str) -> None:
-        self.update_schedule(schedule_id, last_run=datetime.now().isoformat(), next_run=next_run)
+        self.update_schedule(schedule_id, last_run=datetime.now(TZ_TAIPEI).isoformat(), next_run=next_run)
 
 engine = BatchEngine()

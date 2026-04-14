@@ -1,7 +1,9 @@
 import json
 import os
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+TZ_TAIPEI = timezone(timedelta(hours=8))
 from loguru import logger
 
 DATA_DIR = "backend/data"
@@ -50,7 +52,7 @@ class CalibrationManager:
         self.feedback[keyword][product_id] = {
             "user_tier": user_tier,
             "comment": comment,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now(TZ_TAIPEI).isoformat()
         }
         
         try:

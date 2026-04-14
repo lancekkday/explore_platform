@@ -187,15 +187,21 @@ export default function App() {
 
   const handleSaveSchedule = async (config) => {
     try {
+      console.log('[Schedule] saving config:', JSON.stringify(config))
+      let res
       if (config.id) {
-        await updateSchedule(config.id, config);
+        res = await updateSchedule(config.id, config);
       } else {
-        await addSchedule(config);
+        res = await addSchedule(config);
       }
+      console.log('[Schedule] save response:', JSON.stringify(res))
       setScheduleModalVisible(false);
       setEditingSchedule(null);
       fetchAuditData();
-    } catch { /* silent */ }
+    } catch (e) {
+      console.error('[Schedule] save failed:', e)
+      alert(`儲存失敗: ${e?.message || e}`)
+    }
   }
 
   const handleToggleSchedule = async (s) => {

@@ -361,13 +361,15 @@ def list_schedules():
 
 @app.post("/api/batch/schedule")
 def create_schedule(req: ScheduleCreateRequest):
-    # Normalise keywords: list of {keyword, ai_enabled} dicts or plain strings
+    from loguru import logger
+    logger.info(f"[Schedule] create req keywords={req.keywords!r}")
     kw_list = None
     if req.keywords:
         kw_list = [
             kw if isinstance(kw, dict) else {"keyword": kw, "ai_enabled": req.ai_enabled}
             for kw in req.keywords
         ]
+    logger.info(f"[Schedule] kw_list={kw_list!r}")
     new_id = batch_engine.add_schedule(
         req.freq, req.hour, req.minute, req.day_of_week,
         req.env, req.ai_enabled, req.slack_notify, req.auto_diff,
@@ -379,7 +381,9 @@ def create_schedule(req: ScheduleCreateRequest):
 
 @app.patch("/api/batch/schedule/{schedule_id}")
 def patch_schedule(schedule_id: int, req: SchedulePatchRequest):
+    from loguru import logger
     raw = req.model_dump(exclude_none=True)
+    logger.info(f"[Schedule] patch {schedule_id} raw={raw!r}")
     # Convert keywords list → keywords_json string for storage
     if "keywords" in raw:
         kw = raw.pop("keywords")

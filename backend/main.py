@@ -3,13 +3,21 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
+import httpx
+from datetime import datetime, timedelta
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from kkday_api import fetch_kkday_products
-from skills.metrics import compute_ndcg, compute_recall_stats, compute_category_distribution, compute_rank_delta
+from skills.metrics import compute_ndcg, compute_recall_stats
 from skills.data_sanitizer import sanitizer
 from batch_engine import engine as batch_engine
 from skills.intent_judger import judger
 from skills.calibration_manager import calibration_manager
+
+scheduler = BackgroundScheduler(timezone="Asia/Taipei")
 
 app = FastAPI(title="Search Intent Verification API")
 
@@ -41,6 +49,7 @@ class FeedbackRequest(BaseModel):
 
 class BatchRunRequest(BaseModel):
     cookie: str
+    ai_enabled: Optional[bool] = None
 
 class KeywordListRequest(BaseModel):
     keywords: list[Any]
@@ -52,6 +61,130 @@ class ExplainRequest(BaseModel):
     mismatch_reasons: list[str] = []
     destinations: list[Any] = []
     main_cat_key: str = ""
+
+def _fetch_stage_cookie() -> str:
+    """Auto-fetch a guest cookie from stage via Playwright."""
+    from playwright.sync_api import sync_playwright
+    url = "https://www.stage.kkday.com/zh-tw/product/productlist/esim"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            locale="zh-TW",
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+        page = context.new_page()
+        page.goto(url, wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(2000)
+        cookies = context.cookies()
+        browser.close()
+    return "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+
+
+def _next_run_str(schedule: dict) -> str:
+    """Compute next run time string for a schedule dict."""
+    freq = schedule["freq"]
+    h, m = schedule["hour"], schedule["minute"]
+    now = datetime.now()
+    candidate = now.replace(hour=h, minute=m, second=0, microsecond=0)
+    if freq == "daily":
+        if candidate <= now:
+            candidate += timedelta(days=1)
+    elif freq == "monthly":
+        candidate = candidate.replace(day=1)
+        if candidate <= now:
+            if candidate.month == 12:
+                candidate = candidate.replace(year=candidate.year+1, month=1, day=1)
+            else:
+                candidate = candidate.replace(month=candidate.month+1, day=1)
+    elif freq in ("weekly", "biweekly"):
+        days = [int(d) for d in (schedule.get("day_of_week") or "0").split(",")]
+        weeks = 2 if freq == "biweekly" else 1
+        for delta in range(7 * weeks + 1):
+            test = now + timedelta(days=delta)
+            test = test.replace(hour=h, minute=m, second=0, microsecond=0)
+            js_day = test.weekday()  # 0=Mon..6=Sun
+            if js_day in days and test > now:
+                candidate = test
+                break
+    return candidate.isoformat()
+
+
+def _run_scheduled_batch(schedule_id: int):
+    """Called by APScheduler to auto-run a batch."""
+    from loguru import logger
+    schedules = batch_engine.list_schedules()
+    s = next((x for x in schedules if x["id"] == schedule_id), None)
+    if not s or not s["enabled"]:
+        return
+    logger.info(f"[Scheduler] Starting scheduled batch for schedule_id={schedule_id}")
+    try:
+        cookie = _fetch_stage_cookie()
+    except Exception as e:
+        logger.error(f"[Scheduler] Cookie fetch failed: {e}")
+        return
+    batch_engine.run_batch(cookie, ai_enabled_override=bool(s["ai_enabled"]))
+    next_run = _next_run_str(s)
+    batch_engine.update_last_run(schedule_id, next_run)
+    # Slack notification (if enabled and webhook configured)
+    if s.get("slack_notify"):
+        webhook = os.environ.get("SLACK_WEBHOOK_URL", "")
+        if webhook:
+            try:
+                import httpx as _httpx
+                _httpx.post(webhook, json={"text": f"✅ 定期批次巡檢完成 (schedule #{schedule_id})"}, timeout=10)
+            except Exception:
+                pass
+
+
+def _reload_scheduler_jobs():
+    """Sync APScheduler jobs with DB schedules."""
+    from loguru import logger
+    # Remove existing schedule jobs
+    for job in scheduler.get_jobs():
+        if job.id.startswith("schedule_"):
+            scheduler.remove_job(job.id)
+    # Re-add enabled schedules
+    for s in batch_engine.list_schedules():
+        if not s["enabled"]:
+            continue
+        freq = s["freq"]
+        h, m = s["hour"], s["minute"]
+        sid = s["id"]
+        try:
+            if freq == "daily":
+                trigger = CronTrigger(hour=h, minute=m, timezone="Asia/Taipei")
+            elif freq == "weekly":
+                dow = s.get("day_of_week") or "0"
+                trigger = CronTrigger(day_of_week=dow, hour=h, minute=m, timezone="Asia/Taipei")
+            elif freq == "biweekly":
+                trigger = IntervalTrigger(weeks=2)
+            elif freq == "monthly":
+                trigger = CronTrigger(day=1, hour=h, minute=m, timezone="Asia/Taipei")
+            else:
+                continue
+            scheduler.add_job(
+                _run_scheduled_batch,
+                trigger=trigger,
+                id=f"schedule_{sid}",
+                args=[sid],
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
+            logger.info(f"[Scheduler] Loaded schedule_id={sid} freq={freq} {h:02d}:{m:02d}")
+        except Exception as e:
+            logger.error(f"[Scheduler] Failed to add job for schedule_id={sid}: {e}")
+
+
+@app.on_event("startup")
+def startup_event():
+    scheduler.start()
+    _reload_scheduler_jobs()
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    scheduler.shutdown(wait=False)
+
 
 @app.post("/api/explain")
 def explain_match(req: ExplainRequest):
@@ -66,7 +199,7 @@ def explain_match(req: ExplainRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/guest-cookie")
-def get_guest_cookie(env: str = "production"):
+def get_guest_cookie(env: str = "stage"):
     if env == "production":
         url = "https://www.kkday.com/zh-tw/product/productlist/esim"
     elif env == "stage":
@@ -111,14 +244,12 @@ def _slim_product(p, rank, result, keyword):
 @app.post("/api/compare")
 def compare_envs(req: CompareRequest):
     ai_metadata = judger.get_ai_metadata(req.keyword, ai_enabled=(req.ai_enabled or False))
-    stage_prods, stage_total, _ = fetch_kkday_products(req.keyword, "stage",      req.cookie, req.count)
-    prod_prods,  prod_total,  _ = fetch_kkday_products(req.keyword, "production", req.cookie, req.count)
-    
+    stage_prods, stage_total, _ = fetch_kkday_products(req.keyword, "stage", req.cookie, req.count)
+    # Production disabled (Datadome blocks prod API)
+    prod_res = []
+
     stage_res = [judger.process_and_calibrate(p, i+1, req.keyword, ai_metadata, _slim_product) for i, p in enumerate(stage_prods)]
-    prod_res  = [judger.process_and_calibrate(p, i+1, req.keyword, ai_metadata, _slim_product) for i, p in enumerate(prod_prods)]
-    
-    delta = compute_rank_delta(stage_res, prod_res)
-    for p in stage_res: p["rank_delta"] = delta.get(p["id"])
+    for p in stage_res: p["rank_delta"] = None
 
     final_results = {
         "success": True, "keyword": req.keyword,
@@ -126,9 +257,9 @@ def compare_envs(req: CompareRequest):
             "ndcg_at_10": compute_ndcg(stage_res, 10), "ndcg_at_50": compute_ndcg(stage_res, 50),
             "ndcg_at_150": compute_ndcg(stage_res, 150), **compute_recall_stats(stage_res)
         }},
-        "production": {"total": prod_total, "results": prod_res, "metrics": {
-            "ndcg_at_10": compute_ndcg(prod_res, 10), "ndcg_at_50": compute_ndcg(prod_res, 50),
-            "ndcg_at_150": compute_ndcg(prod_res, 150), **compute_recall_stats(prod_res)
+        "production": {"total": 0, "results": [], "metrics": {
+            "ndcg_at_10": 0, "ndcg_at_50": 0, "ndcg_at_150": 0,
+            "mismatch_rate": 0, "tier1_rate": 0, "tier2_rate": 0, "tier3_rate": 0
         }}
     }
 
@@ -153,7 +284,7 @@ def update_keywords(req: KeywordListRequest):
 
 @app.post("/api/batch/run")
 def run_batch(req: BatchRunRequest):
-    batch_engine.run_batch(req.cookie)
+    batch_engine.run_batch(req.cookie, ai_enabled_override=req.ai_enabled)
     return {"success": True}
 
 @app.post("/api/batch/stop")
@@ -196,6 +327,58 @@ def get_single_detail(id: int):
     if not results:
         raise HTTPException(status_code=404, detail="Single inspection record not found")
     return {"success": True, "results": results}
+
+class ScheduleCreateRequest(BaseModel):
+    freq: str
+    hour: int
+    minute: int = 0
+    day_of_week: Optional[str] = None
+    env: str = "stage"
+    ai_enabled: bool = False
+    slack_notify: bool = False
+    auto_diff: bool = False
+
+class SchedulePatchRequest(BaseModel):
+    freq: Optional[str] = None
+    hour: Optional[int] = None
+    minute: Optional[int] = None
+    day_of_week: Optional[str] = None
+    env: Optional[str] = None
+    ai_enabled: Optional[bool] = None
+    slack_notify: Optional[bool] = None
+    auto_diff: Optional[bool] = None
+    enabled: Optional[int] = None
+
+
+@app.get("/api/batch/schedule")
+def list_schedules():
+    return batch_engine.list_schedules()
+
+
+@app.post("/api/batch/schedule")
+def create_schedule(req: ScheduleCreateRequest):
+    new_id = batch_engine.add_schedule(
+        req.freq, req.hour, req.minute, req.day_of_week,
+        req.env, req.ai_enabled, req.slack_notify, req.auto_diff
+    )
+    _reload_scheduler_jobs()
+    return {"success": True, "id": new_id}
+
+
+@app.patch("/api/batch/schedule/{schedule_id}")
+def patch_schedule(schedule_id: int, req: SchedulePatchRequest):
+    updates = {k: v for k, v in req.model_dump(exclude_none=True).items()}
+    batch_engine.update_schedule(schedule_id, **updates)
+    _reload_scheduler_jobs()
+    return {"success": True}
+
+
+@app.delete("/api/batch/schedule/{schedule_id}")
+def remove_schedule(schedule_id: int):
+    batch_engine.delete_schedule(schedule_id)
+    _reload_scheduler_jobs()
+    return {"success": True}
+
 
 @app.get("/api/ai/usage")
 def get_ai_usage(limit: int = 100):

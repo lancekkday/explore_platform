@@ -73,9 +73,16 @@ class BatchEngine:
                     enabled INTEGER DEFAULT 1,
                     last_run TEXT,
                     next_run TEXT,
-                    created_at TEXT
+                    created_at TEXT,
+                    keywords_json TEXT
                 )
             ''')
+            # Add keywords_json column if it doesn't exist (migration for existing DBs)
+            try:
+                cur.execute("ALTER TABLE batch_schedule ADD COLUMN keywords_json TEXT")
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
             conn.commit()
             conn.close()
         except Exception as e:
@@ -233,18 +240,19 @@ class BatchEngine:
                 "production": {"total": 0, "results": [], "metrics": {"ndcg_10": 0, "mismatch_rate": 1.0}}
             }
 
-    def run_batch(self, cookie, ai_enabled_override=None):
+    def run_batch(self, cookie, ai_enabled_override=None, keyword_list_override=None):
         if self.is_running: return
         def _worker():
             self.is_running = True
             self.progress = 0
             self.results = {}
             self.save_state()
-            total_count = len(self.keyword_list)
+            active_list = keyword_list_override if keyword_list_override is not None else self.keyword_list
+            total_count = len(active_list)
             if total_count == 0:
                 self.is_running = False
                 return
-            for i, kw_obj in enumerate(self.keyword_list):
+            for i, kw_obj in enumerate(active_list):
                 if not self.is_running: break
                 kw_str = kw_obj["keyword"]
                 norm_key = kw_str.strip().lower()
@@ -347,22 +355,35 @@ class BatchEngine:
         try:
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
-            cur.execute("SELECT id, freq, hour, minute, day_of_week, env, ai_enabled, slack_notify, auto_diff, enabled, last_run, next_run, created_at FROM batch_schedule ORDER BY id ASC")
+            cur.execute("SELECT id, freq, hour, minute, day_of_week, env, ai_enabled, slack_notify, auto_diff, enabled, last_run, next_run, created_at, keywords_json FROM batch_schedule ORDER BY id ASC")
             rows = cur.fetchall()
             conn.close()
-            cols = ["id","freq","hour","minute","day_of_week","env","ai_enabled","slack_notify","auto_diff","enabled","last_run","next_run","created_at"]
-            return [dict(zip(cols, r)) for r in rows]
+            cols = ["id","freq","hour","minute","day_of_week","env","ai_enabled","slack_notify","auto_diff","enabled","last_run","next_run","created_at","keywords_json"]
+            result = []
+            for r in rows:
+                d = dict(zip(cols, r))
+                # Parse keywords_json into a list for convenience
+                if d.get("keywords_json"):
+                    try:
+                        d["keywords"] = json.loads(d["keywords_json"])
+                    except Exception:
+                        d["keywords"] = []
+                else:
+                    d["keywords"] = []
+                result.append(d)
+            return result
         except Exception as e:
             logger.error(f"list_schedules failed: {e}")
             return []
 
-    def add_schedule(self, freq, hour, minute, day_of_week, env, ai_enabled, slack_notify, auto_diff) -> int:
+    def add_schedule(self, freq, hour, minute, day_of_week, env, ai_enabled, slack_notify, auto_diff, keywords=None) -> int:
         try:
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
+            kw_json = json.dumps(keywords, ensure_ascii=False) if keywords else None
             cur.execute(
-                "INSERT INTO batch_schedule (freq, hour, minute, day_of_week, env, ai_enabled, slack_notify, auto_diff, enabled, created_at) VALUES (?,?,?,?,?,?,?,?,1,?)",
-                (freq, hour, minute, day_of_week, env, int(ai_enabled), int(slack_notify), int(auto_diff), datetime.now().isoformat())
+                "INSERT INTO batch_schedule (freq, hour, minute, day_of_week, env, ai_enabled, slack_notify, auto_diff, enabled, created_at, keywords_json) VALUES (?,?,?,?,?,?,?,?,1,?,?)",
+                (freq, hour, minute, day_of_week, env, int(ai_enabled), int(slack_notify), int(auto_diff), datetime.now().isoformat(), kw_json)
             )
             new_id = cur.lastrowid
             conn.commit()
@@ -373,7 +394,7 @@ class BatchEngine:
             return -1
 
     def update_schedule(self, schedule_id: int, **fields) -> None:
-        allowed = {"freq","hour","minute","day_of_week","env","ai_enabled","slack_notify","auto_diff","enabled","last_run","next_run"}
+        allowed = {"freq","hour","minute","day_of_week","env","ai_enabled","slack_notify","auto_diff","enabled","last_run","next_run","keywords_json"}
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
             return

@@ -2,6 +2,7 @@ from typing import Any, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import json
 import os
 from datetime import datetime, timedelta
 
@@ -121,7 +122,9 @@ def _run_scheduled_batch(schedule_id: int):
     except Exception as e:
         logger.error(f"[Scheduler] Cookie fetch failed: {e}")
         return
-    batch_engine.run_batch(cookie, ai_enabled_override=bool(s["ai_enabled"]))
+    # Use schedule-specific keywords if set, otherwise fall back to global list
+    kw_override = s.get("keywords") if s.get("keywords") else None
+    batch_engine.run_batch(cookie, ai_enabled_override=bool(s["ai_enabled"]), keyword_list_override=kw_override)
     next_run = _next_run_str(s)
     batch_engine.update_last_run(schedule_id, next_run)
     # Slack notification (if enabled and webhook configured)
@@ -336,6 +339,7 @@ class ScheduleCreateRequest(BaseModel):
     ai_enabled: bool = False
     slack_notify: bool = False
     auto_diff: bool = False
+    keywords: Optional[list] = None  # None = use global keyword list
 
 class SchedulePatchRequest(BaseModel):
     freq: Optional[str] = None
@@ -347,6 +351,7 @@ class SchedulePatchRequest(BaseModel):
     slack_notify: Optional[bool] = None
     auto_diff: Optional[bool] = None
     enabled: Optional[int] = None
+    keywords: Optional[list] = None  # None = keep existing
 
 
 @app.get("/api/batch/schedule")
@@ -356,9 +361,17 @@ def list_schedules():
 
 @app.post("/api/batch/schedule")
 def create_schedule(req: ScheduleCreateRequest):
+    # Normalise keywords: list of {keyword, ai_enabled} dicts or plain strings
+    kw_list = None
+    if req.keywords:
+        kw_list = [
+            kw if isinstance(kw, dict) else {"keyword": kw, "ai_enabled": req.ai_enabled}
+            for kw in req.keywords
+        ]
     new_id = batch_engine.add_schedule(
         req.freq, req.hour, req.minute, req.day_of_week,
-        req.env, req.ai_enabled, req.slack_notify, req.auto_diff
+        req.env, req.ai_enabled, req.slack_notify, req.auto_diff,
+        keywords=kw_list
     )
     _reload_scheduler_jobs()
     return {"success": True, "id": new_id}
@@ -366,8 +379,12 @@ def create_schedule(req: ScheduleCreateRequest):
 
 @app.patch("/api/batch/schedule/{schedule_id}")
 def patch_schedule(schedule_id: int, req: SchedulePatchRequest):
-    updates = {k: v for k, v in req.model_dump(exclude_none=True).items()}
-    batch_engine.update_schedule(schedule_id, **updates)
+    raw = req.model_dump(exclude_none=True)
+    # Convert keywords list → keywords_json string for storage
+    if "keywords" in raw:
+        kw = raw.pop("keywords")
+        raw["keywords_json"] = json.dumps(kw, ensure_ascii=False) if kw else None
+    batch_engine.update_schedule(schedule_id, **raw)
     _reload_scheduler_jobs()
     return {"success": True}
 

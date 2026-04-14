@@ -62,6 +62,7 @@ export default function ScheduleModal({ visible, schedule, onSave, onClose }) {
   const [aiEnabled, setAiEnabled] = useState(false)
   const [slackNotify, setSlackNotify] = useState(false)
   const [autoDiff, setAutoDiff] = useState(false)
+  const [kwText, setKwText] = useState('')
 
   useEffect(() => {
     if (!visible) return
@@ -75,10 +76,13 @@ export default function ScheduleModal({ visible, schedule, onSave, onClose }) {
       setAiEnabled(!!schedule.ai_enabled)
       setSlackNotify(!!schedule.slack_notify)
       setAutoDiff(!!schedule.auto_diff)
+      // Populate keywords textarea
+      const kws = schedule.keywords || []
+      setKwText(kws.map(k => (typeof k === 'string' ? k : k.keyword)).join('\n'))
     } else {
       setEnabled(false); setFreq('daily'); setHour(9); setMinute(0)
       setDaysOfWeek([1]); setEnv('stage'); setAiEnabled(false)
-      setSlackNotify(false); setAutoDiff(false)
+      setSlackNotify(false); setAutoDiff(false); setKwText('')
     }
   }, [visible, schedule])
 
@@ -93,6 +97,10 @@ export default function ScheduleModal({ visible, schedule, onSave, onClose }) {
     ? `${nextRun.toLocaleDateString('zh-TW')} ${String(nextRun.getHours()).padStart(2,'0')}:${String(nextRun.getMinutes()).padStart(2,'0')}`
     : null
 
+  const parsedKws = kwText
+    ? kwText.split(/[,\n]/).map(s => s.trim()).filter(s => s).map(s => ({ keyword: s, ai_enabled: aiEnabled }))
+    : null  // null = use global list
+
   const handleSave = () => {
     onSave({
       ...(schedule?.id ? { id: schedule.id } : {}),
@@ -105,6 +113,7 @@ export default function ScheduleModal({ visible, schedule, onSave, onClose }) {
       ai_enabled: aiEnabled,
       slack_notify: slackNotify,
       auto_diff: autoDiff,
+      keywords: parsedKws,
     })
   }
 
@@ -112,9 +121,9 @@ export default function ScheduleModal({ visible, schedule, onSave, onClose }) {
   const minuteOptions = [0, 15, 30, 45]
 
   return (
-    <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-xl animate-in fade-in transition-all">
+    <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-xl animate-in fade-in transition-all overflow-y-auto">
        <div className="absolute inset-0" onClick={onClose} />
-       <div className="relative z-10 bg-white w-full max-w-[22rem] rounded-[2rem] shadow-2xl border border-white/20 overflow-hidden text-slate-900">
+       <div className="relative z-10 bg-white w-full max-w-[26rem] rounded-[2rem] shadow-2xl border border-white/20 overflow-hidden text-slate-900">
 
           {/* Header */}
           <div className="bg-white border-b border-slate-100 px-7 py-5 flex items-center justify-between">
@@ -223,6 +232,26 @@ export default function ScheduleModal({ visible, schedule, onSave, onClose }) {
                      </div>
                    ))}
                 </div>
+             </div>
+
+             <div className="h-px bg-slate-100" />
+
+             {/* 巡檢關鍵字 */}
+             <div>
+                <div className="flex items-center justify-between mb-1.5">
+                   <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest">巡檢關鍵字</div>
+                   {parsedKws
+                     ? <span className="text-[9px] font-black text-indigo-500 font-mono">共 {parsedKws.length} 個</span>
+                     : <span className="text-[9px] font-black text-slate-400 font-mono">使用全域名單</span>
+                   }
+                </div>
+                <textarea
+                  value={kwText}
+                  onChange={e => setKwText(e.target.value)}
+                  rows={4}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-[11px] font-bold text-slate-800 focus:bg-white focus:border-indigo-400 outline-none resize-none transition-all"
+                  placeholder={"留空則使用全域名單\nesim\n日本旅遊\n大阪周遊券"}
+                />
              </div>
 
              {/* 下次執行預覽 */}

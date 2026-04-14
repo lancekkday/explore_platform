@@ -469,6 +469,10 @@ export default function App() {
                                </button>
                                <div className="flex-1 min-w-0">
                                   <span className="text-[12px] font-black text-slate-800">{freqLabel} {timeStr}{dowStr}</span>
+                                  {s.keywords && s.keywords.length > 0
+                                    ? <span className="text-[10px] text-indigo-500 ml-2 font-mono">{s.keywords.length} 個關鍵字</span>
+                                    : <span className="text-[10px] text-slate-400 ml-2 font-mono">全域名單</span>
+                                  }
                                   {s.next_run && <span className="text-[10px] text-slate-400 ml-3 font-mono">下次: {s.next_run.slice(0,16).replace('T',' ')}</span>}
                                </div>
                                <div className="flex gap-2 shrink-0">

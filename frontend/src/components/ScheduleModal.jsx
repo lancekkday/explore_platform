@@ -117,12 +117,15 @@ export default function ScheduleModal({ visible, schedule, onSave, onClose }) {
        <div className="relative z-10 bg-white w-full max-w-[22rem] rounded-[2rem] shadow-2xl border border-white/20 overflow-hidden text-slate-900">
 
           {/* Header */}
-          <div className="bg-[#0F172A] px-8 py-6 text-white flex items-start justify-between">
-             <div>
-                <h2 className="text-[16px] font-black tracking-tight">定期巡檢配置</h2>
-                <p className="text-[8px] font-black text-slate-500 uppercase tracking-[3px] mt-1">SCHEDULED INSPECTION CONFIG</p>
+          <div className="bg-white border-b border-slate-100 px-7 py-5 flex items-center justify-between">
+             <div className="flex items-center gap-3">
+                <span className="w-1 h-7 bg-indigo-500 rounded-full" />
+                <div>
+                   <h2 className="text-[15px] font-black tracking-tight text-slate-900">定期巡檢配置</h2>
+                   <p className="text-[8px] font-black text-slate-400 uppercase tracking-[3px] mt-0.5">SCHEDULED INSPECTION CONFIG</p>
+                </div>
              </div>
-             <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors text-xl leading-none mt-0.5">×</button>
+             <button onClick={onClose} className="text-slate-300 hover:text-slate-700 transition-colors text-xl leading-none">×</button>
           </div>
 
           <div className="p-6 flex flex-col gap-5">
@@ -234,9 +237,9 @@ export default function ScheduleModal({ visible, schedule, onSave, onClose }) {
              )}
 
              {/* 操作按鈕 */}
-             <div className="flex gap-4 pt-1">
-                <button onClick={onClose} className="flex-1 py-4 text-xs font-black text-slate-400 uppercase tracking-[4px] hover:text-slate-950 transition-colors">取消</button>
-                <button onClick={handleSave} className="flex-[2] py-4 bg-[#0F172A] text-white rounded-2xl text-[12px] font-black shadow-xl hover:bg-black uppercase tracking-[4px] active:scale-95 transition-all">儲存設定</button>
+             <div className="flex gap-3 pt-1">
+                <button onClick={onClose} className="flex-1 py-3 text-[11px] font-black text-slate-400 uppercase tracking-[3px] hover:text-slate-700 border border-slate-200 rounded-xl transition-all">取消</button>
+                <button onClick={handleSave} className="flex-[2] py-3 bg-indigo-600 text-white rounded-xl text-[12px] font-black shadow-md hover:bg-indigo-700 uppercase tracking-[4px] active:scale-95 transition-all">儲存設定</button>
              </div>
           </div>
        </div>

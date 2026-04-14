@@ -464,8 +464,8 @@ export default function App() {
                           const dowStr = s.day_of_week ? ` (${s.day_of_week.split(',').map(d => ['一','二','三','四','五','六','日'][Number(d)]).join('/')})` : ''
                           return (
                             <div key={s.id} className="px-8 py-3 flex items-center gap-4">
-                               <button onClick={() => handleToggleSchedule(s)} className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${s.enabled ? 'bg-emerald-500' : 'bg-slate-200'}`}>
-                                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${s.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                               <button onClick={() => handleToggleSchedule(s)} className={`relative inline-flex w-9 h-5 rounded-full transition-colors duration-200 focus:outline-none focus:ring-0 shrink-0 ${s.enabled ? 'bg-emerald-500' : 'bg-slate-200'}`}>
+                                  <span className={`absolute top-[3px] w-[14px] h-[14px] bg-white rounded-full shadow-md transition-all duration-200 ${s.enabled ? 'left-[19px]' : 'left-[3px]'}`} />
                                </button>
                                <div className="flex-1 min-w-0">
                                   <span className="text-[12px] font-black text-slate-800">{freqLabel} {timeStr}{dowStr}</span>

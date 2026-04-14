@@ -13,9 +13,9 @@ function Toggle({ value, onChange, disabled }) {
   return (
     <button
       onClick={() => !disabled && onChange(!value)}
-      className={`relative w-11 h-6 rounded-full transition-colors ${value ? 'bg-emerald-500' : 'bg-slate-200'} ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+      className={`relative inline-flex w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-0 shrink-0 ${value ? 'bg-emerald-500' : 'bg-slate-200'} ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
     >
-      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${value ? 'translate-x-5' : 'translate-x-0.5'}`} />
+      <span className={`absolute top-[3px] w-[18px] h-[18px] bg-white rounded-full shadow-md transition-all duration-200 ${value ? 'left-[23px]' : 'left-[3px]'}`} />
     </button>
   )
 }

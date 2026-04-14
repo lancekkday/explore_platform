@@ -159,7 +159,9 @@ def _reload_scheduler_jobs():
                 dow = s.get("day_of_week") or "0"
                 trigger = CronTrigger(day_of_week=dow, hour=h, minute=m, timezone="Asia/Taipei")
             elif freq == "biweekly":
-                trigger = IntervalTrigger(weeks=2)
+                # Calculate first occurrence for start_date
+                start_dt = datetime.fromisoformat(_next_run_str(s))
+                trigger = IntervalTrigger(weeks=2, start_date=start_dt, timezone="Asia/Taipei")
             elif freq == "monthly":
                 trigger = CronTrigger(day=1, hour=h, minute=m, timezone="Asia/Taipei")
             else:

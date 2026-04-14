@@ -14,12 +14,13 @@ import {
   startBatch as apiBatchStart, stopBatch as apiBatchStop,
   fetchBatchStatus, fetchBatchResults, fetchBatchHistory,
   fetchBatchHistoryDetail, fetchSingleHistory, fetchSingleHistoryDetail,
+  fetchSchedules, addSchedule, updateSchedule, deleteSchedule,
 } from './api'
+import ScheduleModal from './components/ScheduleModal'
 
 export default function App() {
   const [tab, setTab] = useState('discovery')
   const [keyword, setKeyword] = useState('esim')
-  const [searchMode, setSearchMode] = useState('both')
   const [cookie, setCookie] = useState('')
   const [cookieInfo, setCookieInfo] = useState(null)
   const [singleAiMode, setSingleAiMode] = useState(false)
@@ -27,7 +28,6 @@ export default function App() {
 
   const [loading, setLoading] = useState(false)
   const [stageData, setStageData] = useState(null)
-  const [prodData, setProdData] = useState(null)
   const [error, setError] = useState('')
 
   const [edittingProduct, setEdittingProduct] = useState(null)
@@ -44,29 +44,34 @@ export default function App() {
   const [singleHistory, setSingleHistory] = useState([])
   const [showSingleHistory, setShowSingleHistory] = useState(false)
 
+  const [schedules, setSchedules] = useState([])
+  const [scheduleModalVisible, setScheduleModalVisible] = useState(false)
+  const [editingSchedule, setEditingSchedule] = useState(null)
+
   const hasAutoSearched = useRef(false);
 
   // ── Functions declared before useEffect hooks that reference them ──────────
 
   async function fetchAuditData() {
     try {
-      const [kwRes, statRes, resRes, histRes] = await Promise.all([
+      const [kwRes, statRes, resRes, histRes, schedRes] = await Promise.all([
         fetchKeywords(),
         fetchBatchStatus(),
         fetchBatchResults(),
         fetchBatchHistory(),
+        fetchSchedules(),
       ]);
       if (kwRes?.keywords) setAuditKeywords(kwRes.keywords);
       if (statRes) setBatchStatus(statRes);
       if (resRes?.results) setBatchResults(resRes.results);
       if (histRes?.history) setBatchHistory(histRes.history);
+      if (Array.isArray(schedRes)) setSchedules(schedRes);
     } catch { /* silent: polling failure is non-critical */ }
   }
 
   async function autoFetchCookie() {
     try {
-      const cookieEnv = searchMode === 'stage' ? 'stage' : 'production';
-      const res = await fetchGuestCookie(cookieEnv);
+      const res = await fetchGuestCookie('stage');
       if (res && res.cookie) { setCookie(res.cookie); setCookieInfo(res); return res; }
       return null;
     } catch {
@@ -80,9 +85,8 @@ export default function App() {
     setLoading(true); setError(''); setTab('discovery');
     try {
       const res = await fetchCompare(kw, cookie, 300, singleAiMode);
-      if (res && (res.stage || res.production)) {
+      if (res && res.stage) {
         setStageData(res.stage);
-        setProdData(res.production);
       } else {
         setError(res?.detail || '返回數據異常');
       }
@@ -117,7 +121,7 @@ export default function App() {
       const cached = findResult(kw);
       if (cached && cached.stage?.results) {
         setKeyword(kw); setTab('discovery');
-        setStageData(cached.stage); setProdData(cached.production);
+        setStageData(cached.stage);
         hasAutoSearched.current = true;
       } else if (cookie) {
         setKeyword(kw); handleSearch(kw);
@@ -179,6 +183,39 @@ export default function App() {
         setShowSingleHistory(false);
       }
     } catch { alert("載入失敗"); }
+  }
+
+  const handleSaveSchedule = async (config) => {
+    try {
+      console.log('[Schedule] saving config:', JSON.stringify(config))
+      let res
+      if (config.id) {
+        res = await updateSchedule(config.id, config);
+      } else {
+        res = await addSchedule(config);
+      }
+      console.log('[Schedule] save response:', JSON.stringify(res))
+      setScheduleModalVisible(false);
+      setEditingSchedule(null);
+      fetchAuditData();
+    } catch (e) {
+      console.error('[Schedule] save failed:', e)
+      alert(`儲存失敗: ${e?.message || e}`)
+    }
+  }
+
+  const handleToggleSchedule = async (s) => {
+    try {
+      await updateSchedule(s.id, { enabled: s.enabled ? 0 : 1 });
+      fetchAuditData();
+    } catch { /* silent */ }
+  }
+
+  const handleDeleteSchedule = async (id) => {
+    try {
+      await deleteSchedule(id);
+      fetchAuditData();
+    } catch { /* silent */ }
   }
 
   const handleRestoreHistory = async (id) => {
@@ -259,13 +296,9 @@ export default function App() {
                    )}
                 </div>
 
-                <div className="flex items-center bg-slate-50 border-2 border-slate-100 rounded-xl px-3 py-1.5 hover:border-slate-300 transition-all">
+                <div className="flex items-center gap-1.5 bg-slate-50 border-2 border-slate-100 rounded-xl px-3 py-1.5">
                    <IconGlobe />
-                   <select value={searchMode} onChange={e => setSearchMode(e.target.value)} className="bg-transparent text-[10.5px] font-black text-slate-800 outline-none cursor-pointer pl-1.5">
-                      <option value="both">⚔️ 雙環境比對巡檢</option>
-                      <option value="stage">🧪 僅 Stage 巡檢</option>
-                      <option value="prod">🚀 僅 Production 巡檢</option>
-                   </select>
+                   <span className="text-[10.5px] font-black text-slate-600 pl-1">🧪 Stage</span>
                 </div>
 
                 <div className="flex gap-2 text-[10.5px] font-black">
@@ -298,19 +331,11 @@ export default function App() {
                       <div className="text-indigo-900 font-black text-[11px] tracking-[6px] animate-pulse uppercase">Syncing</div>
                    </div>
                 )}
-                <div className="flex-1 flex overflow-hidden w-full gap-4">
-                   {(searchMode === 'both' || searchMode === 'stage') && (
-                     <div className="flex-1 min-w-0 flex flex-col min-h-0 gap-4">
-                        <CompactMetricBar data={stageData} env="STAGE 測試" envCode="STG-01" color="#10B981" />
-                        <ResultList items={stageData?.results} title="STAGE 巡檢清單" total={stageData?.total || 0} color="#10B981" onCalibrate={handleCalibrate} doubtOnly={doubtOnly} keyword={keyword} />
-                     </div>
-                   )}
-                   {(searchMode === 'both' || searchMode === 'prod') && (
-                     <div className="flex-1 min-w-0 flex flex-col min-h-0 gap-4">
-                        <CompactMetricBar data={prodData} env="PROD 正式" envCode="LIVE-01" color="#3B82F6" />
-                        <ResultList items={prodData?.results} title="PROD 巡檢清單" total={prodData?.total || 0} color="#3B82F6" onCalibrate={handleCalibrate} doubtOnly={doubtOnly} keyword={keyword} />
-                     </div>
-                   )}
+                <div className="flex-1 flex overflow-hidden w-full">
+                   <div className="flex-1 min-w-0 flex flex-col min-h-0 gap-4">
+                      <CompactMetricBar data={stageData} env="STAGE 測試" envCode="STG-01" color="#10B981" />
+                      <ResultList items={stageData?.results} title="STAGE 巡檢清單" total={stageData?.total || 0} color="#10B981" onCalibrate={handleCalibrate} doubtOnly={doubtOnly} keyword={keyword} />
+                   </div>
                 </div>
              </div>
           </div>
@@ -319,18 +344,10 @@ export default function App() {
              <div className="px-8 py-2.5 bg-white border-b border-slate-200 shadow-sm flex items-center gap-4 shrink-0 z-20">
                 <h2 className="text-[14px] font-black text-slate-900 tracking-tight uppercase leading-none shrink-0">批次指令中心</h2>
 
-                <div className="flex items-center bg-slate-50 border-2 border-slate-100 rounded-xl px-3 py-1.5 hover:border-slate-300 transition-all shrink-0">
+                <div className="flex items-center gap-1.5 bg-slate-50 border-2 border-slate-100 rounded-xl px-3 py-1.5 shrink-0">
                    <IconGlobe />
-                   <select value={searchMode} onChange={e => setSearchMode(e.target.value)} className="bg-transparent text-[10.5px] font-black text-slate-800 outline-none cursor-pointer pl-1.5">
-                      <option value="both">⚔️ 雙環境比對巡檢</option>
-                      <option value="stage">🧪 僅 Stage 巡檢</option>
-                      <option value="prod">🚀 僅 Production 巡檢</option>
-                   </select>
+                   <span className="text-[10.5px] font-black text-slate-600 pl-1">🧪 Stage</span>
                 </div>
-
-                <button onClick={() => setSingleAiMode(!singleAiMode)} className={`flex items-center gap-2 px-5 py-2 rounded-xl border-2 text-[10.5px] font-black transition-all shrink-0 ${singleAiMode ? 'bg-[#0F172A] text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-800'}`}>
-                   <IconBot /> AI 解析: {singleAiMode ? '啟用' : '關閉'}
-                </button>
 
                 <div className="flex-1 max-w-xs">
                    <div className="flex justify-between items-end mb-1"><span className="text-[8px] font-black text-slate-400 font-mono uppercase">Progress</span><span className="text-[11px] font-black text-indigo-700 font-mono italic">{batchStatus.progress}%</span></div>
@@ -339,6 +356,7 @@ export default function App() {
 
                 <div className="flex gap-2 shrink-0">
                    <button onClick={() => { setKwInputText(auditKeywords.map(k => k.keyword).join(', ')); setKwEditorVisible(true); }} className="px-6 py-2 border border-slate-200 bg-white text-slate-500 rounded-xl text-[10.5px] font-black hover:border-slate-800 transition-all shadow-sm">任務配置</button>
+                   <button onClick={() => { setEditingSchedule(null); setScheduleModalVisible(true); }} className={`px-6 py-2 border rounded-xl text-[10.5px] font-black transition-all shadow-sm ${schedules.some(s => s.enabled) ? 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:border-indigo-500' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-800'}`}>排程設定</button>
                    {batchStatus.is_running ? (
                       <button onClick={handleStopBatch} className="px-10 py-2 bg-rose-500 text-white rounded-xl text-[11px] font-black shadow-lg flex items-center gap-2"><IconSquare /> 終止</button>
                    ) : (
@@ -355,7 +373,6 @@ export default function App() {
                               <th className="px-8 py-3">核心關鍵字</th>
                               <th className="px-4 py-3 text-center border-l border-slate-100">Status</th>
                               <th className="px-6 py-3 text-center border-l border-slate-100">STG ND@10</th>
-                              <th className="px-6 py-3 text-center border-l border-slate-100">PRD ND@10</th>
                               <th className="px-6 py-3 text-center border-l border-slate-100">誤判率</th>
                               <th className="px-8 py-3 text-right border-l border-slate-100">ACTION</th>
                            </tr>
@@ -367,7 +384,6 @@ export default function App() {
                               const isDone = !!res;
                               const isActive = normalizeKw(kwStr) === normalizeKw(batchStatus.current_keyword);
                               const m = res?.stage?.metrics || res?.stage || {};
-                              const pm = res?.production?.metrics || res?.production || {};
                               return (
                                  <tr key={kwStr} className={`hover:bg-slate-50 transition-all ${isActive ? 'bg-indigo-50/50 border-l-[6px] border-l-indigo-600' : ''}`}>
                                     <td className="px-8 py-3.5 font-black text-[14px] text-slate-900 uppercase tracking-tight">{kwStr}</td>
@@ -375,7 +391,6 @@ export default function App() {
                                        {isDone ? <span className="text-[10px] font-black text-emerald-600 uppercase font-mono italic">Done</span> : isActive ? <span className="text-[10px] font-black text-indigo-700 animate-pulse font-mono uppercase tracking-widest">Active</span> : <span className="text-[10px] font-black text-slate-200 font-mono uppercase">Wait</span>}
                                     </td>
                                     <td className="px-6 py-3.5 border-l border-slate-50 text-center font-mono font-black text-emerald-600">{isDone ? `${Math.round((m.ndcg_at_10 || m.ndcg_10 || 0)*100)}%` : '-'}</td>
-                                    <td className="px-6 py-3.5 border-l border-slate-50 text-center font-mono font-black text-blue-600">{isDone ? `${Math.round((pm.ndcg_at_10 || pm.ndcg_10 || 0)*100)}%` : '-'}</td>
                                     <td className="px-6 py-3.5 border-l border-slate-50 text-center font-black text-rose-500 text-[11px]">{isDone ? `${Math.round((m.mismatch_rate || 0)*100)}%` : '-'}</td>
                                     <td className="px-8 py-3.5 text-right border-l border-slate-50">
                                        <button onClick={() => window.open(`${import.meta.env.BASE_URL}?keyword=${encodeURIComponent(kwStr)}`, '_blank')} disabled={!isDone} className={`px-4 py-1.5 rounded-lg border text-[10px] font-black shadow-sm ${isDone ? 'bg-white border-slate-200 text-slate-800 hover:border-slate-800 hover:bg-slate-900 hover:text-white transition-all' : 'bg-slate-50 text-slate-200 cursor-not-allowed'}`}>詳細報告</button>
@@ -442,6 +457,54 @@ export default function App() {
                       </table>
                    </div>
                 </div>
+                {schedules.length > 0 && (
+                  <div className="bg-white border border-slate-200 rounded-[1.5rem] shadow-sm overflow-hidden shrink-0">
+                     <div className="px-8 py-2.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
+                        <span className="text-[11px] font-black text-slate-800 uppercase tracking-[3px] font-mono">定期排程狀態</span>
+                        <button onClick={() => { setEditingSchedule(null); setScheduleModalVisible(true); }} className="text-[10px] font-black text-indigo-600 hover:text-indigo-800 transition-colors">+ 新增排程</button>
+                     </div>
+                     <div className="divide-y divide-slate-50">
+                        {schedules.map(s => {
+                          const freqLabel = { daily:'每天', weekly:'每週', biweekly:'每兩週', monthly:'每月' }[s.freq] || s.freq
+                          const timeStr = `${String(s.hour).padStart(2,'0')}:${String(s.minute).padStart(2,'0')}`
+                          const dowStr = s.day_of_week ? ` (${s.day_of_week.split(',').map(d => ['一','二','三','四','五','六','日'][Number(d)]).join('/')})` : ''
+                          return (
+                            <div key={s.id} className="px-8 py-3 flex items-center gap-4">
+                               <button onClick={() => handleToggleSchedule(s)} className={`relative inline-flex w-9 h-5 rounded-full transition-colors duration-200 focus:outline-none focus:ring-0 shrink-0 ${s.enabled ? 'bg-emerald-500' : 'bg-slate-200'}`}>
+                                  <span className={`absolute top-[3px] w-[14px] h-[14px] bg-white rounded-full shadow-md transition-all duration-200 ${s.enabled ? 'left-[19px]' : 'left-[3px]'}`} />
+                               </button>
+                               <div className="flex-1 min-w-0">
+                                  <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
+                                    <span className="text-[12px] font-black text-slate-800">{freqLabel} {timeStr}{dowStr}</span>
+                                    {s.next_run && <span className="text-[10px] text-slate-400 font-mono">下次: {s.next_run.slice(0,16).replace('T',' ')}</span>}
+                                  </div>
+                                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                    {s.keywords && s.keywords.length > 0 ? (
+                                      <>
+                                        {s.keywords.slice(0, 4).map((k, i) => (
+                                          <span key={i} className="bg-slate-100 text-slate-600 text-[9px] font-bold px-1.5 py-0.5 rounded-md font-mono">
+                                            {typeof k === 'string' ? k : k.keyword}
+                                          </span>
+                                        ))}
+                                        {s.keywords.length > 4 && (
+                                          <span className="text-[9px] text-slate-400 font-mono">+{s.keywords.length - 4}</span>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <span className="text-[9px] text-slate-400 font-mono">使用全域名單 ({auditKeywords.length} 個關鍵字)</span>
+                                    )}
+                                  </div>
+                               </div>
+                               <div className="flex gap-2 shrink-0">
+                                  <button onClick={() => { setEditingSchedule(s); setScheduleModalVisible(true); }} className="px-3 py-1 border border-slate-200 rounded-lg text-[9px] font-black text-slate-600 hover:border-slate-800 transition-all">編輯</button>
+                                  <button onClick={() => handleDeleteSchedule(s.id)} className="px-3 py-1 border border-rose-100 rounded-lg text-[9px] font-black text-rose-500 hover:border-rose-400 transition-all">刪除</button>
+                               </div>
+                            </div>
+                          )
+                        })}
+                     </div>
+                  </div>
+                )}
              </div>
           </div>
         )}
@@ -462,6 +525,12 @@ export default function App() {
         onInputChange={setKwInputText}
         onSave={saveKeywords}
         onClose={() => setKwEditorVisible(false)}
+      />
+      <ScheduleModal
+        visible={scheduleModalVisible}
+        schedule={editingSchedule}
+        onSave={handleSaveSchedule}
+        onClose={() => { setScheduleModalVisible(false); setEditingSchedule(null); }}
       />
     </div>
   )

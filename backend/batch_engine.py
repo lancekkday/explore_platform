@@ -59,6 +59,30 @@ class BatchEngine:
                     data_json TEXT
                 )
             ''')
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS batch_schedule (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    freq TEXT NOT NULL,
+                    hour INTEGER NOT NULL,
+                    minute INTEGER NOT NULL DEFAULT 0,
+                    day_of_week TEXT,
+                    env TEXT DEFAULT 'stage',
+                    ai_enabled INTEGER DEFAULT 0,
+                    slack_notify INTEGER DEFAULT 0,
+                    auto_diff INTEGER DEFAULT 0,
+                    enabled INTEGER DEFAULT 1,
+                    last_run TEXT,
+                    next_run TEXT,
+                    created_at TEXT,
+                    keywords_json TEXT
+                )
+            ''')
+            # Add keywords_json column if it doesn't exist (migration for existing DBs)
+            try:
+                cur.execute("ALTER TABLE batch_schedule ADD COLUMN keywords_json TEXT")
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
             conn.commit()
             conn.close()
         except Exception as e:
@@ -164,27 +188,21 @@ class BatchEngine:
         
         try:
             ai_metadata = judger.get_ai_metadata(keyword, ai_enabled=ai_enabled)
-            s_prods, s_total, _ = fetch_kkday_products(keyword, "stage",      cookie, 300)
-            p_prods, p_total, _ = fetch_kkday_products(keyword, "production", cookie, 300)
+            s_prods, s_total, _ = fetch_kkday_products(keyword, "stage", cookie, 300)
+            # Production disabled (Datadome blocks prod API)
+            p_prods, p_total = [], 0
 
             s_res = []
             for i, p in enumerate(s_prods):
                 try:
                     judgement = judger.judge_product(p, keyword, ai_metadata)
                     s_res.append(self._slim_for_batch(p, i+1, judgement))
-                except Exception as e:
+                except Exception:
                     s_res.append(self._slim_for_batch(p, i+1, {"tier": 0}))
 
             p_res = []
-            for i, p in enumerate(p_prods):
-                try:
-                    judgement = judger.judge_product(p, keyword, ai_metadata)
-                    p_res.append(self._slim_for_batch(p, i+1, judgement))
-                except Exception as e:
-                    p_res.append(self._slim_for_batch(p, i+1, {"tier": 0}))
 
             calibration_manager.apply_overrides(keyword, s_res)
-            calibration_manager.apply_overrides(keyword, p_res)
 
             s_stats = compute_recall_stats(s_res)
             p_stats = compute_recall_stats(p_res)
@@ -222,33 +240,55 @@ class BatchEngine:
                 "production": {"total": 0, "results": [], "metrics": {"ndcg_10": 0, "mismatch_rate": 1.0}}
             }
 
-    def run_batch(self, cookie):
-        if self.is_running: return
-        def _worker():
-            self.is_running = True
-            self.progress = 0
-            self.results = {}
-            self.save_state()
-            total_count = len(self.keyword_list)
-            if total_count == 0:
-                self.is_running = False
-                return
-            for i, kw_obj in enumerate(self.keyword_list):
-                if not self.is_running: break
+    def run_batch_sync(self, cookie, ai_enabled_override=None, keyword_list_override=None):
+        """
+        Run a batch synchronously in the calling thread.
+        Used by APScheduler (which already provides a worker thread) so that
+        post-batch actions (last_run update, Slack notify) only fire after
+        the batch truly completes.
+        Returns False if a batch is already running, True otherwise.
+        """
+        if self.is_running:
+            return False
+        self.is_running = True
+        self.progress = 0
+        self.results = {}
+        self.save_state()
+        active_list = keyword_list_override if keyword_list_override is not None else self.keyword_list
+        total_count = len(active_list)
+        if total_count == 0:
+            self.is_running = False
+            return True
+        try:
+            for i, kw_obj in enumerate(active_list):
+                if not self.is_running:
+                    break
                 kw_str = kw_obj["keyword"]
                 norm_key = kw_str.strip().lower()
                 self.current_keyword = kw_str
-                res = self.process_keyword(kw_obj, cookie)
-                if res: self.results[norm_key] = res
+                effective_kw_obj = kw_obj if ai_enabled_override is None else {**kw_obj, "ai_enabled": ai_enabled_override}
+                res = self.process_keyword(effective_kw_obj, cookie)
+                if res:
+                    self.results[norm_key] = res
                 self.progress = int(((i + 1) / total_count) * 100)
                 self.save_state()
                 time.sleep(0.5)
+        finally:
             self.is_running = False
             self.current_keyword = None
-            self.save_history_record()
-            logger.info(f"[Batch] Finished {total_count} tasks. Saved record.")
+        self.save_history_record()
+        logger.info(f"[Batch] Finished {total_count} tasks. Saved record.")
+        return True
 
-        threading.Thread(target=_worker, daemon=True).start()
+    def run_batch(self, cookie, ai_enabled_override=None, keyword_list_override=None):
+        """Start a batch in a background daemon thread (used by manual API trigger)."""
+        if self.is_running:
+            return
+        threading.Thread(
+            target=self.run_batch_sync,
+            args=(cookie, ai_enabled_override, keyword_list_override),
+            daemon=True,
+        ).start()
 
     def save_history_record(self):
         if not self.results: return
@@ -326,5 +366,75 @@ class BatchEngine:
 
     def stop_batch(self):
         self.is_running = False
+
+    # ── Schedule CRUD ────────────────────────────────────────────────────────
+
+    def list_schedules(self) -> list:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute("SELECT id, freq, hour, minute, day_of_week, env, ai_enabled, slack_notify, auto_diff, enabled, last_run, next_run, created_at, keywords_json FROM batch_schedule ORDER BY id ASC")
+            rows = cur.fetchall()
+            conn.close()
+            cols = ["id","freq","hour","minute","day_of_week","env","ai_enabled","slack_notify","auto_diff","enabled","last_run","next_run","created_at","keywords_json"]
+            result = []
+            for r in rows:
+                d = dict(zip(cols, r))
+                # Parse keywords_json into a list for convenience
+                if d.get("keywords_json"):
+                    try:
+                        d["keywords"] = json.loads(d["keywords_json"])
+                    except Exception:
+                        d["keywords"] = []
+                else:
+                    d["keywords"] = []
+                result.append(d)
+            return result
+        except Exception as e:
+            logger.error(f"list_schedules failed: {e}")
+            return []
+
+    def add_schedule(self, freq, hour, minute, day_of_week, env, ai_enabled, slack_notify, auto_diff, keywords=None) -> int:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            kw_json = json.dumps(keywords, ensure_ascii=False) if keywords else None
+            cur.execute(
+                "INSERT INTO batch_schedule (freq, hour, minute, day_of_week, env, ai_enabled, slack_notify, auto_diff, enabled, created_at, keywords_json) VALUES (?,?,?,?,?,?,?,?,1,?,?)",
+                (freq, hour, minute, day_of_week, env, int(ai_enabled), int(slack_notify), int(auto_diff), datetime.now().isoformat(), kw_json)
+            )
+            new_id = cur.lastrowid
+            conn.commit()
+            conn.close()
+            return new_id
+        except Exception as e:
+            logger.error(f"add_schedule failed: {e}")
+            return -1
+
+    def update_schedule(self, schedule_id: int, **fields) -> None:
+        allowed = {"freq","hour","minute","day_of_week","env","ai_enabled","slack_notify","auto_diff","enabled","last_run","next_run","keywords_json"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            set_clause = ", ".join(f"{k}=?" for k in updates)
+            conn.execute(f"UPDATE batch_schedule SET {set_clause} WHERE id=?", (*updates.values(), schedule_id))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"update_schedule failed: {e}")
+
+    def delete_schedule(self, schedule_id: int) -> None:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute("DELETE FROM batch_schedule WHERE id=?", (schedule_id,))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"delete_schedule failed: {e}")
+
+    def update_last_run(self, schedule_id: int, next_run: str) -> None:
+        self.update_schedule(schedule_id, last_run=datetime.now().isoformat(), next_run=next_run)
 
 engine = BatchEngine()

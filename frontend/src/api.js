@@ -7,7 +7,7 @@ export const fetchCompare = (keyword, cookie, count, ai_enabled) =>
     body: JSON.stringify({ keyword, cookie, count, ai_enabled }),
   }).then(r => r.json())
 
-export const fetchGuestCookie = (env = 'production') =>
+export const fetchGuestCookie = (env = 'stage') =>
   fetch(`${API_BASE}/guest-cookie?env=${env}`).then(r => r.json())
 
 export const saveFeedback = (keyword, product_id, user_tier, comment) =>
@@ -54,6 +54,26 @@ export const fetchSingleHistory = () =>
 
 export const fetchSingleHistoryDetail = (id) =>
   fetch(`${API_BASE}/single/history/${id}`).then(r => r.json())
+
+export const fetchSchedules = () =>
+  fetch(`${API_BASE}/batch/schedule`).then(r => r.json())
+
+export const addSchedule = (config) =>
+  fetch(`${API_BASE}/batch/schedule`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  }).then(r => r.json())
+
+export const updateSchedule = (id, fields) =>
+  fetch(`${API_BASE}/batch/schedule/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  }).then(r => r.json())
+
+export const deleteSchedule = (id) =>
+  fetch(`${API_BASE}/batch/schedule/${id}`, { method: 'DELETE' }).then(r => r.json())
 
 export const explainProduct = (keyword, product) =>
   fetch(`${API_BASE}/explain`, {

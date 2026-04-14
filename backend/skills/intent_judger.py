@@ -1,6 +1,8 @@
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+TZ_TAIPEI = timezone(timedelta(hours=8))
 from typing import Optional, Dict, List, Any, TypedDict
 from skills.ai_agent import parse_intent_with_ai
 from skills.intent_matcher import IntentMatcher
@@ -59,7 +61,7 @@ class IntentJudger:
             conn.execute(
                 "INSERT INTO ai_usage_log (timestamp, keyword, trigger_reason, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd) VALUES (?,?,?,?,?,?,?)",
                 (
-                    datetime.now().isoformat(),
+                    datetime.now(TZ_TAIPEI).isoformat(),
                     keyword,
                     trigger_reason,
                     usage["prompt_tokens"],

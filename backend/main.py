@@ -93,7 +93,7 @@ def _next_run_str(schedule: dict) -> str:
     """Compute next run time string for a schedule dict."""
     freq = schedule["freq"]
     h, m = schedule["hour"], schedule["minute"]
-    now = datetime.now()
+    now = datetime.now(TZ_TAIPEI)
     candidate = now.replace(hour=h, minute=m, second=0, microsecond=0)
     if freq == "daily":
         if candidate <= now:

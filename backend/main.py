@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -19,7 +19,8 @@ from batch_engine import engine as batch_engine
 from skills.intent_judger import judger
 from skills.calibration_manager import calibration_manager
 
-scheduler = BackgroundScheduler(timezone="Asia/Taipei")
+TZ_TAIPEI = timezone(timedelta(hours=8))  # UTC+8, no system tzdata needed
+scheduler = BackgroundScheduler(timezone=TZ_TAIPEI)
 
 app = FastAPI(title="Search Intent Verification API")
 
@@ -173,16 +174,16 @@ def _reload_scheduler_jobs():
         sid = s["id"]
         try:
             if freq == "daily":
-                trigger = CronTrigger(hour=h, minute=m, timezone="Asia/Taipei")
+                trigger = CronTrigger(hour=h, minute=m, timezone=TZ_TAIPEI)
             elif freq == "weekly":
                 dow = s.get("day_of_week") or "0"
-                trigger = CronTrigger(day_of_week=dow, hour=h, minute=m, timezone="Asia/Taipei")
+                trigger = CronTrigger(day_of_week=dow, hour=h, minute=m, timezone=TZ_TAIPEI)
             elif freq == "biweekly":
                 # Calculate first occurrence for start_date
                 start_dt = datetime.fromisoformat(_next_run_str(s))
-                trigger = IntervalTrigger(weeks=2, start_date=start_dt, timezone="Asia/Taipei")
+                trigger = IntervalTrigger(weeks=2, start_date=start_dt, timezone=TZ_TAIPEI)
             elif freq == "monthly":
-                trigger = CronTrigger(day=1, hour=h, minute=m, timezone="Asia/Taipei")
+                trigger = CronTrigger(day=1, hour=h, minute=m, timezone=TZ_TAIPEI)
             else:
                 continue
             scheduler.add_job(

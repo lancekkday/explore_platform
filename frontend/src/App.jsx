@@ -468,12 +468,26 @@ export default function App() {
                                   <span className={`absolute top-[3px] w-[14px] h-[14px] bg-white rounded-full shadow-md transition-all duration-200 ${s.enabled ? 'left-[19px]' : 'left-[3px]'}`} />
                                </button>
                                <div className="flex-1 min-w-0">
-                                  <span className="text-[12px] font-black text-slate-800">{freqLabel} {timeStr}{dowStr}</span>
-                                  {s.keywords && s.keywords.length > 0
-                                    ? <span className="text-[10px] text-indigo-500 ml-2 font-mono">{s.keywords.length} 個關鍵字</span>
-                                    : <span className="text-[10px] text-slate-400 ml-2 font-mono">全域名單</span>
-                                  }
-                                  {s.next_run && <span className="text-[10px] text-slate-400 ml-3 font-mono">下次: {s.next_run.slice(0,16).replace('T',' ')}</span>}
+                                  <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
+                                    <span className="text-[12px] font-black text-slate-800">{freqLabel} {timeStr}{dowStr}</span>
+                                    {s.next_run && <span className="text-[10px] text-slate-400 font-mono">下次: {s.next_run.slice(0,16).replace('T',' ')}</span>}
+                                  </div>
+                                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                    {s.keywords && s.keywords.length > 0 ? (
+                                      <>
+                                        {s.keywords.slice(0, 4).map((k, i) => (
+                                          <span key={i} className="bg-slate-100 text-slate-600 text-[9px] font-bold px-1.5 py-0.5 rounded-md font-mono">
+                                            {typeof k === 'string' ? k : k.keyword}
+                                          </span>
+                                        ))}
+                                        {s.keywords.length > 4 && (
+                                          <span className="text-[9px] text-slate-400 font-mono">+{s.keywords.length - 4}</span>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <span className="text-[9px] text-slate-400 font-mono">使用全域名單 ({auditKeywords.length} 個關鍵字)</span>
+                                    )}
+                                  </div>
                                </div>
                                <div className="flex gap-2 shrink-0">
                                   <button onClick={() => { setEditingSchedule(s); setScheduleModalVisible(true); }} className="px-3 py-1 border border-slate-200 rounded-lg text-[9px] font-black text-slate-600 hover:border-slate-800 transition-all">編輯</button>

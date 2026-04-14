@@ -424,12 +424,14 @@ export default function App() {
                                const ndcgColor = ndcg >= 80 ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
                                  : ndcg >= 50 ? 'bg-amber-50 text-amber-700 border-amber-100'
                                  : 'bg-rose-50 text-rose-600 border-rose-100'
-                               const [datePart, timePart] = (h.timestamp || '').split('T')
+                               const tsDate = h.timestamp ? new Date(h.timestamp) : null
+                               const datePart = tsDate ? tsDate.toLocaleDateString('zh-TW', {year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\//g,'-') : '-'
+                               const timePart = tsDate ? tsDate.toLocaleTimeString('zh-TW', {hour:'2-digit',minute:'2-digit',hour12:false}) : ''
                                return (
                                  <tr key={h.id} className="hover:bg-indigo-50/20 transition-all font-bold">
                                    <td className="px-8 py-2.5 text-slate-400 font-mono text-[11px]">#{h.id.toString().padStart(3,'0')}</td>
                                    <td className="px-6 py-2.5 text-slate-700 text-[12px]">
-                                     {datePart} <span className="text-slate-400 font-mono ml-1">{timePart?.slice(0,5)}</span>
+                                     {datePart} <span className="text-slate-400 font-mono ml-1">{timePart}</span>
                                    </td>
                                    <td className="px-6 py-2.5 max-w-[280px]">
                                      {(() => {

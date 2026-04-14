@@ -118,7 +118,6 @@ export default function ScheduleModal({ visible, schedule, onSave, onClose }) {
   }
 
   const hourOptions = Array.from({ length: 24 }, (_, i) => i)
-  const minuteOptions = [0, 15, 30, 45]
 
   return (
     <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-xl animate-in fade-in transition-all overflow-y-auto">
@@ -165,9 +164,16 @@ export default function ScheduleModal({ visible, schedule, onSave, onClose }) {
                          {hourOptions.map(h => <option key={h} value={h}>{String(h).padStart(2,'0')}</option>)}
                       </select>
                       <span className="self-center text-slate-400 font-black">:</span>
-                      <select value={minute} onChange={e => setMinute(Number(e.target.value))} className="flex-1 border border-slate-200 rounded-xl px-2 py-2 text-[12px] font-black text-slate-800 bg-white outline-none cursor-pointer">
-                         {minuteOptions.map(m => <option key={m} value={m}>{String(m).padStart(2,'0')}</option>)}
-                      </select>
+                      <input
+                        type="number"
+                        min={0} max={59}
+                        value={String(minute).padStart(2, '0')}
+                        onChange={e => {
+                          const v = Math.max(0, Math.min(59, Number(e.target.value)))
+                          setMinute(isNaN(v) ? 0 : v)
+                        }}
+                        className="flex-1 border border-slate-200 rounded-xl px-2 py-2 text-[12px] font-black text-slate-800 bg-white outline-none text-center"
+                      />
                    </div>
                 </div>
              </div>

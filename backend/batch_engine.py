@@ -240,37 +240,55 @@ class BatchEngine:
                 "production": {"total": 0, "results": [], "metrics": {"ndcg_10": 0, "mismatch_rate": 1.0}}
             }
 
-    def run_batch(self, cookie, ai_enabled_override=None, keyword_list_override=None):
-        if self.is_running: return
-        def _worker():
-            self.is_running = True
-            self.progress = 0
-            self.results = {}
-            self.save_state()
-            active_list = keyword_list_override if keyword_list_override is not None else self.keyword_list
-            total_count = len(active_list)
-            if total_count == 0:
-                self.is_running = False
-                return
+    def run_batch_sync(self, cookie, ai_enabled_override=None, keyword_list_override=None):
+        """
+        Run a batch synchronously in the calling thread.
+        Used by APScheduler (which already provides a worker thread) so that
+        post-batch actions (last_run update, Slack notify) only fire after
+        the batch truly completes.
+        Returns False if a batch is already running, True otherwise.
+        """
+        if self.is_running:
+            return False
+        self.is_running = True
+        self.progress = 0
+        self.results = {}
+        self.save_state()
+        active_list = keyword_list_override if keyword_list_override is not None else self.keyword_list
+        total_count = len(active_list)
+        if total_count == 0:
+            self.is_running = False
+            return True
+        try:
             for i, kw_obj in enumerate(active_list):
-                if not self.is_running: break
+                if not self.is_running:
+                    break
                 kw_str = kw_obj["keyword"]
                 norm_key = kw_str.strip().lower()
                 self.current_keyword = kw_str
-                effective_kw_obj = kw_obj
-                if ai_enabled_override is not None:
-                    effective_kw_obj = {**kw_obj, "ai_enabled": ai_enabled_override}
+                effective_kw_obj = kw_obj if ai_enabled_override is None else {**kw_obj, "ai_enabled": ai_enabled_override}
                 res = self.process_keyword(effective_kw_obj, cookie)
-                if res: self.results[norm_key] = res
+                if res:
+                    self.results[norm_key] = res
                 self.progress = int(((i + 1) / total_count) * 100)
                 self.save_state()
                 time.sleep(0.5)
+        finally:
             self.is_running = False
             self.current_keyword = None
-            self.save_history_record()
-            logger.info(f"[Batch] Finished {total_count} tasks. Saved record.")
+        self.save_history_record()
+        logger.info(f"[Batch] Finished {total_count} tasks. Saved record.")
+        return True
 
-        threading.Thread(target=_worker, daemon=True).start()
+    def run_batch(self, cookie, ai_enabled_override=None, keyword_list_override=None):
+        """Start a batch in a background daemon thread (used by manual API trigger)."""
+        if self.is_running:
+            return
+        threading.Thread(
+            target=self.run_batch_sync,
+            args=(cookie, ai_enabled_override, keyword_list_override),
+            daemon=True,
+        ).start()
 
     def save_history_record(self):
         if not self.results: return

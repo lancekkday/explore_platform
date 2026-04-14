@@ -124,10 +124,14 @@ def _run_scheduled_batch(schedule_id: int):
         return
     # Use schedule-specific keywords if set, otherwise fall back to global list
     kw_override = s.get("keywords") if s.get("keywords") else None
-    batch_engine.run_batch(cookie, ai_enabled_override=bool(s["ai_enabled"]), keyword_list_override=kw_override)
+    # run_batch_sync blocks until the batch finishes (APScheduler already provides a thread)
+    ran = batch_engine.run_batch_sync(cookie, ai_enabled_override=bool(s["ai_enabled"]), keyword_list_override=kw_override)
+    if not ran:
+        logger.warning(f"[Scheduler] Skipped schedule_id={schedule_id}: a batch was already running.")
+        return
+    # Only update last_run and notify after the batch truly finishes
     next_run = _next_run_str(s)
     batch_engine.update_last_run(schedule_id, next_run)
-    # Slack notification (if enabled and webhook configured)
     if s.get("slack_notify"):
         webhook = os.environ.get("SLACK_WEBHOOK_URL", "")
         if webhook:

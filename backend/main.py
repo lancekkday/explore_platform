@@ -10,6 +10,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from loguru import logger
+
 from kkday_api import fetch_kkday_products
 from skills.metrics import compute_ndcg, compute_recall_stats
 from skills.data_sanitizer import sanitizer
@@ -62,10 +64,12 @@ class ExplainRequest(BaseModel):
     destinations: list[Any] = []
     main_cat_key: str = ""
 
-def _fetch_stage_cookie() -> str:
-    """Auto-fetch a guest cookie from stage via Playwright."""
+_STAGE_URL = "https://www.stage.kkday.com/zh-tw/product/productlist/esim"
+_PROD_URL  = "https://www.kkday.com/zh-tw/product/productlist/esim"
+
+def _fetch_cookie(url: str) -> str:
+    """Fetch a guest cookie from KKDay via Playwright for the given URL."""
     from playwright.sync_api import sync_playwright
-    url = "https://www.stage.kkday.com/zh-tw/product/productlist/esim"
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
@@ -78,6 +82,10 @@ def _fetch_stage_cookie() -> str:
         cookies = context.cookies()
         browser.close()
     return "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+
+def _fetch_stage_cookie() -> str:
+    """Convenience wrapper used by the scheduler."""
+    return _fetch_cookie(_STAGE_URL)
 
 
 def _next_run_str(schedule: dict) -> str:
@@ -96,22 +104,30 @@ def _next_run_str(schedule: dict) -> str:
                 candidate = candidate.replace(year=candidate.year+1, month=1, day=1)
             else:
                 candidate = candidate.replace(month=candidate.month+1, day=1)
-    elif freq in ("weekly", "biweekly"):
+    elif freq == "weekly":
         days = [int(d) for d in (schedule.get("day_of_week") or "0").split(",")]
-        weeks = 2 if freq == "biweekly" else 1
-        for delta in range(7 * weeks + 1):
-            test = now + timedelta(days=delta)
-            test = test.replace(hour=h, minute=m, second=0, microsecond=0)
-            js_day = test.weekday()  # 0=Mon..6=Sun
-            if js_day in days and test > now:
+        for delta in range(8):
+            test = (now + timedelta(days=delta)).replace(hour=h, minute=m, second=0, microsecond=0)
+            if test.weekday() in days and test > now:
                 candidate = test
                 break
+    elif freq == "biweekly":
+        # Anchor to last_run to preserve the correct 2-week on/off cycle.
+        # Falls back to created_at, then to now + 14 days for first-ever run.
+        epoch_str = schedule.get("last_run") or schedule.get("created_at")
+        if epoch_str:
+            base = datetime.fromisoformat(epoch_str).replace(hour=h, minute=m, second=0, microsecond=0)
+            candidate = base + timedelta(weeks=2)
+            # Advance if somehow behind (e.g. missed cycles)
+            while candidate <= now:
+                candidate += timedelta(weeks=2)
+        else:
+            candidate = now.replace(hour=h, minute=m, second=0, microsecond=0) + timedelta(weeks=2)
     return candidate.isoformat()
 
 
 def _run_scheduled_batch(schedule_id: int):
     """Called by APScheduler to auto-run a batch."""
-    from loguru import logger
     schedules = batch_engine.list_schedules()
     s = next((x for x in schedules if x["id"] == schedule_id), None)
     if not s or not s["enabled"]:
@@ -144,7 +160,6 @@ def _run_scheduled_batch(schedule_id: int):
 
 def _reload_scheduler_jobs():
     """Sync APScheduler jobs with DB schedules."""
-    from loguru import logger
     # Remove existing schedule jobs
     for job in scheduler.get_jobs():
         if job.id.startswith("schedule_"):
@@ -209,28 +224,14 @@ def explain_match(req: ExplainRequest):
 @app.get("/api/guest-cookie")
 def get_guest_cookie(env: str = "stage"):
     if env == "production":
-        url = "https://www.kkday.com/zh-tw/product/productlist/esim"
+        url = _PROD_URL
     elif env == "stage":
-        url = "https://www.stage.kkday.com/zh-tw/product/productlist/esim"
+        url = _STAGE_URL
     else:
         raise HTTPException(status_code=400, detail="env must be stage or production")
 
     try:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                locale="zh-TW",
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-            page = context.new_page()
-            # Visit search result page to force CSRF set
-            page.goto(url, wait_until="networkidle", timeout=30000)
-            page.wait_for_timeout(2000) # Ensure hydration
-            cookies = context.cookies()
-            browser.close()
-        
-        cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+        cookie_str = _fetch_cookie(url)
         has_csrf = "csrf_cookie_name" in cookie_str or "csrf_ks_name" in cookie_str
         return {"success": True, "cookie": cookie_str, "has_csrf": has_csrf}
     except Exception as e:
@@ -367,7 +368,6 @@ def list_schedules():
 
 @app.post("/api/batch/schedule")
 def create_schedule(req: ScheduleCreateRequest):
-    from loguru import logger
     logger.info(f"[Schedule] create req keywords={req.keywords!r}")
     kw_list = None
     if req.keywords:
@@ -387,7 +387,6 @@ def create_schedule(req: ScheduleCreateRequest):
 
 @app.patch("/api/batch/schedule/{schedule_id}")
 def patch_schedule(schedule_id: int, req: SchedulePatchRequest):
-    from loguru import logger
     raw = req.model_dump(exclude_none=True)
     logger.info(f"[Schedule] patch {schedule_id} raw={raw!r}")
     # Convert keywords list → keywords_json string for storage

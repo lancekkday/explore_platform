@@ -196,7 +196,6 @@ class BatchEngine:
             p_res = []
 
             calibration_manager.apply_overrides(keyword, s_res)
-            calibration_manager.apply_overrides(keyword, p_res)
 
             s_stats = compute_recall_stats(s_res)
             p_stats = compute_recall_stats(p_res)

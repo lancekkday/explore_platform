@@ -1,9 +1,8 @@
 from typing import Any, Optional
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
-import httpx
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler

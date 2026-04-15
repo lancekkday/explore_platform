@@ -426,17 +426,20 @@ export default function App() {
                            </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                           {auditKeywords.map((kwObj) => {
+                           {(viewingRunId
+                             ? Object.keys(batchResults).map(k => ({ keyword: k }))
+                             : auditKeywords
+                           ).map((kwObj) => {
                               const kwStr = kwObj.keyword;
                               const res = findResult(kwStr);
                               const isDone = !!res;
-                              const isActive = normalizeKw(kwStr) === normalizeKw(batchStatus.current_keyword);
+                              const isActive = !viewingRunId && normalizeKw(kwStr) === normalizeKw(batchStatus.current_keyword);
                               const m = res?.stage?.metrics || res?.stage || {};
                               return (
                                  <tr key={kwStr} className={`hover:bg-slate-50 transition-all ${isActive ? 'bg-indigo-50/50 border-l-[6px] border-l-indigo-600' : ''}`}>
                                     <td className="px-8 py-3.5 font-black text-[14px] text-slate-900 uppercase tracking-tight">{kwStr}</td>
                                     <td className="px-4 py-3.5 text-center border-l border-slate-50">
-                                       {isDone ? <span className="text-[10px] font-black text-emerald-600 uppercase font-mono italic">Done</span> : isActive ? <span className="text-[10px] font-black text-indigo-700 animate-pulse font-mono uppercase tracking-widest">Active</span> : <span className="text-[10px] font-black text-slate-200 font-mono uppercase">Wait</span>}
+                                       {isDone ? <span className="text-[10px] font-black text-emerald-600 uppercase font-mono italic">{viewingRunId ? 'Archive' : 'Done'}</span> : isActive ? <span className="text-[10px] font-black text-indigo-700 animate-pulse font-mono uppercase tracking-widest">Active</span> : <span className="text-[10px] font-black text-slate-200 font-mono uppercase">Wait</span>}
                                     </td>
                                     <td className="px-6 py-3.5 border-l border-slate-50 text-center font-mono font-black text-emerald-600">{isDone ? `${Math.round((m.ndcg_at_10 || m.ndcg_10 || 0)*100)}%` : '-'}</td>
                                     <td className="px-6 py-3.5 border-l border-slate-50 text-center font-black text-rose-500 text-[11px]">{isDone ? `${Math.round((m.mismatch_rate || 0)*100)}%` : '-'}</td>

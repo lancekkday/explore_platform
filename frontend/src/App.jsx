@@ -493,7 +493,7 @@ export default function App() {
                                      <span className={`px-2 py-0.5 font-black font-mono rounded border text-[11px] ${ndcgColor}`}>{ndcg}%</span>
                                    </td>
                                    <td className="px-8 py-2.5 text-right">
-                                     <button onClick={() => loadArchive(h.id)} className={`px-4 py-1.5 rounded-lg border text-[9px] font-black transition-all shadow-sm ${viewingRunId === h.id ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-white border-slate-200 text-slate-800 hover:border-slate-800 hover:bg-slate-900 hover:text-white'}`}>{viewingRunId === h.id ? '閱覽中' : '載入存檔'}</button>
+                                     <button onClick={() => window.open(`${import.meta.env.BASE_URL}?run=${h.id}`, '_blank')} className="px-4 py-1.5 bg-white border border-slate-200 text-slate-800 rounded-lg text-[9px] font-black hover:border-slate-800 hover:bg-slate-900 hover:text-white transition-all shadow-sm">載入存檔 ↗</button>
                                    </td>
                                  </tr>
                                )

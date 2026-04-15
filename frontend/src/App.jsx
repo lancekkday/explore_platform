@@ -48,6 +48,9 @@ export default function App() {
   const [scheduleModalVisible, setScheduleModalVisible] = useState(false)
   const [editingSchedule, setEditingSchedule] = useState(null)
 
+  const [viewingRunId, setViewingRunId] = useState(null)   // null = 即時模式，N = 閱覽存檔 N
+  const [liveResults, setLiveResults] = useState(null)     // 進入存檔模式前暫存的即時結果
+
   const hasAutoSearched = useRef(false);
 
   // ── Functions declared before useEffect hooks that reference them ──────────
@@ -78,6 +81,30 @@ export default function App() {
       setError('憑證對接異常');
       return null;
     }
+  }
+
+  async function loadArchive(id) {
+    try {
+      const res = await fetchBatchHistoryDetail(id)
+      if (!res?.results) return
+      setLiveResults(prev => prev ?? batchResults)  // 只在第一次進入存檔時暫存
+      setBatchResults(res.results)
+      setViewingRunId(id)
+      setTab('audit')
+      const params = new URLSearchParams(window.location.search)
+      params.set('run', id)
+      window.history.pushState({}, '', '?' + params.toString())
+    } catch { /* silent */ }
+  }
+
+  function exitArchive() {
+    setBatchResults(liveResults || {})
+    setLiveResults(null)
+    setViewingRunId(null)
+    const params = new URLSearchParams(window.location.search)
+    params.delete('run')
+    const qs = params.toString()
+    window.history.pushState({}, '', qs ? '?' + qs : window.location.pathname)
   }
 
   async function handleSearch(kw = keyword) {
@@ -116,8 +143,12 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const run = params.get('run');
     const kw = params.get('keyword');
-    if (kw && !hasAutoSearched.current) {
+    if (run && !hasAutoSearched.current) {
+      hasAutoSearched.current = true;
+      loadArchive(parseInt(run));
+    } else if (kw && !hasAutoSearched.current) {
       const cached = findResult(kw);
       if (cached && cached.stage?.results) {
         setKeyword(kw); setTab('discovery');
@@ -179,7 +210,6 @@ export default function App() {
         const d = res.results;
         setKeyword(d.keyword);
         setStageData(d.stage);
-        setProdData(d.production);
         setShowSingleHistory(false);
       }
     } catch { alert("載入失敗"); }
@@ -218,13 +248,6 @@ export default function App() {
     } catch { /* silent */ }
   }
 
-  const handleRestoreHistory = async (id) => {
-    if (!window.confirm(`確定要載入存檔 #${String(id).padStart(3,'0')} 嗎？目前的巡檢結果將被覆蓋。`)) return;
-    try {
-      const res = await fetchBatchHistoryDetail(id);
-      if (res?.results) setBatchResults(res.results);
-    } catch { /* silent */ }
-  }
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -355,15 +378,35 @@ export default function App() {
                 </div>
 
                 <div className="flex gap-2 shrink-0">
-                   <button onClick={() => { setKwInputText(auditKeywords.map(k => k.keyword).join(', ')); setKwEditorVisible(true); }} className="px-6 py-2 border border-slate-200 bg-white text-slate-500 rounded-xl text-[10.5px] font-black hover:border-slate-800 transition-all shadow-sm">任務配置</button>
-                   <button onClick={() => { setEditingSchedule(null); setScheduleModalVisible(true); }} className={`px-6 py-2 border rounded-xl text-[10.5px] font-black transition-all shadow-sm ${schedules.some(s => s.enabled) ? 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:border-indigo-500' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-800'}`}>排程設定</button>
+                   <button onClick={() => { setKwInputText(auditKeywords.map(k => k.keyword).join(', ')); setKwEditorVisible(true); }} disabled={!!viewingRunId} className={`px-6 py-2 border rounded-xl text-[10.5px] font-black transition-all shadow-sm ${viewingRunId ? 'border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-800'}`}>任務配置</button>
+                   <button onClick={() => { setEditingSchedule(null); setScheduleModalVisible(true); }} disabled={!!viewingRunId} className={`px-6 py-2 border rounded-xl text-[10.5px] font-black transition-all shadow-sm ${viewingRunId ? 'border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed' : schedules.some(s => s.enabled) ? 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:border-indigo-500' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-800'}`}>排程設定</button>
                    {batchStatus.is_running ? (
-                      <button onClick={handleStopBatch} className="px-10 py-2 bg-rose-500 text-white rounded-xl text-[11px] font-black shadow-lg flex items-center gap-2"><IconSquare /> 終止</button>
+                      <button onClick={handleStopBatch} disabled={!!viewingRunId} className={`px-10 py-2 rounded-xl text-[11px] font-black shadow-lg flex items-center gap-2 ${viewingRunId ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-rose-500 text-white'}`}><IconSquare /> 終止</button>
                    ) : (
-                      <button onClick={handleStartBatch} disabled={auditKeywords.length === 0} title={auditKeywords.length === 0 ? '請先至「任務配置」新增關鍵字' : undefined} className={`px-10 py-2 rounded-xl text-[11px] font-black shadow-xl tracking-[4px] uppercase flex items-center gap-2 ${auditKeywords.length === 0 ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[#0F172A] text-white active:scale-95'}`}><IconPlay /> 啟動</button>
+                      <button onClick={handleStartBatch} disabled={auditKeywords.length === 0 || !!viewingRunId} title={viewingRunId ? '請先離開存檔閱覽模式' : auditKeywords.length === 0 ? '請先至「任務配置」新增關鍵字' : undefined} className={`px-10 py-2 rounded-xl text-[11px] font-black shadow-xl tracking-[4px] uppercase flex items-center gap-2 ${(auditKeywords.length === 0 || viewingRunId) ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[#0F172A] text-white active:scale-95'}`}><IconPlay /> 啟動</button>
                    )}
                 </div>
              </div>
+             {viewingRunId && (() => {
+               const archiveRec = batchHistory.find(h => h.id === viewingRunId)
+               const archiveTs = archiveRec?.timestamp ? new Date(archiveRec.timestamp) : null
+               const archiveDateStr = archiveTs
+                 ? archiveTs.toLocaleDateString('zh-TW', {year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\//g,'-') + ' ' + archiveTs.toLocaleTimeString('zh-TW', {hour:'2-digit',minute:'2-digit',hour12:false})
+                 : ''
+               return (
+                 <div className="mx-4 mt-4 px-6 py-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between shadow-sm shrink-0">
+                   <div className="flex items-center gap-3">
+                     <span className="text-[16px]">📁</span>
+                     <div>
+                       <span className="text-[12px] font-black text-amber-800">閱覽存檔 #{String(viewingRunId).padStart(3,'0')}</span>
+                       {archiveDateStr && <span className="text-[11px] text-amber-600 font-mono ml-2">· {archiveDateStr}</span>}
+                       <p className="text-[10px] text-amber-600 mt-0.5">此為歷史快照，不反映目前資料。</p>
+                     </div>
+                   </div>
+                   <button onClick={exitArchive} className="px-4 py-1.5 bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-800 rounded-xl text-[10px] font-black transition-all">返回即時巡檢 ×</button>
+                 </div>
+               )
+             })()}
              <div className="flex-1 overflow-hidden flex flex-col p-4 gap-4">
                 <div className="flex-1 bg-white border border-slate-200 rounded-[1.5rem] shadow-sm overflow-hidden flex flex-col">
                    <div className="overflow-y-auto flex-1 custom-scroll">
@@ -450,7 +493,7 @@ export default function App() {
                                      <span className={`px-2 py-0.5 font-black font-mono rounded border text-[11px] ${ndcgColor}`}>{ndcg}%</span>
                                    </td>
                                    <td className="px-8 py-2.5 text-right">
-                                     <button onClick={() => handleRestoreHistory(h.id)} className="px-4 py-1.5 bg-white border border-slate-200 text-slate-800 rounded-lg text-[9px] font-black hover:border-slate-800 hover:bg-slate-900 hover:text-white transition-all shadow-sm">載入存檔</button>
+                                     <button onClick={() => loadArchive(h.id)} className={`px-4 py-1.5 rounded-lg border text-[9px] font-black transition-all shadow-sm ${viewingRunId === h.id ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-white border-slate-200 text-slate-800 hover:border-slate-800 hover:bg-slate-900 hover:text-white'}`}>{viewingRunId === h.id ? '閱覽中' : '載入存檔'}</button>
                                    </td>
                                  </tr>
                                )

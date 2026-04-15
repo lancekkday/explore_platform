@@ -52,6 +52,7 @@ export default function App() {
   const [liveResults, setLiveResults] = useState(null)     // 進入存檔模式前暫存的即時結果
 
   const hasAutoSearched = useRef(false);
+  const viewingRunIdRef = useRef(null);  // ref 版本，供 async 函式的 race condition 防護
 
   // ── Functions declared before useEffect hooks that reference them ──────────
 
@@ -66,7 +67,8 @@ export default function App() {
       ]);
       if (kwRes?.keywords) setAuditKeywords(kwRes.keywords);
       if (statRes) setBatchStatus(statRes);
-      if (resRes?.results) setBatchResults(resRes.results);
+      // 存檔閱覽模式下不覆蓋 batchResults（防止 race condition 把存檔蓋掉）
+      if (resRes?.results && !viewingRunIdRef.current) setBatchResults(resRes.results);
       if (histRes?.history) setBatchHistory(histRes.history);
       if (Array.isArray(schedRes)) setSchedules(schedRes);
     } catch { /* silent: polling failure is non-critical */ }
@@ -85,19 +87,21 @@ export default function App() {
 
   async function loadArchive(id) {
     try {
+      viewingRunIdRef.current = id   // 先設 ref，阻止 fetchAuditData 覆蓋結果
       const res = await fetchBatchHistoryDetail(id)
-      if (!res?.results) return
-      setLiveResults(prev => prev ?? batchResults)  // 只在第一次進入存檔時暫存
+      if (!res?.results) { viewingRunIdRef.current = null; return }
+      setLiveResults(prev => prev ?? batchResults)
       setBatchResults(res.results)
       setViewingRunId(id)
       setTab('audit')
       const params = new URLSearchParams(window.location.search)
       params.set('run', id)
       window.history.pushState({}, '', '?' + params.toString())
-    } catch { /* silent */ }
+    } catch { viewingRunIdRef.current = null }
   }
 
   function exitArchive() {
+    viewingRunIdRef.current = null
     setBatchResults(liveResults || {})
     setLiveResults(null)
     setViewingRunId(null)
@@ -105,6 +109,7 @@ export default function App() {
     params.delete('run')
     const qs = params.toString()
     window.history.pushState({}, '', qs ? '?' + qs : window.location.pathname)
+    fetchAuditData()   // 退出後重新拉即時資料
   }
 
   async function handleSearch(kw = keyword) {

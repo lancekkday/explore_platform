@@ -34,6 +34,19 @@ class IntentMatcher:
             "自助餐": "CATEGORY_079",
             "buffet": "CATEGORY_079",
             "下午茶": "CATEGORY_079",
+            # 住宿 / 旅館（CATEGORY_078）
+            "住宿": "CATEGORY_078",
+            "旅館": "CATEGORY_078",
+            "飯店": "CATEGORY_078",
+            "民宿": "CATEGORY_078",
+            "酒店": "CATEGORY_078",
+            "hotel": "CATEGORY_078",
+            "villa": "CATEGORY_078",
+            # 高鐵假期套裝（CATEGORY_057）—— 長詞需在「高鐵」之前，sorted by len 已保證
+            "高鐵假期": "CATEGORY_057",
+            "高鐵旅遊": "CATEGORY_057",
+            "高鐵套票": "CATEGORY_057",
+            "高鐵套裝": "CATEGORY_057",
             # 交通
             "交通": "CATEGORY_120",
             "接送": "CATEGORY_120",
@@ -71,9 +84,16 @@ class IntentMatcher:
         }
 
         # Broad category expansions logic
+        # 當搜尋 category 不完全符合但「語意相關」時，給 T2 而非 T3
         self.BROAD_CATEGORIES = {
             "一日遊": ["CATEGORY_021", "CATEGORY_022", "CATEGORY_019"],
             "自助餐": ["CATEGORY_079"],
+            # 住宿：高鐵假期（CATEGORY_057）含住宿元素，搜「台中住宿」出現屬合理相關
+            "住宿":   ["CATEGORY_057"],
+            "旅館":   ["CATEGORY_057"],
+            "飯店":   ["CATEGORY_057"],
+            "民宿":   ["CATEGORY_057"],
+            "酒店":   ["CATEGORY_057"],
         }
 
     # 國家名稱 → ISO 代碼（用於 country-level dest 比對）
@@ -296,6 +316,8 @@ class IntentMatcher:
         title_intro_for_dest = product.get("name", "").lower() + " " + product.get("introduction", "").lower()
         dest_match = (
             any(target_loc in n for n in actual_dest_names)
+            # 反向子字串：destination name 是搜尋詞的子集（如搜「濟州島」，dest 為「濟州」）
+            or any(n in target_loc for n in actual_dest_names if len(n) >= 2)
             or self.name_to_code.get(effective_dest) in actual_dest_codes
             or "glb" in actual_dest_codes
             # 商品名稱或描述中直接包含目標地點（例如搜尋「日本」可命中「KDDI 日本 eSIM」）
@@ -354,11 +376,18 @@ class IntentMatcher:
 
         is_keyword_present = target_loc in title_intro
 
+        # ── Broad category 比對（語意相關，非完全符合）──────────────────────
+        broad_cats = self.BROAD_CATEGORIES.get(effective_cat, []) if effective_cat else []
+        is_broad_cat = prod_cat_code in broad_cats
+
         # ── Tier 判定 ──────────────────────────────────────────────────────
         if dest_match:
             if effective_cat and is_exact_cat:
                 # Route B：destination + category 完全符合
                 tier = 1
+            elif effective_cat and is_broad_cat:
+                # Route B'：destination ✓ + 寬鬆相關 category（如搜住宿出現高鐵假期）→ T2
+                tier = 2
             elif effective_theme:
                 # Route C：destination + theme
                 if theme_in_title:

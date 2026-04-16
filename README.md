@@ -1,6 +1,8 @@
 # Search Intent Platform
 
 KKDay 搜尋意圖驗證平台，用於稽核 stage / production 兩套搜尋引擎的商品排序品質。
+(Produciton 環境block by datadome, 待解)
+https://kkday.atlassian.net/wiki/spaces/QS/pages/1969225751
 
 ## 功能概覽
 

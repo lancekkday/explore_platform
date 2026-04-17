@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PROJECT_DIR="/Users/kkday_borrow_f/Documents/workspace/search-intent-platform"
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "======================================"
 echo "Starting Search Intent Verification..."
@@ -9,9 +9,8 @@ echo "======================================"
 # Start Backend
 echo "[1/2] Starting Backend Server (FastAPI) on port 19426..."
 cd "$PROJECT_DIR/backend" || exit
-source venv/bin/activate
-# Run in background and redirect output to a log file
-nohup uvicorn main:app --host 0.0.0.0 --port 19426 > backend.log 2>&1 &
+# 用 venv 完整路徑，不依賴 source activate（nohup 子 shell 不繼承環境）
+nohup venv/bin/uvicorn main:app --host 0.0.0.0 --port 19426 > backend.log 2>&1 &
 echo "Backend started. Logs are being written to backend/backend.log"
 
 # Start Frontend

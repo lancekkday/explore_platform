@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PROJECT_DIR="/Users/kkday_borrow_f/Documents/workspace/search-intent-platform"
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "======================================"
 echo "Restarting Search Intent Verification..."

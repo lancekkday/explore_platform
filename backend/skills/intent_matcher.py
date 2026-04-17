@@ -96,7 +96,7 @@ class IntentMatcher:
             "酒店":   ["CATEGORY_057"],
         }
 
-    # 國家名稱 → ISO 代碼（用於 country-level dest 比對）
+    # 國家名稱 → ISO 代碼（用於 country-level dest 比對，搜「日本」命中所有日本商品）
     COUNTRY_ISO_MAP = {
         "日本": "JP", "台灣": "TW", "台湾": "TW", "韓國": "KR", "韓国": "KR",
         "泰國": "TH", "泰国": "TH", "新加坡": "SG", "馬來西亞": "MY", "馬来西亚": "MY",
@@ -104,6 +104,24 @@ class IntentMatcher:
         "印尼": "ID", "印度": "IN", "美國": "US", "英國": "GB", "法國": "FR",
         "德國": "DE", "義大利": "IT", "西班牙": "ES", "葡萄牙": "PT",
         "澳洲": "AU", "紐西蘭": "NZ", "中國": "CN", "中国": "CN",
+    }
+
+    # 城市名稱 → ISO 代碼（僅用於 same_country 同國異城偵測，不影響 dest_match）
+    # 補充 unified_destinations 缺少中文 mapping 的常見城市
+    CITY_ISO_MAP = {
+        # 韓國
+        "首爾": "KR", "釜山": "KR", "濟州": "KR", "濟州島": "KR",
+        "仁川": "KR", "大邱": "KR", "光州": "KR", "大田": "KR",
+        # 泰國
+        "曼谷": "TH", "清邁": "TH", "普吉": "TH", "芭提雅": "TH", "清萊": "TH",
+        # 越南
+        "河內": "VN", "胡志明市": "VN", "峴港": "VN", "芽莊": "VN", "會安": "VN",
+        # 菲律賓
+        "馬尼拉": "PH", "宿霧": "PH", "長灘島": "PH", "薄荷島": "PH",
+        # 印尼
+        "峇里島": "ID", "巴里島": "ID", "雅加達": "ID", "日惹": "ID",
+        # 馬來西亞
+        "吉隆坡": "MY", "檳城": "MY", "古晉": "MY", "亞庇": "MY", "蘭卡威": "MY",
     }
 
     def load_destinations(self):
@@ -324,12 +342,23 @@ class IntentMatcher:
             or target_loc in title_intro_for_dest
         )
 
-        # ── 階層式地點比對（同國 ancestor 邏輯）──────────────────────────
+        # ── 階層式地點比對 + 同國異城偵測 ────────────────────────────────
         # Case A：product destination 是搜尋地點的 ancestor（product 範圍較廣，含搜尋城市）
         # Case B：搜尋地點是 product destination 的 ancestor（搜尋範圍較廣，product 在其下）
         # Case C：搜尋詞是國家名稱（如「日本」），用 ISO code 對比商品所在國是否相同
+        # Case D：同國異城（如搜「濟州島」出現首爾）→ same_country=True，最終給 T3
+        same_country = False  # 同國異城旗標
         if not dest_match and actual_dest_codes:
             search_code = self.name_to_code.get(effective_dest)
+
+            # 搜尋詞 code 查不到時，嘗試子字串 fallback
+            # 例：「濟州島」→ name_to_code 無此 key，但「濟州」是其子字串 → 取「濟州」的 code
+            if not search_code:
+                for name, code in self.name_to_code.items():
+                    if len(name) >= 2 and name in effective_dest:
+                        search_code = code
+                        break
+
             if search_code:
                 search_ancestors = self._get_ancestors(search_code)
                 for prod_code in actual_dest_codes:
@@ -341,14 +370,31 @@ class IntentMatcher:
                     if search_code in self._get_ancestors(prod_code):
                         dest_match = True
                         break
+                # hierarchy 仍失敗 → 檢查是否同國（同 ISO code）→ 降級 T3
+                if not dest_match:
+                    search_iso = self.code_to_iso.get(search_code)
+                    if search_iso:
+                        for prod_code in actual_dest_codes:
+                            if self.code_to_iso.get(prod_code) == search_iso:
+                                same_country = True
+                                break
             else:
-                # search_code 查不到：嘗試用國家 ISO code 比對（例：日本 → JP）
+                # search_code 查不到
+                # 1. 嘗試用國家 ISO code 比對（例：日本 → JP）→ dest_match=True
                 search_iso = self.COUNTRY_ISO_MAP.get(effective_dest)
                 if search_iso:
                     for prod_code in actual_dest_codes:
                         if self.code_to_iso.get(prod_code) == search_iso:
                             dest_match = True
                             break
+                # 2. 嘗試城市 ISO map（例：濟州島 → KR）→ 只設 same_country，不影響 dest_match
+                if not dest_match:
+                    search_iso = self.CITY_ISO_MAP.get(effective_dest)
+                    if search_iso:
+                        for prod_code in actual_dest_codes:
+                            if self.code_to_iso.get(prod_code) == search_iso:
+                                same_country = True
+                                break
 
         # ── Category 匹配 ──────────────────────────────────────────────────
         prod_cat_code = self._get_product_cat_code(product)
@@ -406,6 +452,8 @@ class IntentMatcher:
                 tier = 2  # 有正確 category 但地點不對，給 T2
             elif is_keyword_present:
                 tier = 3
+            elif same_country:
+                tier = 3  # 同國異城（如搜濟州出現首爾、搜台中出現台南）→ 鬆散相關
             else:
                 tier = 0
 

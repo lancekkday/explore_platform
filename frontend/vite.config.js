@@ -14,6 +14,7 @@ export default defineConfig(({ mode }) => {
     envDir: '../',
     base: baseUrl,
     server: {
+      host: '0.0.0.0',
       port: 5888,
       proxy: {
         [apiUrl]: {

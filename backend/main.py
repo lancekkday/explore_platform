@@ -18,6 +18,7 @@ from skills.data_sanitizer import sanitizer
 from batch_engine import engine as batch_engine
 from skills.intent_judger import judger
 from skills.calibration_manager import calibration_manager
+import settings_manager
 
 TZ_TAIPEI = timezone(timedelta(hours=8))  # UTC+8, no system tzdata needed
 scheduler = BackgroundScheduler(timezone=TZ_TAIPEI)
@@ -40,7 +41,8 @@ class VerifyRequest(BaseModel):
 
 class CompareRequest(BaseModel):
     keyword: str
-    cookie: str
+    cookie: str = ""                     # legacy: single stage cookie
+    cookies: Optional[dict] = None       # new: {"stage": "...", "production": "..."}
     count: int = 300
     ai_enabled: Optional[bool] = None
 
@@ -251,32 +253,57 @@ def _slim_product(p, rank, result, keyword):
         "show_order_count": p.get("show_order_count", ""),
     }
 
-@app.post("/api/compare")
-def compare_envs(req: CompareRequest):
-    ai_metadata = judger.get_ai_metadata(req.keyword, ai_enabled=(req.ai_enabled or False))
-    stage_prods, stage_total, _ = fetch_kkday_products(req.keyword, "stage", req.cookie, req.count)
-    # Production disabled (Datadome blocks prod API)
-    prod_res = []
+_EMPTY_ENV = {"total": 0, "results": [], "metrics": {
+    "ndcg_at_10": 0, "ndcg_at_50": 0, "ndcg_at_150": 0,
+    "mismatch_rate": 0, "tier1_rate": 0, "tier2_rate": 0, "tier3_rate": 0
+}}
 
-    stage_res = [judger.process_and_calibrate(p, i+1, req.keyword, ai_metadata, _slim_product) for i, p in enumerate(stage_prods)]
-    for p in stage_res: p["rank_delta"] = None
-
-    final_results = {
-        "success": True, "keyword": req.keyword,
-        "stage": {"total": stage_total, "results": stage_res, "metrics": {
-            "ndcg_at_10": compute_ndcg(stage_res, 10), "ndcg_at_50": compute_ndcg(stage_res, 50),
-            "ndcg_at_150": compute_ndcg(stage_res, 150), **compute_recall_stats(stage_res)
-        }},
-        "production": {"total": 0, "results": [], "metrics": {
-            "ndcg_at_10": 0, "ndcg_at_50": 0, "ndcg_at_150": 0,
-            "mismatch_rate": 0, "tier1_rate": 0, "tier2_rate": 0, "tier3_rate": 0
-        }}
+def _build_env_result(keyword, env, cookie, count, ai_metadata):
+    """Fetch + judge products for a single environment."""
+    prods, total, _ = fetch_kkday_products(keyword, env, cookie, count)
+    results = [judger.process_and_calibrate(p, i+1, keyword, ai_metadata, _slim_product) for i, p in enumerate(prods)]
+    for p in results:
+        p["rank_delta"] = None
+    return {
+        "total": total, "results": results, "metrics": {
+            "ndcg_at_10": compute_ndcg(results, 10), "ndcg_at_50": compute_ndcg(results, 50),
+            "ndcg_at_150": compute_ndcg(results, 150), **compute_recall_stats(results)
+        }
     }
 
-    # 自動存檔單次巡檢結果 (New)
+@app.post("/api/compare")
+def compare_envs(req: CompareRequest):
+    # Resolve cookies: prefer new dict, fallback to legacy single cookie
+    cookies = req.cookies or {"stage": req.cookie}
+    enabled = settings_manager.get_enabled_envs()
+    ai_metadata = judger.get_ai_metadata(req.keyword, ai_enabled=(req.ai_enabled or False))
+
+    final_results = {"success": True, "keyword": req.keyword}
+    for env in ("stage", "production"):
+        if env in enabled and cookies.get(env):
+            final_results[env] = _build_env_result(req.keyword, env, cookies[env], req.count, ai_metadata)
+        else:
+            final_results[env] = dict(_EMPTY_ENV)
+
+    # 自動存檔單次巡檢結果
     batch_engine.save_single_record(req.keyword, final_results)
-    
+
     return final_results
+
+class SettingsRequest(BaseModel):
+    environments: dict  # {"stage": bool, "production": bool}
+
+@app.get("/api/settings")
+def get_settings():
+    return {"success": True, **settings_manager.load_settings()}
+
+@app.post("/api/settings")
+def update_settings(req: SettingsRequest):
+    try:
+        settings_manager.save_settings({"environments": req.environments})
+        return {"success": True, **settings_manager.load_settings()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/feedback")
 def calibrate_feedback(req: FeedbackRequest):

@@ -55,7 +55,7 @@ HOTWORDS = [
 @pytest.fixture(scope="session")
 def cookie():
     if not os.path.exists(COOKIE_FILE):
-        pytest.skip(f"Cookie file not found: {COOKIE_FILE}. Run: curl http://localhost:8000/api/guest-cookie?env=production | python3 -c \"import sys,json;print(json.load(sys.stdin)['cookie'])\" > {COOKIE_FILE}")
+        pytest.skip(f"Cookie file not found: {COOKIE_FILE}. Run: curl http://localhost:19426/api/guest-cookie?env=production | python3 -c \"import sys,json;print(json.load(sys.stdin)['cookie'])\" > {COOKIE_FILE}")
     with open(COOKIE_FILE) as f:
         c = f.read().strip()
     if not c:

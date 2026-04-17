@@ -15,20 +15,27 @@ import {
   fetchBatchStatus, fetchBatchResults, fetchBatchHistory,
   fetchBatchHistoryDetail, fetchSingleHistory, fetchSingleHistoryDetail,
   fetchSchedules, addSchedule, updateSchedule, deleteSchedule,
+  fetchSettings, updateSettings,
 } from './api'
 import ScheduleModal from './components/ScheduleModal'
+import SettingsPanel from './components/SettingsPanel'
 
 export default function App() {
   const [tab, setTab] = useState('discovery')
   const [keyword, setKeyword] = useState('esim')
-  const [cookie, setCookie] = useState('')
-  const [cookieInfo, setCookieInfo] = useState(null)
+  const [cookies, setCookies] = useState({})           // {stage: "...", production: "..."}
+  const [cookieInfos, setCookieInfos] = useState({})   // {stage: {...}, production: {...}}
+  const [settings, setSettings] = useState({ environments: { stage: true, production: false } })
   const [singleAiMode, setSingleAiMode] = useState(false)
   const [doubtOnly, setDoubtOnly] = useState(false)
 
   const [loading, setLoading] = useState(false)
   const [stageData, setStageData] = useState(null)
+  const [prodData, setProdData] = useState(null)
   const [error, setError] = useState('')
+
+  const enabledEnvs = Object.entries(settings.environments).filter(([, on]) => on).map(([e]) => e)
+  const anyConnected = enabledEnvs.some(e => cookieInfos[e])
 
   const [edittingProduct, setEdittingProduct] = useState(null)
   const [calibTier, setCalibTier] = useState(1)
@@ -74,14 +81,27 @@ export default function App() {
     } catch { /* silent: polling failure is non-critical */ }
   }
 
-  async function autoFetchCookie() {
+  async function autoFetchCookie(envOverride) {
+    const envs = envOverride || enabledEnvs
     try {
-      const res = await fetchGuestCookie('stage');
-      if (res && res.cookie) { setCookie(res.cookie); setCookieInfo(res); return res; }
-      return null;
+      const nextCookies = { ...cookies }
+      const nextInfos = { ...cookieInfos }
+      // 串行取 cookie，避免 Playwright 並發衝突
+      for (const env of envs) {
+        try {
+          const res = await fetchGuestCookie(env)
+          if (res?.cookie) {
+            nextCookies[env] = res.cookie
+            nextInfos[env] = res
+          }
+        } catch { /* skip failed env */ }
+      }
+      setCookies(nextCookies)
+      setCookieInfos(nextInfos)
+      return nextCookies
     } catch {
-      setError('憑證對接異常');
-      return null;
+      setError('憑證對接異常')
+      return null
     }
   }
 
@@ -116,9 +136,10 @@ export default function App() {
     if (!kw) return;
     setLoading(true); setError(''); setTab('discovery');
     try {
-      const res = await fetchCompare(kw, cookie, 300, singleAiMode);
-      if (res && res.stage) {
-        setStageData(res.stage);
+      const res = await fetchCompare(kw, cookies, 300, singleAiMode);
+      if (res && res.success) {
+        setStageData(res.stage?.results?.length ? res.stage : null);
+        setProdData(res.production?.results?.length ? res.production : null);
       } else {
         setError(res?.detail || '返回數據異常');
       }
@@ -131,13 +152,19 @@ export default function App() {
   // ── Effects ────────────────────────────────────────────────────────────────
 
   useEffect(() => {
+    fetchSettings().then(res => {
+      if (res?.environments) setSettings({ environments: res.environments })
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
     autoFetchCookie();
     fetchAuditData();
     const timer = setInterval(() => {
       if (batchStatus?.is_running) fetchAuditData();
     }, 3000);
     return () => clearInterval(timer);
-  }, [batchStatus?.is_running])
+  }, [batchStatus?.is_running, settings])
 
   useEffect(() => { fetchAuditData(); }, [tab])
 
@@ -158,13 +185,14 @@ export default function App() {
       if (cached && cached.stage?.results) {
         setKeyword(kw); setTab('discovery');
         setStageData(cached.stage);
+        setProdData(cached.production?.results?.length ? cached.production : null);
         hasAutoSearched.current = true;
-      } else if (cookie) {
+      } else if (Object.keys(cookies).length) {
         setKeyword(kw); handleSearch(kw);
         hasAutoSearched.current = true;
       }
     }
-  }, [cookie, batchResults]);
+  }, [cookies, batchResults]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -184,7 +212,7 @@ export default function App() {
   }
 
   const handleStartBatch = async () => {
-    await apiBatchStart(cookie)
+    await apiBatchStart(cookies.stage || Object.values(cookies)[0] || '')
     fetchAuditData()
   }
   const handleStopBatch = async () => {
@@ -215,6 +243,7 @@ export default function App() {
         const d = res.results;
         setKeyword(d.keyword);
         setStageData(d.stage);
+        setProdData(d.production?.results?.length ? d.production : null);
         setShowSingleHistory(false);
       }
     } catch { alert("載入失敗"); }
@@ -271,11 +300,18 @@ export default function App() {
         </div>
         <div className="flex items-center gap-5 text-[10px] font-black">
            {error && <div className="px-3 py-1 bg-red-50 text-red-600 border border-red-100 rounded-lg animate-pulse">{error}</div>}
-           <div className="flex items-center gap-3 px-4 py-1.5 bg-slate-50 border border-slate-200 rounded-full">
-              <div className={`w-1.5 h-1.5 rounded-full ${cookieInfo ? 'bg-emerald-500 shadow-[0_0_8px_#10B981]' : 'bg-red-500'}`} />
-              <span className="text-slate-500 tracking-wider uppercase font-mono">{cookieInfo ? '連線正常' : '連線斷開'}</span>
+           <button onClick={() => setTab(tab === 'settings' ? 'discovery' : 'settings')} className={`p-1.5 rounded-lg border transition-all ${tab === 'settings' ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-600 hover:border-slate-300'}`} title="環境設定">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+           </button>
+           <div className="flex items-center gap-2 px-4 py-1.5 bg-slate-50 border border-slate-200 rounded-full">
+              {enabledEnvs.map(env => (
+                <div key={env} className="flex items-center gap-1.5">
+                  <div className={`w-1.5 h-1.5 rounded-full ${cookieInfos[env] ? 'bg-emerald-500 shadow-[0_0_8px_#10B981]' : 'bg-red-500'}`} />
+                  <span className="text-slate-500 tracking-wider uppercase font-mono">{env === 'stage' ? 'STG' : 'PRD'}</span>
+                </div>
+              ))}
            </div>
-           <button onClick={autoFetchCookie} className="text-slate-300 hover:text-indigo-600 transition-all active:rotate-180 duration-500"><IconRefresh /></button>
+           <button onClick={() => autoFetchCookie()} className="text-slate-300 hover:text-indigo-600 transition-all active:rotate-180 duration-500"><IconRefresh /></button>
         </div>
       </header>
 
@@ -326,7 +362,9 @@ export default function App() {
 
                 <div className="flex items-center gap-1.5 bg-slate-50 border-2 border-slate-100 rounded-xl px-3 py-1.5">
                    <IconGlobe />
-                   <span className="text-[10.5px] font-black text-slate-600 pl-1">🧪 Stage</span>
+                   {enabledEnvs.map(env => (
+                     <span key={env} className="text-[10.5px] font-black text-slate-600 pl-1">{env === 'stage' ? '🧪 Stage' : '🌐 Prod'}</span>
+                   ))}
                 </div>
 
                 <div className="flex gap-2 text-[10.5px] font-black">
@@ -340,15 +378,15 @@ export default function App() {
 
                 <button
                    onClick={() => handleSearch()}
-                   disabled={loading || !cookieInfo}
-                   title={!cookieInfo ? '尚未取得 Cookie，請等待連線完成後再試' : undefined}
+                   disabled={loading || !anyConnected}
+                   title={!anyConnected ? '尚未取得 Cookie，請等待連線完成後再試' : undefined}
                    className={`px-10 py-2 rounded-xl font-black text-[11px] tracking-[4px] uppercase transition-all shadow-lg ${
-                     (loading || !cookieInfo)
+                     (loading || !anyConnected)
                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed border-2 border-slate-300'
                        : 'bg-[#0F172A] text-white hover:bg-black active:scale-95 border-2 border-[#0F172A]'
                    }`}
                 >
-                   {loading ? 'ANALYZING...' : !cookieInfo ? '等待連線...' : '開始巡檢'}
+                   {loading ? 'ANALYZING...' : !anyConnected ? '等待連線...' : '開始巡檢'}
                 </button>
              </div>
 
@@ -359,22 +397,38 @@ export default function App() {
                       <div className="text-indigo-900 font-black text-[11px] tracking-[6px] animate-pulse uppercase">Syncing</div>
                    </div>
                 )}
-                <div className="flex-1 flex overflow-hidden w-full">
-                   <div className="flex-1 min-w-0 flex flex-col min-h-0 gap-4">
-                      <CompactMetricBar data={stageData} env="STAGE 測試" envCode="STG-01" color="#10B981" />
-                      <ResultList items={stageData?.results} title="STAGE 巡檢清單" total={stageData?.total || 0} color="#10B981" onCalibrate={handleCalibrate} doubtOnly={doubtOnly} keyword={keyword} />
-                   </div>
+                <div className="flex-1 flex overflow-hidden w-full gap-4">
+                   {stageData && (
+                     <div className="flex-1 min-w-0 flex flex-col min-h-0 gap-4">
+                        <CompactMetricBar data={stageData} env="STAGE 測試" envCode="STG-01" color="#10B981" />
+                        <ResultList items={stageData?.results} title="STAGE 巡檢清單" total={stageData?.total || 0} color="#10B981" onCalibrate={handleCalibrate} doubtOnly={doubtOnly} keyword={keyword} />
+                     </div>
+                   )}
+                   {prodData && (
+                     <div className="flex-1 min-w-0 flex flex-col min-h-0 gap-4">
+                        <CompactMetricBar data={prodData} env="PROD 正式" envCode="PRD-01" color="#6366F1" />
+                        <ResultList items={prodData?.results} title="PROD 巡檢清單" total={prodData?.total || 0} color="#6366F1" onCalibrate={handleCalibrate} doubtOnly={doubtOnly} keyword={keyword} />
+                     </div>
+                   )}
+                   {!stageData && !prodData && !loading && (
+                     <div className="flex-1 min-w-0 flex flex-col min-h-0 gap-4">
+                        <CompactMetricBar data={null} env="STAGE 測試" envCode="STG-01" color="#10B981" />
+                        <ResultList items={null} title="巡檢清單" total={0} color="#10B981" onCalibrate={handleCalibrate} doubtOnly={doubtOnly} keyword={keyword} />
+                     </div>
+                   )}
                 </div>
              </div>
           </div>
-        ) : (
+        ) : tab === 'audit' ? (
           <div className="flex-1 flex flex-col min-h-0 bg-slate-50 overflow-hidden">
              <div className="px-8 py-2.5 bg-white border-b border-slate-200 shadow-sm flex items-center gap-4 shrink-0 z-20">
                 <h2 className="text-[14px] font-black text-slate-900 tracking-tight uppercase leading-none shrink-0">批次指令中心</h2>
 
                 <div className="flex items-center gap-1.5 bg-slate-50 border-2 border-slate-100 rounded-xl px-3 py-1.5 shrink-0">
                    <IconGlobe />
-                   <span className="text-[10.5px] font-black text-slate-600 pl-1">🧪 Stage</span>
+                   {enabledEnvs.map(env => (
+                     <span key={env} className="text-[10.5px] font-black text-slate-600 pl-1">{env === 'stage' ? '🧪 Stage' : '🌐 Prod'}</span>
+                   ))}
                 </div>
 
                 <div className="flex-1 max-w-xs">
@@ -560,7 +614,18 @@ export default function App() {
                 )}
              </div>
           </div>
-        )}
+        ) : tab === 'settings' ? (
+          <SettingsPanel
+            settings={settings}
+            onSave={async (s) => {
+              const res = await updateSettings(s)
+              if (res?.environments) {
+                setSettings({ environments: res.environments })
+                autoFetchCookie(Object.entries(res.environments).filter(([,on]) => on).map(([e]) => e))
+              }
+            }}
+          />
+        ) : null}
       </main>
 
       <CalibrationModal

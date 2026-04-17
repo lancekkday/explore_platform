@@ -1,10 +1,10 @@
 const API_BASE = import.meta.env.VITE_API_URL ?? '/api'
 
-export const fetchCompare = (keyword, cookie, count, ai_enabled) =>
+export const fetchCompare = (keyword, cookies, count, ai_enabled) =>
   fetch(`${API_BASE}/compare`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ keyword, cookie, count, ai_enabled }),
+    body: JSON.stringify({ keyword, cookies, count, ai_enabled }),
   }).then(r => r.json())
 
 export const fetchGuestCookie = (env = 'stage') =>
@@ -74,6 +74,16 @@ export const updateSchedule = (id, fields) =>
 
 export const deleteSchedule = (id) =>
   fetch(`${API_BASE}/batch/schedule/${id}`, { method: 'DELETE' }).then(r => r.json())
+
+export const fetchSettings = () =>
+  fetch(`${API_BASE}/settings`).then(r => r.json())
+
+export const updateSettings = (settings) =>
+  fetch(`${API_BASE}/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  }).then(r => r.json())
 
 export const explainProduct = (keyword, product) =>
   fetch(`${API_BASE}/explain`, {

@@ -11,7 +11,7 @@ A **Search Intent Verification Platform** for auditing KKDay e-commerce search r
 ### Start / Restart
 
 ```bash
-./start.sh        # Starts backend (port 8000) + frontend (port 5173)
+./start.sh        # Starts backend (port 19426) + frontend (port 5888)
 ./restart.sh      # Kills existing processes on both ports, then starts
 ```
 
@@ -19,7 +19,7 @@ Manual start:
 ```bash
 # Backend
 cd backend && source venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8000
+uvicorn main:app --host 0.0.0.0 --port 19426
 
 # Frontend
 cd frontend && npm run dev
@@ -29,7 +29,7 @@ cd frontend && npm run dev
 
 ```bash
 cd frontend
-npm run dev        # Dev server (port 5173)
+npm run dev        # Dev server (port 5888)
 npm run build      # Production build → frontend/dist/
 npm run preview    # Preview production build
 npm run lint       # ESLint
@@ -38,7 +38,7 @@ npm run lint       # ESLint
 ### Testing
 
 ```bash
-./run_tests.sh     # E2E suite (requires backend running on :8000)
+./run_tests.sh     # E2E suite (requires backend running on :19426)
 
 # Run individual test files
 cd backend && source venv/bin/activate
@@ -49,9 +49,9 @@ pytest ../tests/test_e2e_api.py -v        # E2E API tests (14 cases, all endpoin
 ## Architecture
 
 ```
-Frontend (React + Vite, :5173)
+Frontend (React + Vite, :5888)
     ↓ REST
-Backend (FastAPI, :8000)
+Backend (FastAPI, :19426)
     ├── main.py              — all API endpoints
     ├── kkday_api.py         — KKDay product fetching (stage & prod), paginated 50/page
     ├── be2_api.py           — Be2Session: reusable requests wrapper with auto token refresh (importable)
@@ -203,10 +203,10 @@ All environment variables are maintained in the **root `.env`** (single source o
 | `AI_PRICE_INPUT_PER_1M` | `0.150` | Input token price (USD/1M) for cost tracking |
 | `AI_PRICE_OUTPUT_PER_1M` | `0.600` | Output token price (USD/1M) for cost tracking |
 | `DEST_DUMP_DIR` | `backend/data` | Path to destination data directory |
-| `BACKEND_URL` | `http://localhost:8000` | Vite dev proxy target (local dev only) |
+| `BACKEND_URL` | `http://localhost:19426` | Vite dev proxy target (local dev only) |
 | `VITE_API_URL` | `/api` | API base path baked into frontend build |
 | `VITE_BASE_URL` | `/` | Frontend base path (use `/explore_platform/` for EC2 subpath) |
-| `BACKEND_PORT` | `8000` | Docker host port for backend |
+| `BACKEND_PORT` | `19426` | Docker host port for backend |
 | `FRONTEND_PORT` | `80` | Docker host port for frontend |
 | `SECRET_SERVICE_URL` / `AUTOMATION_TOKEN` | — | KKDay internal QA service (Playwright cookie fetching) |
 | `KKDAY_BE2_BEARER_TOKEN_FILE` | — | Path to file containing BE2 access JWT (re-read on every request; supports mid-run hot-swap) |

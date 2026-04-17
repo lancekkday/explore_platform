@@ -14,6 +14,8 @@ if [ ! -f "venv/bin/uvicorn" ]; then
   echo "⚙️  venv 不存在，初始化中..."
   python3 -m venv venv
   venv/bin/pip install -r requirements.txt
+  echo "⚙️  安裝 Playwright 瀏覽器（chromium）..."
+  venv/bin/playwright install chromium
   echo "✅ 依賴安裝完成"
 fi
 # 用 venv 完整路徑，不依賴 source activate（nohup 子 shell 不繼承環境）
@@ -23,7 +25,12 @@ echo "Backend started. Logs are being written to backend/backend.log"
 # Start Frontend
 echo "[2/2] Starting Frontend Server (Vite) on port 5888..."
 cd "$PROJECT_DIR/frontend" || exit
-# Run in background and redirect output to a log file
+# 自動安裝 npm 套件（新機器首次部署時）
+if [ ! -d "node_modules" ]; then
+  echo "⚙️  node_modules 不存在，執行 npm install..."
+  npm install
+  echo "✅ npm 安裝完成"
+fi
 nohup npm run dev > frontend.log 2>&1 &
 echo "Frontend started. Logs are being written to frontend/frontend.log"
 

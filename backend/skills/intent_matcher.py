@@ -180,6 +180,12 @@ class IntentMatcher:
             "九份":   "A01-002-00001", # 新北
         })
 
+        # 子字串 fallback 用的排序 key 列表：長名稱優先，確保「北海道」先於「海道」命中
+        # 只在 load_destinations 結束時建立一次（O(N log N)），之後 _resolve_search_code 直接用
+        self._sorted_dest_names: list[str] = sorted(
+            self.name_to_code.keys(), key=len, reverse=True
+        )
+
         # search_code 解析結果快取（effective_dest → code）
         # 同一個搜尋詞在 300 個商品的批次中只需計算一次
         self._search_code_cache: dict[str, str | None] = {}
@@ -199,9 +205,10 @@ class IntentMatcher:
 
         code = self.name_to_code.get(effective_dest)
         if not code:
-            for name, c in self.name_to_code.items():
+            # 按長度降序遍歷，確保最長（最具體）地名優先命中
+            for name in self._sorted_dest_names:
                 if len(name) >= 2 and name in effective_dest:
-                    code = c
+                    code = self.name_to_code[name]
                     break
 
         self._search_code_cache[effective_dest] = code

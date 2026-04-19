@@ -180,6 +180,33 @@ class IntentMatcher:
             "九份":   "A01-002-00001", # 新北
         })
 
+        # search_code 解析結果快取（effective_dest → code）
+        # 同一個搜尋詞在 300 個商品的批次中只需計算一次
+        self._search_code_cache: dict[str, str | None] = {}
+
+    def _resolve_search_code(self, effective_dest: str) -> str | None:
+        """
+        將搜尋地點詞解析為 destination code，結果快取避免重複 O(N) 遍歷。
+
+        查找順序：
+        1. 快取命中 → 直接回傳
+        2. name_to_code 直接 lookup（O(1)）
+        3. 子字串 fallback：找 name_to_code 中是 effective_dest 子字串的 key（O(N)，只跑一次）
+           例：「濟州島」→ 找到「濟州」→ 回傳其 code
+        """
+        if effective_dest in self._search_code_cache:
+            return self._search_code_cache[effective_dest]
+
+        code = self.name_to_code.get(effective_dest)
+        if not code:
+            for name, c in self.name_to_code.items():
+                if len(name) >= 2 and name in effective_dest:
+                    code = c
+                    break
+
+        self._search_code_cache[effective_dest] = code
+        return code
+
     def _get_ancestors(self, code: str) -> set:
         """回傳某 code 的所有 ancestor codes（向上走到 root）。"""
         ancestors = set()
@@ -349,15 +376,7 @@ class IntentMatcher:
         # Case D：同國異城（如搜「濟州島」出現首爾）→ same_country=True，最終給 T3
         same_country = False  # 同國異城旗標
         if not dest_match and actual_dest_codes:
-            search_code = self.name_to_code.get(effective_dest)
-
-            # 搜尋詞 code 查不到時，嘗試子字串 fallback
-            # 例：「濟州島」→ name_to_code 無此 key，但「濟州」是其子字串 → 取「濟州」的 code
-            if not search_code:
-                for name, code in self.name_to_code.items():
-                    if len(name) >= 2 and name in effective_dest:
-                        search_code = code
-                        break
+            search_code = self._resolve_search_code(effective_dest)
 
             if search_code:
                 search_ancestors = self._get_ancestors(search_code)

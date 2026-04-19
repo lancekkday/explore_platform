@@ -96,6 +96,10 @@ class IntentMatcher:
             "酒店":   ["CATEGORY_057"],
         }
 
+        # _extract_compound_intent 用的預排 key 列表（長詞優先），init 時排好，不在每次 verify() 重複 sorted()
+        self._sorted_cat_keys: list[str] = sorted(self.CATEGORY_MAPPING.keys(), key=len, reverse=True)
+        self._sorted_theme_keys: list[str] = sorted(self.THEME_KEYWORDS.keys(), key=len, reverse=True)
+
     # 國家名稱 → ISO 代碼（用於 country-level dest 比對，搜「日本」命中所有日本商品）
     COUNTRY_ISO_MAP = {
         "日本": "JP", "台灣": "TW", "台湾": "TW", "韓國": "KR", "韓国": "KR",
@@ -190,6 +194,8 @@ class IntentMatcher:
         # 同一個搜尋詞在 300 個商品的批次中只需計算一次
         self._search_code_cache: dict[str, str | None] = {}
 
+        # _sorted_cat_keys / _sorted_theme_keys 在 __init__ 末尾設定（CATEGORY_MAPPING 尚未定義）
+
     def _resolve_search_code(self, effective_dest: str) -> str | None:
         """
         將搜尋地點詞解析為 destination code，結果快取避免重複 O(N) 遍歷。
@@ -241,14 +247,14 @@ class IntentMatcher:
         kw = keyword.strip()
 
         # 1. 先找 category keyword（從長到短，避免 "自助餐" 被 "餐廳" 誤截）
-        for cat_kw in sorted(self.CATEGORY_MAPPING.keys(), key=len, reverse=True):
+        for cat_kw in self._sorted_cat_keys:
             if cat_kw in kw and kw != cat_kw:
                 dest_part = kw.replace(cat_kw, "").strip()
                 if len(dest_part) >= 2:  # 至少 2 字，避免 "esim" → "e" + "sim" 誤截
                     return dest_part, cat_kw, None
 
         # 2. 再找 theme keyword
-        for theme_kw in sorted(self.THEME_KEYWORDS.keys(), key=len, reverse=True):
+        for theme_kw in self._sorted_theme_keys:
             if theme_kw in kw and kw != theme_kw:
                 dest_part = kw.replace(theme_kw, "").strip()
                 if len(dest_part) >= 2:
@@ -365,15 +371,20 @@ class IntentMatcher:
                 actual_dest_names.append(str(d).lower())
 
         target_loc = effective_dest.lower()
-        title_intro_for_dest = product.get("name", "").lower() + " " + product.get("introduction", "").lower()
+        # title_intro 在 dest 匹配、theme 匹配、is_keyword_present 均會用到，統一在此計算一次
+        title     = product.get("name", "").lower()
+        intro     = product.get("introduction", "").lower()
+        title_intro = title + " " + intro
+
+        _dest_code = self.name_to_code.get(effective_dest)  # 避免重複 dict lookup
         dest_match = (
             any(target_loc in n for n in actual_dest_names)
             # 反向子字串：destination name 是搜尋詞的子集（如搜「濟州島」，dest 為「濟州」）
             or any(n in target_loc for n in actual_dest_names if len(n) >= 2)
-            or self.name_to_code.get(effective_dest) in actual_dest_codes
+            or (_dest_code is not None and _dest_code in actual_dest_codes)
             or "glb" in actual_dest_codes
             # 商品名稱或描述中直接包含目標地點（例如搜尋「日本」可命中「KDDI 日本 eSIM」）
-            or target_loc in title_intro_for_dest
+            or target_loc in title_intro
         )
 
         # ── 階層式地點比對 + 同國異城偵測 ────────────────────────────────
@@ -435,10 +446,7 @@ class IntentMatcher:
             cat_match = "exact" if is_exact_cat else "none"
 
         # ── Theme 匹配 ─────────────────────────────────────────────────────
-        title = product.get("name", "").lower()
-        intro = product.get("introduction", "").lower()
-        title_intro = title + " " + intro
-
+        # title / intro / title_intro 已在 Destination 匹配段計算完畢，直接使用
         theme_in_title = False
         theme_in_intro = False
         if effective_theme:

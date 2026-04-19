@@ -69,15 +69,16 @@ class TestLocationKeyword:
         )
         assert tier(r) == 2
 
-    def test_t3_kw_in_title_dest_mismatch(self, m):
-        """dest ✗ 但 keyword 在標題 → T3（東京迪士尼 案例）"""
+    def test_t2_kw_in_title_triggers_dest_match(self, m):
+        """搜尋詞完整出現在商品名稱 → title fallback 令 dest_match=True → T2
+        （東京迪士尼 在 千葉縣商品名稱中，title fallback 使其判為相關）"""
         r = m.verify(
             {"name": "超值折扣！東京迪士尼度假區通票", "introduction": "",
              "destinations": [{"name": "千葉縣"}],
              "product_category": {"main": "CATEGORY_001"}},
             "東京迪士尼"
         )
-        assert tier(r) == 3
+        assert tier(r) == 2
 
 
 # ─────────────────────────────────────────────

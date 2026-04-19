@@ -34,6 +34,19 @@ class IntentMatcher:
             "自助餐": "CATEGORY_079",
             "buffet": "CATEGORY_079",
             "下午茶": "CATEGORY_079",
+            # 住宿 / 旅館（CATEGORY_078）
+            "住宿": "CATEGORY_078",
+            "旅館": "CATEGORY_078",
+            "飯店": "CATEGORY_078",
+            "民宿": "CATEGORY_078",
+            "酒店": "CATEGORY_078",
+            "hotel": "CATEGORY_078",
+            "villa": "CATEGORY_078",
+            # 高鐵假期套裝（CATEGORY_057）—— 長詞需在「高鐵」之前，sorted by len 已保證
+            "高鐵假期": "CATEGORY_057",
+            "高鐵旅遊": "CATEGORY_057",
+            "高鐵套票": "CATEGORY_057",
+            "高鐵套裝": "CATEGORY_057",
             # 交通
             "交通": "CATEGORY_120",
             "接送": "CATEGORY_120",
@@ -71,12 +84,23 @@ class IntentMatcher:
         }
 
         # Broad category expansions logic
+        # 當搜尋 category 不完全符合但「語意相關」時，給 T2 而非 T3
         self.BROAD_CATEGORIES = {
             "一日遊": ["CATEGORY_021", "CATEGORY_022", "CATEGORY_019"],
             "自助餐": ["CATEGORY_079"],
+            # 住宿：高鐵假期（CATEGORY_057）含住宿元素，搜「台中住宿」出現屬合理相關
+            "住宿":   ["CATEGORY_057"],
+            "旅館":   ["CATEGORY_057"],
+            "飯店":   ["CATEGORY_057"],
+            "民宿":   ["CATEGORY_057"],
+            "酒店":   ["CATEGORY_057"],
         }
 
-    # 國家名稱 → ISO 代碼（用於 country-level dest 比對）
+        # _extract_compound_intent 用的預排 key 列表（長詞優先），init 時排好，不在每次 verify() 重複 sorted()
+        self._sorted_cat_keys: list[str] = sorted(self.CATEGORY_MAPPING.keys(), key=len, reverse=True)
+        self._sorted_theme_keys: list[str] = sorted(self.THEME_KEYWORDS.keys(), key=len, reverse=True)
+
+    # 國家名稱 → ISO 代碼（用於 country-level dest 比對，搜「日本」命中所有日本商品）
     COUNTRY_ISO_MAP = {
         "日本": "JP", "台灣": "TW", "台湾": "TW", "韓國": "KR", "韓国": "KR",
         "泰國": "TH", "泰国": "TH", "新加坡": "SG", "馬來西亞": "MY", "馬来西亚": "MY",
@@ -84,6 +108,24 @@ class IntentMatcher:
         "印尼": "ID", "印度": "IN", "美國": "US", "英國": "GB", "法國": "FR",
         "德國": "DE", "義大利": "IT", "西班牙": "ES", "葡萄牙": "PT",
         "澳洲": "AU", "紐西蘭": "NZ", "中國": "CN", "中国": "CN",
+    }
+
+    # 城市名稱 → ISO 代碼（僅用於 same_country 同國異城偵測，不影響 dest_match）
+    # 補充 unified_destinations 缺少中文 mapping 的常見城市
+    CITY_ISO_MAP = {
+        # 韓國
+        "首爾": "KR", "釜山": "KR", "濟州": "KR", "濟州島": "KR",
+        "仁川": "KR", "大邱": "KR", "光州": "KR", "大田": "KR",
+        # 泰國
+        "曼谷": "TH", "清邁": "TH", "普吉": "TH", "芭提雅": "TH", "清萊": "TH",
+        # 越南
+        "河內": "VN", "胡志明市": "VN", "峴港": "VN", "芽莊": "VN", "會安": "VN",
+        # 菲律賓
+        "馬尼拉": "PH", "宿霧": "PH", "長灘島": "PH", "薄荷島": "PH",
+        # 印尼
+        "峇里島": "ID", "巴里島": "ID", "雅加達": "ID", "日惹": "ID",
+        # 馬來西亞
+        "吉隆坡": "MY", "檳城": "MY", "古晉": "MY", "亞庇": "MY", "蘭卡威": "MY",
     }
 
     def load_destinations(self):
@@ -142,6 +184,42 @@ class IntentMatcher:
             "九份":   "A01-002-00001", # 新北
         })
 
+        # 子字串 fallback 用的排序 key 列表：長名稱優先，確保「北海道」先於「海道」命中
+        # 只在 load_destinations 結束時建立一次（O(N log N)），之後 _resolve_search_code 直接用
+        self._sorted_dest_names: list[str] = sorted(
+            self.name_to_code.keys(), key=len, reverse=True
+        )
+
+        # search_code 解析結果快取（effective_dest → code）
+        # 同一個搜尋詞在 300 個商品的批次中只需計算一次
+        self._search_code_cache: dict[str, str | None] = {}
+
+        # _sorted_cat_keys / _sorted_theme_keys 在 __init__ 末尾設定（CATEGORY_MAPPING 尚未定義）
+
+    def _resolve_search_code(self, effective_dest: str) -> str | None:
+        """
+        將搜尋地點詞解析為 destination code，結果快取避免重複 O(N) 遍歷。
+
+        查找順序：
+        1. 快取命中 → 直接回傳
+        2. name_to_code 直接 lookup（O(1)）
+        3. 子字串 fallback：找 name_to_code 中是 effective_dest 子字串的 key（O(N)，只跑一次）
+           例：「濟州島」→ 找到「濟州」→ 回傳其 code
+        """
+        if effective_dest in self._search_code_cache:
+            return self._search_code_cache[effective_dest]
+
+        code = self.name_to_code.get(effective_dest)
+        if not code:
+            # 按長度降序遍歷，確保最長（最具體）地名優先命中
+            for name in self._sorted_dest_names:
+                if len(name) >= 2 and name in effective_dest:
+                    code = self.name_to_code[name]
+                    break
+
+        self._search_code_cache[effective_dest] = code
+        return code
+
     def _get_ancestors(self, code: str) -> set:
         """回傳某 code 的所有 ancestor codes（向上走到 root）。"""
         ancestors = set()
@@ -169,14 +247,14 @@ class IntentMatcher:
         kw = keyword.strip()
 
         # 1. 先找 category keyword（從長到短，避免 "自助餐" 被 "餐廳" 誤截）
-        for cat_kw in sorted(self.CATEGORY_MAPPING.keys(), key=len, reverse=True):
+        for cat_kw in self._sorted_cat_keys:
             if cat_kw in kw and kw != cat_kw:
                 dest_part = kw.replace(cat_kw, "").strip()
                 if len(dest_part) >= 2:  # 至少 2 字，避免 "esim" → "e" + "sim" 誤截
                     return dest_part, cat_kw, None
 
         # 2. 再找 theme keyword
-        for theme_kw in sorted(self.THEME_KEYWORDS.keys(), key=len, reverse=True):
+        for theme_kw in self._sorted_theme_keys:
             if theme_kw in kw and kw != theme_kw:
                 dest_part = kw.replace(theme_kw, "").strip()
                 if len(dest_part) >= 2:
@@ -293,21 +371,31 @@ class IntentMatcher:
                 actual_dest_names.append(str(d).lower())
 
         target_loc = effective_dest.lower()
-        title_intro_for_dest = product.get("name", "").lower() + " " + product.get("introduction", "").lower()
+        # title_intro 在 dest 匹配、theme 匹配、is_keyword_present 均會用到，統一在此計算一次
+        title     = product.get("name", "").lower()
+        intro     = product.get("introduction", "").lower()
+        title_intro = title + " " + intro
+
+        _dest_code = self.name_to_code.get(effective_dest)  # 避免重複 dict lookup
         dest_match = (
             any(target_loc in n for n in actual_dest_names)
-            or self.name_to_code.get(effective_dest) in actual_dest_codes
+            # 反向子字串：destination name 是搜尋詞的子集（如搜「濟州島」，dest 為「濟州」）
+            or any(n in target_loc for n in actual_dest_names if len(n) >= 2)
+            or (_dest_code is not None and _dest_code in actual_dest_codes)
             or "glb" in actual_dest_codes
             # 商品名稱或描述中直接包含目標地點（例如搜尋「日本」可命中「KDDI 日本 eSIM」）
-            or target_loc in title_intro_for_dest
+            or target_loc in title_intro
         )
 
-        # ── 階層式地點比對（同國 ancestor 邏輯）──────────────────────────
+        # ── 階層式地點比對 + 同國異城偵測 ────────────────────────────────
         # Case A：product destination 是搜尋地點的 ancestor（product 範圍較廣，含搜尋城市）
         # Case B：搜尋地點是 product destination 的 ancestor（搜尋範圍較廣，product 在其下）
         # Case C：搜尋詞是國家名稱（如「日本」），用 ISO code 對比商品所在國是否相同
+        # Case D：同國異城（如搜「濟州島」出現首爾）→ same_country=True，最終給 T3
+        same_country = False  # 同國異城旗標
         if not dest_match and actual_dest_codes:
-            search_code = self.name_to_code.get(effective_dest)
+            search_code = self._resolve_search_code(effective_dest)
+
             if search_code:
                 search_ancestors = self._get_ancestors(search_code)
                 for prod_code in actual_dest_codes:
@@ -319,14 +407,31 @@ class IntentMatcher:
                     if search_code in self._get_ancestors(prod_code):
                         dest_match = True
                         break
+                # hierarchy 仍失敗 → 檢查是否同國（同 ISO code）→ 降級 T3
+                if not dest_match:
+                    search_iso = self.code_to_iso.get(search_code)
+                    if search_iso:
+                        for prod_code in actual_dest_codes:
+                            if self.code_to_iso.get(prod_code) == search_iso:
+                                same_country = True
+                                break
             else:
-                # search_code 查不到：嘗試用國家 ISO code 比對（例：日本 → JP）
+                # search_code 查不到
+                # 1. 嘗試用國家 ISO code 比對（例：日本 → JP）→ dest_match=True
                 search_iso = self.COUNTRY_ISO_MAP.get(effective_dest)
                 if search_iso:
                     for prod_code in actual_dest_codes:
                         if self.code_to_iso.get(prod_code) == search_iso:
                             dest_match = True
                             break
+                # 2. 嘗試城市 ISO map（例：濟州島 → KR）→ 只設 same_country，不影響 dest_match
+                if not dest_match:
+                    search_iso = self.CITY_ISO_MAP.get(effective_dest)
+                    if search_iso:
+                        for prod_code in actual_dest_codes:
+                            if self.code_to_iso.get(prod_code) == search_iso:
+                                same_country = True
+                                break
 
         # ── Category 匹配 ──────────────────────────────────────────────────
         prod_cat_code = self._get_product_cat_code(product)
@@ -341,10 +446,7 @@ class IntentMatcher:
             cat_match = "exact" if is_exact_cat else "none"
 
         # ── Theme 匹配 ─────────────────────────────────────────────────────
-        title = product.get("name", "").lower()
-        intro = product.get("introduction", "").lower()
-        title_intro = title + " " + intro
-
+        # title / intro / title_intro 已在 Destination 匹配段計算完畢，直接使用
         theme_in_title = False
         theme_in_intro = False
         if effective_theme:
@@ -354,11 +456,18 @@ class IntentMatcher:
 
         is_keyword_present = target_loc in title_intro
 
+        # ── Broad category 比對（語意相關，非完全符合）──────────────────────
+        broad_cats = self.BROAD_CATEGORIES.get(effective_cat, []) if effective_cat else []
+        is_broad_cat = prod_cat_code in broad_cats
+
         # ── Tier 判定 ──────────────────────────────────────────────────────
         if dest_match:
             if effective_cat and is_exact_cat:
                 # Route B：destination + category 完全符合
                 tier = 1
+            elif effective_cat and is_broad_cat:
+                # Route B'：destination ✓ + 寬鬆相關 category（如搜住宿出現高鐵假期）→ T2
+                tier = 2
             elif effective_theme:
                 # Route C：destination + theme
                 if theme_in_title:
@@ -377,6 +486,8 @@ class IntentMatcher:
                 tier = 2  # 有正確 category 但地點不對，給 T2
             elif is_keyword_present:
                 tier = 3
+            elif same_country:
+                tier = 3  # 同國異城（如搜濟州出現首爾、搜台中出現台南）→ 鬆散相關
             else:
                 tier = 0
 

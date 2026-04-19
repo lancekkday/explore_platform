@@ -6,6 +6,21 @@ echo "======================================"
 echo "Starting Search Intent Verification..."
 echo "======================================"
 
+# 啟動前清理已佔用的 port，避免殘留 process 導致新進程啟動失敗
+kill_port() {
+  local port=$1
+  local pid
+  pid=$(lsof -t -i:"$port" 2>/dev/null)
+  if [ -n "$pid" ]; then
+    echo "⚠️  Port $port 被 PID $pid 佔用，清除中..."
+    kill -9 "$pid"
+    sleep 0.5
+  fi
+}
+
+kill_port 19426
+kill_port 5888
+
 # Start Backend
 echo "[1/2] Starting Backend Server (FastAPI) on port 19426..."
 cd "$PROJECT_DIR/backend" || exit

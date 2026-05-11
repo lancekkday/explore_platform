@@ -21,11 +21,19 @@ function BaselineBadge({ tag, profit, ctr, profitRank }) {
     ? tag === 'precise_top1' ? 'Top1' : 'Top2'
     : `#${profitRank ?? '?'}`
 
-  const tooltipText = [
-    isPrecise ? `Baseline ${label}` : `Profit Rank ${profitRank}`,
-    profit != null ? `Profit: ${profit}` : null,
-    ctr != null ? `CTR: ${ctr}%` : null,
-  ].filter(Boolean).join(' · ')
+  const tooltipText = isPrecise
+    ? [
+        `⭐ 精準詞守門商品 ${label}`,
+        '此商品為該關鍵字的高成交核心商品，排名下降需特別關注',
+        profit != null ? `利潤: ${profit}` : null,
+        ctr != null ? `點擊率: ${ctr}%` : null,
+      ].filter(Boolean).join('\n')
+    : [
+        `📊 泛詞守門商品 (利潤排名 #${profitRank})`,
+        '此商品為該關鍵字下利潤排名前10的商品，需確保出現在搜尋結果中',
+        profit != null ? `利潤: ${profit}` : null,
+        ctr != null ? `點擊率: ${ctr}%` : null,
+      ].filter(Boolean).join('\n')
 
   return (
     <span
@@ -127,7 +135,7 @@ export default function AnnotatedResultList({
           </div>
         ) : (
           <div className="flex flex-col gap-0.5">
-            {displayed.map((it, i) => {
+            {displayed.map((it) => {
               if (!it) return null
               const pid = it.id
               const explanation = explanations[pid]
@@ -137,7 +145,7 @@ export default function AnnotatedResultList({
 
               return (
                 <div
-                  key={i}
+                  key={it.prod_mid || it.id}
                   className={`py-1.5 px-4 border-b border-slate-50 hover:bg-slate-50/80 transition-all group rounded-xl relative border-l-2 ${
                     it.tier === 0
                       ? 'border-l-rose-500 bg-rose-50/10'

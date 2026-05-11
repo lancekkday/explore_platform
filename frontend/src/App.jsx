@@ -147,9 +147,11 @@ export default function App() {
     fetchBaselineKeywords().then(res => {
       if (res?.keywords) setBaselineKeywords(res.keywords)
     }).catch(() => {})
-    const timer = setInterval(() => {
-      if (batchStatus?.is_running) fetchAuditData()
-    }, 3000)
+  }, [])
+
+  useEffect(() => {
+    if (!batchStatus?.is_running) return
+    const timer = setInterval(() => fetchAuditData(), 3000)
     return () => clearInterval(timer)
   }, [batchStatus?.is_running])
 
@@ -223,7 +225,8 @@ export default function App() {
       return typeof first === 'object' ? (first.name || '') : String(first)
     }
     const esc = (v) => {
-      const s = String(v ?? '')
+      let s = String(v ?? '')
+      if (/^[=+\-@]/.test(s)) s = `'${s}`
       return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
     }
 

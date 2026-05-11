@@ -435,7 +435,7 @@ async def unified_search(req: UnifiedSearchRequest):
         raise HTTPException(status_code=400, detail="keyword is required")
 
     baseline = baseline_service.get_baseline(kw)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     # A/B versions in parallel using threads (requests is sync)
     a_future = loop.run_in_executor(

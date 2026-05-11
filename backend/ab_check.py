@@ -52,14 +52,12 @@ class Alert:
 
 # ── API 呼叫 ─────────────────────────────────────────────────────────────────
 
-_cache: dict[tuple[str, int], tuple[int, ...]] = {}
 
-
-def _fetch_results(query: str, version: int, cookie: str) -> tuple[int, ...]:
+def _fetch_results(query: str, version: int, cookie: str, cache: dict = None) -> tuple[int, ...]:
     """呼叫 v3 search API，回傳 prod_mid tuple（有 cache）"""
     key = (query, version)
-    if key in _cache:
-        return _cache[key]
+    if cache is not None and key in cache:
+        return cache[key]
     try:
         prods, _, _ = fetch_kkday_products_v3(
             keyword=query, env="stage", cookie=cookie,
@@ -69,11 +67,13 @@ def _fetch_results(query: str, version: int, cookie: str) -> tuple[int, ...]:
             p.get("prod_mid") or p.get("prod_oid") or 0
             for p in prods
         )
-        _cache[key] = mids
+        if cache is not None:
+            cache[key] = mids
         return mids
     except Exception as e:
         logger.error(f"[AB] API error query={query!r} version={version}: {e}")
-        _cache[key] = ()
+        if cache is not None:
+            cache[key] = ()
         return ()
 
 
@@ -124,10 +124,10 @@ def check_ab_precise(query, mid, baseline_rank, a_rank, b_rank) -> Optional[Aler
     return None
 
 
-def _process_precise_query(row, version_a, version_b, cookie) -> list[Alert]:
+def _process_precise_query(row, version_a, version_b, cookie, cache=None) -> list[Alert]:
     query = row["query"]
-    a_results = _fetch_results(query, version_a, cookie)
-    b_results = _fetch_results(query, version_b, cookie)
+    a_results = _fetch_results(query, version_a, cookie, cache)
+    b_results = _fetch_results(query, version_b, cookie, cache)
 
     alerts = []
     for rank_n, mid_col in [(1, "top1_prod_mid"), (2, "top2_prod_mid")]:
@@ -190,9 +190,9 @@ def check_ab_broad(query, mid, baseline_rank, a_rank, b_rank) -> Optional[Alert]
     return None
 
 
-def _process_broad_query(query, group, version_a, version_b, cookie) -> list[Alert]:
-    a_results = _fetch_results(query, version_a, cookie)
-    b_results = _fetch_results(query, version_b, cookie)
+def _process_broad_query(query, group, version_a, version_b, cookie, cache=None) -> list[Alert]:
+    a_results = _fetch_results(query, version_a, cookie, cache)
+    b_results = _fetch_results(query, version_b, cookie, cache)
 
     alerts = []
     for _, row in group.iterrows():
@@ -212,12 +212,12 @@ def _process_broad_query(query, group, version_a, version_b, cookie) -> list[Ale
 
 # ── 並行調度 ─────────────────────────────────────────────────────────────────
 
-def _run_precise(precise_df, va, vb, cookie) -> list[Alert]:
+def _run_precise(precise_df, va, vb, cookie, cache=None) -> list[Alert]:
     alerts = []
     rows = list(precise_df.to_dict(orient="records"))
     with ThreadPoolExecutor(max_workers=API_PARALLEL_WORKERS) as ex:
         futures = {
-            ex.submit(_process_precise_query, r, va, vb, cookie): r["query"]
+            ex.submit(_process_precise_query, r, va, vb, cookie, cache): r["query"]
             for r in rows
         }
         for f in as_completed(futures):
@@ -228,12 +228,12 @@ def _run_precise(precise_df, va, vb, cookie) -> list[Alert]:
     return alerts
 
 
-def _run_broad(broad_df, va, vb, cookie) -> list[Alert]:
+def _run_broad(broad_df, va, vb, cookie, cache=None) -> list[Alert]:
     alerts = []
     groups = list(broad_df.groupby("query"))
     with ThreadPoolExecutor(max_workers=API_PARALLEL_WORKERS) as ex:
         futures = {
-            ex.submit(_process_broad_query, q, g, va, vb, cookie): q
+            ex.submit(_process_broad_query, q, g, va, vb, cookie, cache): q
             for q, g in groups
         }
         for f in as_completed(futures):
@@ -255,9 +255,9 @@ def run_ab_check(
 ) -> dict:
     """
     執行 AB 巡檢，回傳 { summary, alerts }。
-    每次呼叫前清空 cache。
+    cache 為 request-local，避免 concurrency 問題。
     """
-    _cache.clear()
+    cache: dict[tuple[str, int], tuple[int, ...]] = {}
 
     precise_df = pd.read_csv(PRECISE_CSV) if not skip_precise and PRECISE_CSV.exists() else None
     broad_df = pd.read_csv(BROAD_CSV) if not skip_broad and BROAD_CSV.exists() else None
@@ -266,12 +266,12 @@ def run_ab_check(
 
     if precise_df is not None and not skip_precise:
         logger.info(f"[AB] Running precise check: {len(precise_df)} queries, A={version_a} B={version_b}")
-        all_alerts += _run_precise(precise_df, version_a, version_b, cookie)
+        all_alerts += _run_precise(precise_df, version_a, version_b, cookie, cache)
 
     if broad_df is not None and not skip_broad:
         n_queries = broad_df["query"].nunique()
         logger.info(f"[AB] Running broad check: {n_queries} queries, A={version_a} B={version_b}")
-        all_alerts += _run_broad(broad_df, version_a, version_b, cookie)
+        all_alerts += _run_broad(broad_df, version_a, version_b, cookie, cache)
 
     severity_counts = {"P0": 0, "P1": 0, "P2": 0, "INFO": 0}
     for a in all_alerts:

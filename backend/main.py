@@ -351,67 +351,61 @@ def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp):
 
 
 def _compute_ab_comparison(keyword, a_results, b_results):
-    """Compare two result sets using ab_check severity logic."""
-    from ab_check import (
-        check_ab_precise, check_ab_broad,
-        PRECISE_CSV, BROAD_CSV,
-    )
-    import pandas as pd
+    """Compare two result sets using ab_check severity logic.
+    Reuses baseline_service singleton instead of re-reading CSVs."""
+    from ab_check import check_ab_precise, check_ab_broad
 
     a_mids = tuple(r.get("prod_mid", 0) for r in a_results)
     b_mids = tuple(r.get("prod_mid", 0) for r in b_results)
 
+    bl = baseline_service.get_baseline(keyword)
+    if not bl["has_data"]:
+        return {"rank_changes": [], "summary": {"total_changes": 0, "P0": 0, "P1": 0, "P2": 0, "INFO": 0}}
+
     rank_changes = []
 
     # Check precise baseline
-    if PRECISE_CSV.exists():
-        pdf = pd.read_csv(PRECISE_CSV)
-        kw_row = pdf[pdf["query"] == keyword]
-        if not kw_row.empty:
-            row = kw_row.iloc[0]
-            for rank_n, mid_col in [(1, "top1_prod_mid"), (2, "top2_prod_mid")]:
-                mid = row[mid_col]
-                if pd.isna(mid):
-                    continue
-                mid = int(mid)
-                a_rank = ab_find_rank(mid, a_mids)
-                b_rank = ab_find_rank(mid, b_mids)
-                alert = check_ab_precise(keyword, mid, rank_n, a_rank, b_rank)
-                if alert or (a_rank != b_rank):
-                    name = row.get(f"top{rank_n}_prod_nm", "")
-                    rank_changes.append({
-                        "prod_mid": mid,
-                        "name": name,
-                        "a_rank": a_rank,
-                        "b_rank": b_rank,
-                        "delta": (b_rank - a_rank) if (a_rank and b_rank) else None,
-                        "baseline_tag": f"precise_top{rank_n}",
-                        "severity": alert.severity if alert else "OK",
-                    })
-
-    # Check broad baseline
-    if BROAD_CSV.exists():
-        bdf = pd.read_csv(BROAD_CSV)
-        kw_group = bdf[bdf["query"] == keyword]
-        for _, brow in kw_group.iterrows():
-            mid = int(brow["prod_mid"])
-            bl_rank = int(brow["profit_rank"])
+    precise = bl.get("precise")
+    if precise:
+        for rank_n, prefix in [(1, "top1"), (2, "top2")]:
+            mid = precise.get(f"{prefix}_prod_mid")
+            if not mid:
+                continue
             a_rank = ab_find_rank(mid, a_mids)
             b_rank = ab_find_rank(mid, b_mids)
-            alert = check_ab_broad(keyword, mid, bl_rank, a_rank, b_rank)
-            # Skip if already in rank_changes from precise
-            if any(rc["prod_mid"] == mid for rc in rank_changes):
-                continue
+            alert = check_ab_precise(keyword, mid, rank_n, a_rank, b_rank)
             if alert or (a_rank != b_rank):
                 rank_changes.append({
                     "prod_mid": mid,
-                    "name": brow.get("prod_nm", ""),
+                    "name": precise.get(f"{prefix}_prod_nm", ""),
                     "a_rank": a_rank,
                     "b_rank": b_rank,
                     "delta": (b_rank - a_rank) if (a_rank and b_rank) else None,
-                    "baseline_tag": f"broad_rank_{bl_rank}",
+                    "baseline_tag": f"precise_top{rank_n}",
                     "severity": alert.severity if alert else "OK",
                 })
+
+    # Check broad baseline
+    for entry in bl.get("broad_products", []):
+        mid = entry.get("prod_mid")
+        if not mid:
+            continue
+        bl_rank = entry.get("profit_rank", 0)
+        a_rank = ab_find_rank(mid, a_mids)
+        b_rank = ab_find_rank(mid, b_mids)
+        alert = check_ab_broad(keyword, mid, bl_rank, a_rank, b_rank)
+        if any(rc["prod_mid"] == mid for rc in rank_changes):
+            continue
+        if alert or (a_rank != b_rank):
+            rank_changes.append({
+                "prod_mid": mid,
+                "name": entry.get("prod_nm", ""),
+                "a_rank": a_rank,
+                "b_rank": b_rank,
+                "delta": (b_rank - a_rank) if (a_rank and b_rank) else None,
+                "baseline_tag": f"broad_rank_{bl_rank}",
+                "severity": alert.severity if alert else "OK",
+            })
 
     sev_counts = {"P0": 0, "P1": 0, "P2": 0, "INFO": 0}
     for rc in rank_changes:

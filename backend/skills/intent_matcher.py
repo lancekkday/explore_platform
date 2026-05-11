@@ -314,9 +314,68 @@ class IntentMatcher:
             "expected_cat": expected_cat_code,
         }
 
+    def _is_known_geo(self, keyword):
+        """
+        判斷關鍵字是否為已知地理位置（國家/城市/destination code）。
+        不是已知地理位置的關鍵字（如環球影城、迪士尼）應走 POI 模式。
+        """
+        kw = keyword.lower().strip()
+        if kw in self.COUNTRY_ISO_MAP:
+            return True
+        if kw in self.CITY_ISO_MAP:
+            return True
+        # 直接命中 destination name
+        if kw in self.name_to_code:
+            return True
+        # substring match（但要求匹配的 name 本身是地理名稱，至少 2 字）
+        code = self._resolve_search_code(kw)
+        if code:
+            return True
+        return False
+
+    def _verify_poi_keyword(self, product, keyword):
+        """
+        POI/景點型關鍵字（環球影城、迪士尼、101 等）的意圖驗證。
+        不做 destination 匹配，以關鍵字出現在商品名稱/描述中為主要依據。
+
+        Tier 矩陣：
+          T1：keyword 出現於商品名稱
+          T2：keyword 出現於商品描述（introduction）
+          T0：keyword 完全未提及
+        """
+        title = product.get("name", "").lower()
+        intro = product.get("introduction", "").lower()
+        kw = keyword.lower()
+
+        kw_in_title = kw in title
+        kw_in_intro = kw in intro
+
+        if kw_in_title:
+            tier = 1
+        elif kw_in_intro:
+            tier = 2
+        else:
+            tier = 0
+
+        reasons = []
+        if not kw_in_title and not kw_in_intro:
+            reasons.append(f"商品名稱與描述均未提及 '{keyword}'")
+        elif not kw_in_title:
+            reasons.append(f"'{keyword}' 僅出現於描述中，未出現於商品名稱")
+
+        return {
+            "tier": tier,
+            "dest_match": True,  # POI 型關鍵字不適用 destination 判斷
+            "cat_match": "n/a",
+            "mismatch_reasons": reasons,
+            "expected_dest": None,
+            "expected_cat": None,
+            "expected_theme": None,
+        }
+
     def verify(self, product, keyword, ai_metadata=None):
         """
-        主驗證入口，支援四種 query 類型：
+        主驗證入口，支援五種 query 類型：
 
         Route A — 純 category（esim、美食）：
             keyword 在 CATEGORY_MAPPING 且 AI 無 location → _verify_product_keyword
@@ -330,6 +389,9 @@ class IntentMatcher:
 
         Route D — 純 destination（日本、九份）：
             原有 destination-based 邏輯
+
+        Route E — POI/景點（環球影城、迪士尼）：
+            非已知地理位置時，以名稱/描述匹配為主
         """
         expected_cat_name = ai_metadata.get("category") if ai_metadata else None
         ai_location      = ai_metadata.get("location")  if ai_metadata else None
@@ -355,6 +417,9 @@ class IntentMatcher:
                 effective_cat   = cat_kw    # 文字 key，下方會轉 code
                 effective_theme = theme_kw
             else:
+                # ── Route E：POI/景點型（非已知地理位置）────────────────
+                if not self._is_known_geo(keyword_lower):
+                    return self._verify_poi_keyword(product, keyword_lower)
                 # 純 destination（無法拆解）
                 effective_dest  = keyword_lower
                 effective_cat   = None

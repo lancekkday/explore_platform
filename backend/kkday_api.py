@@ -3,6 +3,10 @@ import re
 import requests
 from loguru import logger
 from urllib.parse import quote, urlencode
+from dotenv import load_dotenv
+
+load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
 
 PAGE_SIZE = 50   # KKDay API 每頁上限
 
@@ -140,4 +144,102 @@ def fetch_kkday_products(keyword: str, env: str, cookie: str, row_count: int = 3
         add_unique(prods)
 
     logger.info(f"[{env}] keyword='{keyword}' fetched total={len(all_products)} (requested={row_count})")
+    return all_products[:row_count], total, total_page
+
+
+# ── v3 Search API ────────────────────────────────────────────────────────────
+
+V3_PAGE_SIZE = 50
+
+_V3_BASE_URLS = {
+    "stage": "https://api-search.stage.kkday.com/v3/product/search/product-list",
+    "production": "https://api-search.kkday.com/v3/product/search/product-list",
+}
+
+
+def _fetch_page_v3(url, headers, body, env, keyword):
+    """發送 v3 search API 請求，回傳 (products, total)"""
+    try:
+        resp = requests.get(url, headers=headers, json=body, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        total = data.get("metadata", {}).get("pagination", {}).get("total_count", 0)
+        prods = data.get("data", {}).get("prods", [])
+        logger.info(f"[v3][{env}] keyword='{keyword}' start={body.get('start')} got={len(prods)} total={total}")
+        return prods, int(total)
+    except Exception as e:
+        logger.error(f"[v3][{env}] keyword='{keyword}' start={body.get('start')} failed: {e}")
+        return [], 0
+
+
+def fetch_kkday_products_v3(keyword: str, env: str, cookie: str, row_count: int = 300, test_exp: int = 3):
+    """
+    使用 v3 search API 抓取商品，最多回傳 row_count 筆。
+    介面與 fetch_kkday_products 相同：回傳 (products, total, total_page)。
+    test_exp: 搜尋演算法版本（AB 巡檢用）。
+    """
+    url = _V3_BASE_URLS.get(env)
+    if not url:
+        raise ValueError(f"Unknown env: {env}")
+
+    auth_key = os.getenv("KKDAY_SEARCH_AUTH_KEY", "")
+    device_id = os.getenv("KKDAY_SEARCH_DEVICE_ID", "e5af2aba849682eebc53766e4487289f")
+
+    headers = {
+        "x-auth-key": auth_key,
+        "Content-Type": "application/json",
+        "Cookie": cookie,
+    }
+
+    base_body = {
+        "q": keyword,
+        "lang": "zh-tw",
+        "locale": "tw",
+        "currency": "TWD",
+        "channel": "ios",
+        "source": "ios",
+        "translate_status": 1,
+        "page_name": "product_list_mobile",
+        "device_id": device_id,
+        "ux_exp": 0,
+        "sort": "PREC",
+        "test_exp": test_exp,
+    }
+
+    all_products = []
+    seen_ids = set()
+
+    def add_unique(prods):
+        for p in prods:
+            pid = p.get("prod_oid") or p.get("prod_mid") or p.get("oid") or p.get("product_id")
+            if pid is None:
+                all_products.append(p)
+            elif pid not in seen_ids:
+                seen_ids.add(pid)
+                all_products.append(p)
+
+    # ── First page ──
+    body = {**base_body, "start": "0", "count": str(V3_PAGE_SIZE)}
+    prods, total = _fetch_page_v3(url, headers, body, env, keyword)
+    add_unique(prods)
+
+    if not total or len(prods) == 0:
+        total_page = 1 if prods else 0
+        return all_products[:row_count], total, total_page
+
+    total_page = -(-total // V3_PAGE_SIZE)  # ceiling division
+
+    # ── Remaining pages ──
+    max_page = min(total_page, -(-row_count // V3_PAGE_SIZE))
+    for page in range(2, max_page + 1):
+        if len(all_products) >= row_count:
+            break
+        start = (page - 1) * V3_PAGE_SIZE
+        body = {**base_body, "start": str(start), "count": str(V3_PAGE_SIZE)}
+        prods, _ = _fetch_page_v3(url, headers, body, env, keyword)
+        if not prods:
+            break
+        add_unique(prods)
+
+    logger.info(f"[v3][{env}] keyword='{keyword}' fetched total={len(all_products)} (requested={row_count})")
     return all_products[:row_count], total, total_page

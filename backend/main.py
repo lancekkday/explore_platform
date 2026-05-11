@@ -12,12 +12,14 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from loguru import logger
 
-from kkday_api import fetch_kkday_products
+from kkday_api import fetch_kkday_products, fetch_kkday_products_v3
 from skills.metrics import compute_ndcg, compute_recall_stats
 from skills.data_sanitizer import sanitizer
 from batch_engine import engine as batch_engine
 from skills.intent_judger import judger
 from skills.calibration_manager import calibration_manager
+from ab_check import run_ab_check, find_rank as ab_find_rank
+from baseline_service import baseline_service
 
 TZ_TAIPEI = timezone(timedelta(hours=8))  # UTC+8, no system tzdata needed
 scheduler = BackgroundScheduler(timezone=TZ_TAIPEI)
@@ -43,6 +45,7 @@ class CompareRequest(BaseModel):
     cookie: str
     count: int = 300
     ai_enabled: Optional[bool] = None
+    search_api: Optional[str] = "ajax"   # "ajax" or "v3"
 
 class FeedbackRequest(BaseModel):
     keyword: str
@@ -53,9 +56,25 @@ class FeedbackRequest(BaseModel):
 class BatchRunRequest(BaseModel):
     cookie: str
     ai_enabled: Optional[bool] = None
+    search_api: Optional[str] = "ajax"   # "ajax" or "v3"
 
 class KeywordListRequest(BaseModel):
     keywords: list[Any]
+
+class ABCheckRequest(BaseModel):
+    version_a: int
+    version_b: int
+    skip_precise: bool = False
+    skip_broad: bool = False
+
+class UnifiedSearchRequest(BaseModel):
+    keyword: str
+    cookie: str = ""
+    count: int = 300
+    ai_enabled: bool = False
+    search_api: str = "v3"
+    version_a: int = 3
+    version_b: Optional[int] = None
 
 class ExplainRequest(BaseModel):
     keyword: str
@@ -142,7 +161,7 @@ def _run_scheduled_batch(schedule_id: int):
     # Use schedule-specific keywords if set, otherwise fall back to global list
     kw_override = s.get("keywords") if s.get("keywords") else None
     # run_batch_sync blocks until the batch finishes (APScheduler already provides a thread)
-    ran = batch_engine.run_batch_sync(cookie, ai_enabled_override=bool(s["ai_enabled"]), keyword_list_override=kw_override)
+    ran = batch_engine.run_batch_sync(cookie, ai_enabled_override=bool(s["ai_enabled"]), keyword_list_override=kw_override, search_api=s.get("search_api", "ajax"))
     if not ran:
         logger.warning(f"[Scheduler] Skipped schedule_id={schedule_id}: a batch was already running.")
         return
@@ -254,7 +273,8 @@ def _slim_product(p, rank, result, keyword):
 @app.post("/api/compare")
 def compare_envs(req: CompareRequest):
     ai_metadata = judger.get_ai_metadata(req.keyword, ai_enabled=(req.ai_enabled or False))
-    stage_prods, stage_total, _ = fetch_kkday_products(req.keyword, "stage", req.cookie, req.count)
+    fetch_fn = fetch_kkday_products_v3 if req.search_api == "v3" else fetch_kkday_products
+    stage_prods, stage_total, _ = fetch_fn(req.keyword, "stage", req.cookie, req.count)
     # Production disabled (Datadome blocks prod API)
     prod_res = []
 
@@ -278,6 +298,185 @@ def compare_envs(req: CompareRequest):
     
     return final_results
 
+@app.post("/api/ab-check")
+def ab_check(req: ABCheckRequest):
+    cookie = os.getenv("KKDAY_SEARCH_COOKIE", "")
+    result = run_ab_check(
+        version_a=req.version_a,
+        version_b=req.version_b,
+        cookie=cookie,
+        skip_precise=req.skip_precise,
+        skip_broad=req.skip_broad,
+    )
+    return {"success": True, **result}
+
+@app.get("/api/baseline/keywords")
+def get_baseline_keywords():
+    kws = baseline_service.get_all_keywords()
+    return {
+        "success": True,
+        "keywords": kws,
+        "total": len(kws),
+    }
+
+
+def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp):
+    """Fetch + judge + annotate a single version. Returns (results, total, metrics)."""
+    ai_metadata = judger.get_ai_metadata(keyword, ai_enabled=ai_enabled)
+    fetch_fn = fetch_kkday_products_v3 if search_api == "v3" else fetch_kkday_products
+    kwargs = {"keyword": keyword, "env": "stage", "cookie": cookie, "row_count": count}
+    if search_api == "v3":
+        kwargs["test_exp"] = test_exp
+    prods, total, _ = fetch_fn(**kwargs)
+
+    results = []
+    for i, p in enumerate(prods):
+        res = judger.process_and_calibrate(p, i + 1, keyword, ai_metadata, _slim_product)
+        res["rank_delta"] = None
+        # Carry prod_mid for baseline annotation
+        res["prod_mid"] = p.get("prod_mid") or p.get("prod_oid") or 0
+        results.append(res)
+
+    baseline_service.annotate_products(keyword, results)
+    baseline_alerts = baseline_service.find_baseline_alerts(keyword, results)
+
+    metrics = {
+        "ndcg_at_10": compute_ndcg(results, 10),
+        "ndcg_at_50": compute_ndcg(results, 50),
+        "ndcg_at_150": compute_ndcg(results, 150),
+        **compute_recall_stats(results),
+    }
+
+    return results, total, metrics, baseline_alerts
+
+
+def _compute_ab_comparison(keyword, a_results, b_results):
+    """Compare two result sets using ab_check severity logic."""
+    from ab_check import (
+        check_ab_precise, check_ab_broad,
+        PRECISE_CSV, BROAD_CSV,
+    )
+    import pandas as pd
+
+    a_mids = tuple(r.get("prod_mid", 0) for r in a_results)
+    b_mids = tuple(r.get("prod_mid", 0) for r in b_results)
+
+    rank_changes = []
+
+    # Check precise baseline
+    if PRECISE_CSV.exists():
+        pdf = pd.read_csv(PRECISE_CSV)
+        kw_row = pdf[pdf["query"] == keyword]
+        if not kw_row.empty:
+            row = kw_row.iloc[0]
+            for rank_n, mid_col in [(1, "top1_prod_mid"), (2, "top2_prod_mid")]:
+                mid = row[mid_col]
+                if pd.isna(mid):
+                    continue
+                mid = int(mid)
+                a_rank = ab_find_rank(mid, a_mids)
+                b_rank = ab_find_rank(mid, b_mids)
+                alert = check_ab_precise(keyword, mid, rank_n, a_rank, b_rank)
+                if alert or (a_rank != b_rank):
+                    name = row.get(f"top{rank_n}_prod_nm", "")
+                    rank_changes.append({
+                        "prod_mid": mid,
+                        "name": name,
+                        "a_rank": a_rank,
+                        "b_rank": b_rank,
+                        "delta": (b_rank - a_rank) if (a_rank and b_rank) else None,
+                        "baseline_tag": f"precise_top{rank_n}",
+                        "severity": alert.severity if alert else "OK",
+                    })
+
+    # Check broad baseline
+    if BROAD_CSV.exists():
+        bdf = pd.read_csv(BROAD_CSV)
+        kw_group = bdf[bdf["query"] == keyword]
+        for _, brow in kw_group.iterrows():
+            mid = int(brow["prod_mid"])
+            bl_rank = int(brow["profit_rank"])
+            a_rank = ab_find_rank(mid, a_mids)
+            b_rank = ab_find_rank(mid, b_mids)
+            alert = check_ab_broad(keyword, mid, bl_rank, a_rank, b_rank)
+            # Skip if already in rank_changes from precise
+            if any(rc["prod_mid"] == mid for rc in rank_changes):
+                continue
+            if alert or (a_rank != b_rank):
+                rank_changes.append({
+                    "prod_mid": mid,
+                    "name": brow.get("prod_nm", ""),
+                    "a_rank": a_rank,
+                    "b_rank": b_rank,
+                    "delta": (b_rank - a_rank) if (a_rank and b_rank) else None,
+                    "baseline_tag": f"broad_rank_{bl_rank}",
+                    "severity": alert.severity if alert else "OK",
+                })
+
+    sev_counts = {"P0": 0, "P1": 0, "P2": 0, "INFO": 0}
+    for rc in rank_changes:
+        s = rc.get("severity", "OK")
+        if s in sev_counts:
+            sev_counts[s] += 1
+
+    return {
+        "rank_changes": rank_changes,
+        "summary": {"total_changes": len(rank_changes), **sev_counts},
+    }
+
+
+@app.post("/api/unified-search")
+async def unified_search(req: UnifiedSearchRequest):
+    import asyncio
+
+    cookie = req.cookie or os.getenv("KKDAY_SEARCH_COOKIE", "")
+    kw = req.keyword.strip()
+    if not kw:
+        raise HTTPException(status_code=400, detail="keyword is required")
+
+    baseline = baseline_service.get_baseline(kw)
+    loop = asyncio.get_event_loop()
+
+    # A/B versions in parallel using threads (requests is sync)
+    a_future = loop.run_in_executor(
+        None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_a
+    )
+    if req.version_b is not None:
+        b_future = loop.run_in_executor(
+            None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_b
+        )
+        (a_results, a_total, a_metrics, a_alerts), (b_results, b_total, b_metrics, b_alerts) = await asyncio.gather(a_future, b_future)
+    else:
+        a_results, a_total, a_metrics, a_alerts = await a_future
+        b_results = b_total = b_metrics = b_alerts = None
+
+    response = {
+        "success": True,
+        "keyword": kw,
+        "baseline": baseline,
+        "version_a": {
+            "test_exp": req.version_a,
+            "total": a_total,
+            "results": a_results,
+            "metrics": a_metrics,
+            "baseline_alerts": a_alerts,
+        },
+        "version_b": {
+            "test_exp": req.version_b,
+            "total": b_total,
+            "results": b_results,
+            "metrics": b_metrics,
+            "baseline_alerts": b_alerts,
+        } if b_results is not None else None,
+        "ab_comparison": None,
+    }
+
+    if b_results is not None:
+        response["ab_comparison"] = _compute_ab_comparison(kw, a_results, b_results)
+
+    return response
+
+
 @app.post("/api/feedback")
 def calibrate_feedback(req: FeedbackRequest):
     calibration_manager.save_feedback(req.keyword, req.product_id, req.user_tier, req.comment)
@@ -294,7 +493,7 @@ def update_keywords(req: KeywordListRequest):
 
 @app.post("/api/batch/run")
 def run_batch(req: BatchRunRequest):
-    batch_engine.run_batch(req.cookie, ai_enabled_override=req.ai_enabled)
+    batch_engine.run_batch(req.cookie, ai_enabled_override=req.ai_enabled, search_api=req.search_api)
     return {"success": True}
 
 @app.post("/api/batch/stop")

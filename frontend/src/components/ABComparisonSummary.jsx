@@ -18,7 +18,7 @@ export default function ABComparisonSummary({ comparison }) {
     return (
       <div className="px-6 py-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-center">
         <span className="text-[12px] font-black text-emerald-700 tracking-wider">
-          所有 baseline 商品排名無顯著變化
+          所有 baseline 商品在 A/B 版本間排名無顯著變化
         </span>
       </div>
     )

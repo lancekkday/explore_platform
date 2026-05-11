@@ -211,6 +211,59 @@ export default function App() {
     fetchAuditData()
   }
 
+  // ── Export ───────────────────────────────────────────────────────────────
+
+  function handleExportCSV() {
+    if (!versionAData) return
+    const tierLabel = (t) => ({ 1: 'T1', 2: 'T2', 3: 'T3', 0: 'MISS' }[t] || `T${t}`)
+    const getDest = (it) => {
+      const dests = Array.isArray(it.destinations) ? it.destinations : []
+      if (dests.length === 0) return ''
+      const first = dests[0]
+      return typeof first === 'object' ? (first.name || '') : String(first)
+    }
+    const esc = (v) => {
+      const s = String(v ?? '')
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
+    }
+
+    const headers = ['版本', '排名', '商品ID', '商品名稱', '商品連結', '類別', '地點', 'Tier', '判定原因', 'Baseline標記', 'Baseline利潤排名', '成交量']
+    const rows = [headers.join(',')]
+
+    const addRows = (data, label) => {
+      if (!data?.results) return
+      for (const it of data.results) {
+        rows.push([
+          label,
+          it.rank,
+          it.prod_mid || it.id,
+          esc(it.name),
+          it.prod_mid ? `https://www.stage.kkday.com/zh-tw/product/${it.prod_mid}` : '',
+          it.main_cat_key || '',
+          esc(getDest(it)),
+          tierLabel(it.tier),
+          esc((it.mismatch_reasons || []).join(' | ')),
+          it.baseline_tag || '',
+          it.baseline_profit_rank ?? '',
+          it.show_order_count || '',
+        ].join(','))
+      }
+    }
+
+    addRows(versionAData, `Version A (v${versionAData.test_exp})`)
+    if (versionBData) addRows(versionBData, `Version B (v${versionBData.test_exp})`)
+
+    const bom = '\uFEFF'
+    const blob = new Blob([bom + rows.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const date = new Date().toISOString().slice(0, 10)
+    a.href = url
+    a.download = `巡檢_${keyword}_v${versionAData.test_exp}${versionBData ? `_v${versionBData.test_exp}` : ''}_${date}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   const hasResults = !!versionAData
@@ -220,8 +273,8 @@ export default function App() {
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-8 py-2.5 flex items-center justify-between shrink-0 z-[100] shadow-sm">
         <div className="flex flex-col text-slate-950">
-          <span className="text-[13px] font-black tracking-[4px] uppercase leading-none">意圖巡檢中心</span>
-          <span className="text-[8px] font-black text-indigo-600 uppercase tracking-[3px] mt-1 font-mono">Operations Hub</span>
+          <span className="text-[13px] font-black tracking-[4px] uppercase leading-none">搜尋巡檢平台</span>
+          <span className="text-[8px] font-black text-indigo-600 uppercase tracking-[3px] mt-1 font-mono">Search Audit Platform</span>
         </div>
         <div className="flex items-center gap-5 text-[10px] font-black">
           {error && <div className="px-3 py-1 bg-red-50 text-red-600 border border-red-100 rounded-lg animate-pulse">{error}</div>}
@@ -245,6 +298,9 @@ export default function App() {
         baselineKeywords={baselineKeywords}
         onSearch={handleSearch}
         onOpenSettings={() => setSettingsVisible(true)}
+        hasResults={hasResults}
+        doubtOnly={doubtOnly} setDoubtOnly={setDoubtOnly}
+        onExportCSV={handleExportCSV}
       />
 
       {/* Main content */}
@@ -276,20 +332,6 @@ export default function App() {
 
             {/* AB Comparison summary */}
             {abComparison && <ABComparisonSummary comparison={abComparison} />}
-
-            {/* Filter toggle */}
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={() => setDoubtOnly(!doubtOnly)}
-                className={`px-4 py-1 rounded-lg border-2 text-[10px] font-black transition-all ${
-                  doubtOnly
-                    ? 'bg-[#0F172A] text-white border-slate-900'
-                    : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
-                }`}
-              >
-                {doubtOnly ? '顯示完整列表' : '僅顯示需關注'}
-              </button>
-            </div>
 
             {/* Product lists */}
             <div className={`flex-1 flex ${versionBData ? 'gap-3' : ''} overflow-hidden`}>

@@ -12,6 +12,9 @@ export default function UnifiedSearchBar({
   baselineKeywords,
   onSearch,
   onOpenSettings,
+  hasResults,
+  doubtOnly, setDoubtOnly,
+  onExportCSV,
 }) {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const inputRef = useRef(null)
@@ -146,6 +149,33 @@ export default function UnifiedSearchBar({
       >
         {loading ? 'SEARCHING...' : !cookieInfo ? '等待連線...' : '巡檢'}
       </button>
+
+      {/* Filter + Export (only when results exist) */}
+      {hasResults && (
+        <>
+          <button
+            onClick={() => setDoubtOnly(!doubtOnly)}
+            className={`px-3 py-2 rounded-xl border-2 text-[10px] font-black transition-all whitespace-nowrap ${
+              doubtOnly
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
+            }`}
+          >
+            {doubtOnly ? '全量展示' : '僅需關注'}
+          </button>
+          <button
+            onClick={onExportCSV}
+            className="p-2 rounded-xl border-2 border-slate-200 bg-white text-slate-400 hover:border-slate-400 hover:text-slate-700 transition-all"
+            title="匯出 CSV"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          </button>
+        </>
+      )}
 
       {/* Settings gear */}
       <button

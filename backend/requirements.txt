@@ -16,6 +16,7 @@ jiter==0.13.0
 loguru==0.7.3
 openai==2.30.0
 packaging==26.0
+pandas>=2.0
 playwright==1.58.0
 pluggy==1.6.0
 pydantic==2.12.5

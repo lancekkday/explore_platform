@@ -1,10 +1,10 @@
 const API_BASE = import.meta.env.VITE_API_URL ?? '/api'
 
-export const fetchCompare = (keyword, cookie, count, ai_enabled) =>
+export const fetchCompare = (keyword, cookie, count, ai_enabled, search_api) =>
   fetch(`${API_BASE}/compare`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ keyword, cookie, count, ai_enabled }),
+    body: JSON.stringify({ keyword, cookie, count, ai_enabled, search_api }),
   }).then(r => r.json())
 
 export const fetchGuestCookie = (env = 'stage') =>
@@ -27,11 +27,11 @@ export const updateKeywords = (keywords) =>
     body: JSON.stringify({ keywords }),
   }).then(r => r.json())
 
-export const startBatch = (cookie) =>
+export const startBatch = (cookie, search_api, version_a, version_b) =>
   fetch(`${API_BASE}/batch/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cookie }),
+    body: JSON.stringify({ cookie, search_api, version_a, version_b: version_b ?? null }),
   }).then(r => r.json())
 
 export const stopBatch = () =>
@@ -88,3 +88,20 @@ export const explainProduct = (keyword, product) =>
       main_cat_key:     product.main_cat_key     || '',
     }),
   }).then(r => r.json())
+
+export const runABCheck = (version_a, version_b, skip_precise, skip_broad) =>
+  fetch(`${API_BASE}/ab-check`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ version_a, version_b, skip_precise, skip_broad }),
+  }).then(r => r.json())
+
+export const fetchUnifiedSearch = (keyword, cookie, count, ai_enabled, search_api, version_a, version_b) =>
+  fetch(`${API_BASE}/unified-search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keyword, cookie, count, ai_enabled, search_api, version_a, version_b }),
+  }).then(r => r.json())
+
+export const fetchBaselineKeywords = () =>
+  fetch(`${API_BASE}/baseline/keywords`).then(r => r.json())

@@ -337,20 +337,25 @@ async def upload_baseline(file: UploadFile = File(...), type: Optional[str] = Fo
 
     if is_html:
         # Parse HTML report into two CSVs
+        import sys, tempfile
+        from pathlib import Path as P
+        _scripts_dir = str(P(__file__).resolve().parent.parent / "handoff" / "scripts")
+        if _scripts_dir not in sys.path:
+            sys.path.insert(0, _scripts_dir)
+        from parse_html import parse_report
+        tmp_path = None
         try:
-            import sys, tempfile
-            sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "handoff" / "scripts"))
-            from parse_html import parse_report
             with tempfile.NamedTemporaryFile(suffix=".html", mode="w", encoding="utf-8", delete=False) as tmp:
                 tmp.write(text)
                 tmp_path = tmp.name
-            from pathlib import Path as P
             pdf, bdf = parse_report(P(tmp_path))
-            P(tmp_path).unlink(missing_ok=True)
             precise_csv = pdf.to_csv(index=False)
             broad_csv = bdf.to_csv(index=False)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"HTML 解析失敗: {str(e)}")
+        finally:
+            if tmp_path:
+                P(tmp_path).unlink(missing_ok=True)
 
         meta = baseline_version_manager.create_version(precise_csv, broad_csv, source_filename=filename)
         baseline_service.reload()

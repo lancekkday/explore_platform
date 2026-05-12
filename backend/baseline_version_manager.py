@@ -77,8 +77,17 @@ class BaselineVersionManager:
         logger.info(f"[Baseline] Created version {ts}: precise={precise_count}, broad={broad_count}")
         return meta
 
+    @staticmethod
+    def _safe_timestamp(timestamp: str) -> str:
+        """Validate timestamp to prevent path traversal."""
+        import re
+        if not re.fullmatch(r"\d{8}_\d{6}", timestamp):
+            raise ValueError(f"Invalid timestamp format: {timestamp}")
+        return timestamp
+
     def activate(self, timestamp: str) -> dict | None:
         """Switch active version to the given timestamp. Returns meta or None."""
+        timestamp = self._safe_timestamp(timestamp)
         version_dir = VERSIONS_DIR / timestamp
         if not version_dir.is_dir():
             return None
@@ -89,6 +98,7 @@ class BaselineVersionManager:
 
     def archive(self, timestamp: str) -> bool:
         """Archive a version by renaming its directory with _archived suffix."""
+        timestamp = self._safe_timestamp(timestamp)
         version_dir = VERSIONS_DIR / timestamp
         if not version_dir.is_dir():
             return False

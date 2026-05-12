@@ -105,3 +105,23 @@ export const fetchUnifiedSearch = (keyword, cookie, count, ai_enabled, search_ap
 
 export const fetchBaselineKeywords = () =>
   fetch(`${API_BASE}/baseline/keywords`).then(r => r.json())
+
+export const uploadBaseline = (file, type) => {
+  const form = new FormData()
+  form.append('file', file)
+  if (type) form.append('type', type)
+  return fetch(`${API_BASE}/baseline/upload`, { method: 'POST', body: form }).then(r => r.json())
+}
+
+export const fetchBaselineVersions = () =>
+  fetch(`${API_BASE}/baseline/versions`).then(r => r.json())
+
+export const rollbackBaseline = (timestamp) =>
+  fetch(`${API_BASE}/baseline/rollback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timestamp }),
+  }).then(r => r.json())
+
+export const archiveBaselineVersion = (timestamp) =>
+  fetch(`${API_BASE}/baseline/versions/${timestamp}`, { method: 'DELETE' }).then(r => r.json())

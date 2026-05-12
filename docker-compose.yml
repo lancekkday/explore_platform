@@ -9,6 +9,7 @@ services:
       - ./.env
     volumes:
       - sip_data:/app/data
+      - ./handoff:/app/handoff
     ports:
       - "${BACKEND_PORT:-19426}:8000"
 

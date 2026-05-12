@@ -100,6 +100,13 @@ class BaselineService:
         else:
             logger.warning(f"[Baseline] Broad CSV not found: {BROAD_CSV}")
 
+    def reload(self):
+        """Clear and reload CSVs. Called after baseline upload."""
+        self._precise.clear()
+        self._broad.clear()
+        self._load()
+        logger.info(f"[Baseline] Reloaded: {len(self._precise)} precise, {len(self._broad)} broad keywords")
+
     # ── Lookup ───────────────────────────────────────────────────────────────
 
     def get_baseline(self, keyword: str) -> dict:

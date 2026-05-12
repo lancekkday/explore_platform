@@ -61,7 +61,8 @@ Backend (FastAPI, :8000)
     ├── main.py              — all API endpoints (compare, unified-search, ab-check, batch, etc.)
     ├── kkday_api.py         — KKDay product fetching (stage & prod), paginated 50/page, test_exp for AB
     ├── ab_check.py          — AB version check engine: precise/broad baseline comparison
-    ├── baseline_service.py  — singleton: loads baseline CSVs into memory, provides annotation helpers
+    ├── baseline_service.py  — singleton: loads baseline CSVs into memory, provides annotation helpers + reload()
+    ├── baseline_version_manager.py — versioned baseline snapshots (timestamp dirs, symlink switching, archive)
     ├── be2_api.py           — Be2Session: reusable requests wrapper with auto token refresh (importable)
     ├── fetch_be2_destination_hierarchy.py — CLI tool: crawl BE2 svc-geo destination tree → data/be2_destinations_dump/
     ├── batch_engine.py      — batch keyword processing (supports AB mode), SQLite persistence
@@ -71,6 +72,7 @@ Backend (FastAPI, :8000)
         ├── ai_agent.py          — GPT-4o-mini: parse keyword into intent metadata
         ├── data_sanitizer.py    — normalize product data, resolve destination codes
         ├── calibration_manager.py — read/write human corrections (feedback.json)
+        ├── synonym_service.py   — bidirectional synonym table (synonyms.json), AI auto-accumulation
         └── metrics.py           — NDCG@K, Recall@K, mismatch rate, rank delta
 ```
 
@@ -97,8 +99,10 @@ Separate from unified search — a standalone check that runs all baseline keywo
 | `backend/data/keywords.json` | Keyword list for batch audit (with `ai_enabled` flag per keyword) |
 | `backend/data/feedback.json` | Human calibrations: `{keyword: {product_id: {user_tier, comment}}}` |
 | `backend/data/batch_state.json` | Batch progress/state (survives restarts) |
-| `handoff/data/search_keyword_precise.csv` | Baseline precise keywords — Top1/Top2 prod_mid per query |
-| `handoff/data/search_keyword_broad.csv` | Baseline broad keywords — profit_rank 1-10 per query |
+| `handoff/data/search_keyword_precise.csv` | Baseline precise keywords — Top1/Top2 prod_mid per query (symlink to active version) |
+| `handoff/data/search_keyword_broad.csv` | Baseline broad keywords — profit_rank 1-10 per query (symlink to active version) |
+| `handoff/data/versions/` | Versioned baseline snapshots (timestamp dirs with CSV + meta.json, max 5 active) |
+| `backend/data/synonyms.json` | Synonym accumulation table — bidirectional, auto-populated by AI |
 | `backend/data/unified_destinations.json` | Destination name ↔ code mapping (used by `intent_matcher.py`) |
 | `backend/data/be2_destinations_dump/` | Raw destination JSONL dump — source for rebuilding `unified_destinations.json` |
 
@@ -180,9 +184,14 @@ with Be2Session() as s:
 | `POST /api/compare` | Legacy single keyword comparison (stage vs. prod) |
 | `POST /api/ab-check` | Standalone AB baseline check (all keywords, precise + broad) |
 | `POST /api/explain` | AI explanation for a product's tier/mismatch |
-| `POST /api/feedback` | Save manual tier correction |
+| `POST /api/feedback` | Save manual tier correction (+ optional synonyms) |
 | `GET/POST /api/keywords` | Fetch or update keyword list |
 | `GET /api/baseline/keywords` | List all keywords from baseline CSVs |
+| `POST /api/baseline/upload` | Upload baseline CSV or HTML report (auto-versioned) |
+| `GET /api/baseline/versions` | List all baseline versions |
+| `POST /api/baseline/rollback` | Switch active baseline to a specific version |
+| `DELETE /api/baseline/versions/:ts` | Archive (soft-delete) a baseline version |
+| `POST /api/baseline/reload` | Manually reload baseline CSVs into memory |
 | `POST /api/batch/run` | Start batch processing (supports `version_a`/`version_b` for AB) |
 | `POST /api/batch/stop` | Stop running batch |
 | `GET /api/batch/status` | Poll batch progress |

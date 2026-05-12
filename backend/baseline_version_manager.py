@@ -18,8 +18,12 @@ TZ_TAIPEI = timezone(timedelta(hours=8))
 
 MAX_VERSIONS = 5
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-HANDOFF_DATA = BASE_DIR / "handoff" / "data"
+# Support both local (backend/../handoff/data) and Docker (/app/handoff/data)
+_app_dir = Path(__file__).resolve().parent
+HANDOFF_DATA = next(
+    (p for p in [_app_dir.parent / "handoff" / "data", _app_dir / "handoff" / "data"] if p.is_dir()),
+    _app_dir.parent / "handoff" / "data",  # fallback
+)
 VERSIONS_DIR = HANDOFF_DATA / "versions"
 CURRENT_LINK = HANDOFF_DATA / "current"
 

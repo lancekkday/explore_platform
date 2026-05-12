@@ -25,9 +25,17 @@ from baseline_version_manager import baseline_version_manager
 
 import sys as _sys
 from pathlib import Path as _Path
-_scripts_dir = str(_Path(__file__).resolve().parent.parent / "handoff" / "scripts")
-if _scripts_dir not in _sys.path:
-    _sys.path.insert(0, _scripts_dir)
+# Support both local (backend/../handoff/scripts) and Docker (/app/handoff/scripts)
+_base_dir = _Path(__file__).resolve().parent
+for _candidate in [
+    _base_dir.parent / "handoff" / "scripts",
+    _base_dir / "handoff" / "scripts",
+]:
+    if _candidate.is_dir():
+        _path_str = str(_candidate)
+        if _path_str not in _sys.path:
+            _sys.path.insert(0, _path_str)
+        break
 
 TZ_TAIPEI = timezone(timedelta(hours=8))  # UTC+8, no system tzdata needed
 scheduler = BackgroundScheduler(timezone=TZ_TAIPEI)

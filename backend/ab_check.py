@@ -31,8 +31,12 @@ API_PARALLEL_WORKERS = 10
 API_MAX_RESULTS = 300
 
 # ── Baseline CSV 路徑 ────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent.parent
-HANDOFF_DATA = BASE_DIR / "handoff" / "data"
+# Support both local (backend/../handoff/data) and Docker (/app/handoff/data)
+_app_dir = Path(__file__).resolve().parent
+HANDOFF_DATA = next(
+    (p for p in [_app_dir.parent / "handoff" / "data", _app_dir / "handoff" / "data"] if p.is_dir()),
+    _app_dir.parent / "handoff" / "data",  # fallback
+)
 PRECISE_CSV = HANDOFF_DATA / "search_keyword_precise.csv"
 BROAD_CSV = HANDOFF_DATA / "search_keyword_broad.csv"
 

@@ -221,7 +221,7 @@ src/
     ├── AnnotatedResultList.jsx     — product list with baseline annotations & product hyperlinks
     ├── ABComparisonSummary.jsx     — A/B baseline ranking comparison summary
     ├── BaselineAlertBar.jsx        — alerts for missing/dropped baseline products
-    ├── SettingsPanel.jsx           — cookie, search API, AB toggle, AI toggle
+    ├── SettingsPanel.jsx           — cookie, search API, AB toggle, AI toggle, baseline upload/version management
     ├── BatchPanel.jsx              — collapsible batch run controls & results
     ├── ResultList.jsx              — legacy product inspection list
     ├── CalibrationModal.jsx        — tier correction modal

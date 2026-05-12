@@ -4,9 +4,10 @@ from datetime import datetime, timedelta, timezone
 
 TZ_TAIPEI = timezone(timedelta(hours=8))
 from typing import Optional, Dict, List, Any, TypedDict
-from skills.ai_agent import parse_intent_with_ai
+from skills.ai_agent import parse_intent_with_ai, check_synonym_with_ai
 from skills.intent_matcher import IntentMatcher
 from skills.calibration_manager import calibration_manager
+from skills.synonym_service import synonym_service
 from loguru import logger
 
 # Initialize underlying rule-based matcher
@@ -134,8 +135,45 @@ class IntentJudger:
         """
         Main judgment function for a single product.
         Combines rule-based matching with optional AI intent metadata.
+        If tier=0 (MISS), attempts synonym rescue before returning.
         """
-        return self.matcher.verify(p, keyword, ai_metadata)
+        result = self.matcher.verify(p, keyword, ai_metadata)
+
+        if result["tier"] == 0:
+            rescued = self._try_synonym_rescue(p, keyword)
+            if rescued:
+                result["tier"] = rescued["tier"]
+                result["mismatch_reasons"] = rescued["reasons"]
+
+        return result
+
+    def _try_synonym_rescue(self, product: Dict[str, Any], keyword: str) -> Optional[Dict]:
+        """
+        嘗試用同義詞救回 MISS 判定。
+        Step 1: 查本地同義詞表
+        Step 2: 呼叫 AI 判別 keyword 與商品名稱的同義詞關係
+        """
+        title = product.get("name", "") or ""
+        intro = product.get("introduction", "") or product.get("intro", "") or ""
+
+        # Step 1: 查本地同義詞表
+        hit = synonym_service.check_product_match(keyword, title, intro)
+        if hit:
+            return {"tier": 2, "reasons": [f"同義詞命中: {hit}"]}
+
+        # Step 2: AI 判別
+        if not title.strip():
+            return None
+        synonyms, usage = check_synonym_with_ai(keyword, title)
+        if usage.get("total_tokens", 0) > 0:
+            self._log_ai_usage(keyword, "synonym_check", usage)
+        if synonyms:
+            synonym_service.add_synonyms(keyword, synonyms)
+            hit = synonym_service.check_product_match(keyword, title, intro)
+            if hit:
+                return {"tier": 2, "reasons": [f"AI 同義詞命中: {hit}"]}
+
+        return None
 
     def process_and_calibrate(self, p: Dict[str, Any], rank: int, keyword: str, ai_metadata: Optional[Dict[str, Any]], slim_func: Any) -> Dict[str, Any]:
         """

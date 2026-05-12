@@ -23,6 +23,12 @@ from ab_check import run_ab_check, find_rank as ab_find_rank
 from baseline_service import baseline_service, BASELINE_DROP_MULTIPLIER
 from baseline_version_manager import baseline_version_manager
 
+import sys as _sys
+from pathlib import Path as _Path
+_scripts_dir = str(_Path(__file__).resolve().parent.parent / "handoff" / "scripts")
+if _scripts_dir not in _sys.path:
+    _sys.path.insert(0, _scripts_dir)
+
 TZ_TAIPEI = timezone(timedelta(hours=8))  # UTC+8, no system tzdata needed
 scheduler = BackgroundScheduler(timezone=TZ_TAIPEI)
 
@@ -337,11 +343,8 @@ async def upload_baseline(file: UploadFile = File(...), type: Optional[str] = Fo
 
     if is_html:
         # Parse HTML report into two CSVs
-        import sys, tempfile
+        import tempfile
         from pathlib import Path as P
-        _scripts_dir = str(P(__file__).resolve().parent.parent / "handoff" / "scripts")
-        if _scripts_dir not in sys.path:
-            sys.path.insert(0, _scripts_dir)
         from parse_html import parse_report
         tmp_path = None
         try:

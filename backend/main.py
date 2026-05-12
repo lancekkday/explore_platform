@@ -57,6 +57,8 @@ class BatchRunRequest(BaseModel):
     cookie: str
     ai_enabled: Optional[bool] = None
     search_api: Optional[str] = "ajax"   # "ajax" or "v3"
+    version_a: Optional[int] = 0
+    version_b: Optional[int] = None      # None = 不跑 B 版
 
 class KeywordListRequest(BaseModel):
     keywords: list[Any]
@@ -487,7 +489,8 @@ def update_keywords(req: KeywordListRequest):
 
 @app.post("/api/batch/run")
 def run_batch(req: BatchRunRequest):
-    batch_engine.run_batch(req.cookie, ai_enabled_override=req.ai_enabled, search_api=req.search_api)
+    batch_engine.run_batch(req.cookie, ai_enabled_override=req.ai_enabled, search_api=req.search_api,
+                          version_a=req.version_a, version_b=req.version_b)
     return {"success": True}
 
 @app.post("/api/batch/stop")

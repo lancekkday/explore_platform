@@ -27,11 +27,11 @@ export const updateKeywords = (keywords) =>
     body: JSON.stringify({ keywords }),
   }).then(r => r.json())
 
-export const startBatch = (cookie, search_api) =>
+export const startBatch = (cookie, search_api, version_a, version_b) =>
   fetch(`${API_BASE}/batch/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cookie, search_api }),
+    body: JSON.stringify({ cookie, search_api, version_a, version_b: version_b ?? null }),
   }).then(r => r.json())
 
 export const stopBatch = () =>

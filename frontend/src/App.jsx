@@ -173,7 +173,8 @@ export default function App() {
   }
 
   const handleStartBatch = async () => {
-    await apiBatchStart(cookie, searchApi)
+    const vb = enableAB ? versionB : null
+    await apiBatchStart(cookie, searchApi, versionA, vb)
     fetchAuditData()
   }
   const handleStopBatch = async () => {

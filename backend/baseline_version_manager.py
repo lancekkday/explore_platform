@@ -81,7 +81,7 @@ class BaselineVersionManager:
     def _safe_timestamp(timestamp: str) -> str:
         """Validate timestamp to prevent path traversal."""
         import re
-        if not re.fullmatch(r"\d{8}_\d{6}", timestamp):
+        if not re.fullmatch(r"\d{8}_\d{6}(_\d+)?", timestamp):
             raise ValueError(f"Invalid timestamp format: {timestamp}")
         return timestamp
 
@@ -193,10 +193,10 @@ class BaselineVersionManager:
         if not path.exists():
             return 0
         try:
-            lines = path.read_text(encoding="utf-8").strip().split("\n")
             with path.open("r", encoding="utf-8") as f:
                 count = sum(1 for _ in f)
             return max(0, count - 1)  # subtract header
+        except Exception:
             return 0
 
     @staticmethod

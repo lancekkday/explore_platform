@@ -18,6 +18,7 @@ export default function SettingsPanel({
   const [baselineTotal, setBaselineTotal] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [uploadMsg, setUploadMsg] = useState(null)
+  const [pendingCsvFile, setPendingCsvFile] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => {
@@ -26,23 +27,10 @@ export default function SettingsPanel({
     fetchBaselineKeywords().then(r => { if (r?.total != null) setBaselineTotal(r.total) }).catch(() => {})
   }, [visible])
 
-  const handleUpload = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const doUpload = async (file, type) => {
     setUploading(true)
     setUploadMsg(null)
     try {
-      const isCSV = file.name.toLowerCase().endsWith('.csv')
-      let type = null
-      if (isCSV) {
-        type = prompt('CSV 類型？輸入 precise（精準詞）或 broad（泛詞）：')
-        if (!type || !['precise', 'broad'].includes(type.trim().toLowerCase())) {
-          setUploadMsg({ ok: false, text: '已取消：CSV 需指定 precise 或 broad' })
-          setUploading(false)
-          return
-        }
-        type = type.trim().toLowerCase()
-      }
       const res = await uploadBaseline(file, type)
       if (res.success) {
         const v = res.version
@@ -57,6 +45,24 @@ export default function SettingsPanel({
     }
     setUploading(false)
     if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const isCSV = file.name.toLowerCase().endsWith('.csv')
+    if (isCSV) {
+      setPendingCsvFile(file)
+      return
+    }
+    doUpload(file, null)
+  }
+
+  const handleCsvTypeSelect = (type) => {
+    if (pendingCsvFile) {
+      doUpload(pendingCsvFile, type)
+      setPendingCsvFile(null)
+    }
   }
 
   const handleSwitchVersion = async (ts) => {
@@ -185,6 +191,27 @@ export default function SettingsPanel({
                 >
                   {uploading ? '上傳中...' : '上傳 Baseline（HTML 報告 或 CSV）'}
                 </button>
+                {pendingCsvFile && (
+                  <div className="mt-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                    <div className="text-[10px] font-bold text-amber-700 mb-2">
+                      請選擇 CSV 類型：{pendingCsvFile.name}
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleCsvTypeSelect('precise')}
+                        className="flex-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black hover:bg-indigo-700 transition-all">
+                        精準詞 (Precise)
+                      </button>
+                      <button onClick={() => handleCsvTypeSelect('broad')}
+                        className="flex-1 px-3 py-1.5 bg-teal-600 text-white rounded-lg text-[10px] font-black hover:bg-teal-700 transition-all">
+                        泛詞 (Broad)
+                      </button>
+                      <button onClick={() => { setPendingCsvFile(null); if (fileRef.current) fileRef.current.value = '' }}
+                        className="px-3 py-1.5 border border-slate-300 text-slate-500 rounded-lg text-[10px] font-black hover:border-slate-400 transition-all">
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {uploadMsg && (
                   <div className={`mt-2 px-3 py-2 rounded-lg text-[10px] font-bold ${uploadMsg.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
                     {uploadMsg.text}

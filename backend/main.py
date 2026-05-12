@@ -387,11 +387,12 @@ def list_baseline_versions():
     return {"success": True, "versions": versions}
 
 
+class RollbackRequest(BaseModel):
+    timestamp: str
+
 @app.post("/api/baseline/rollback")
-def rollback_baseline(req: dict):
-    timestamp = req.get("timestamp")
-    if not timestamp:
-        raise HTTPException(status_code=400, detail="需提供 timestamp")
+def rollback_baseline(req: RollbackRequest):
+    timestamp = req.timestamp
     meta = baseline_version_manager.activate(timestamp)
     if not meta:
         raise HTTPException(status_code=404, detail=f"版本 {timestamp} 不存在")

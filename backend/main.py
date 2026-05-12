@@ -18,6 +18,7 @@ from skills.data_sanitizer import sanitizer
 from batch_engine import engine as batch_engine
 from skills.intent_judger import judger
 from skills.calibration_manager import calibration_manager
+from skills.synonym_service import synonym_service
 from ab_check import run_ab_check, find_rank as ab_find_rank
 from baseline_service import baseline_service, BASELINE_DROP_MULTIPLIER
 
@@ -52,6 +53,7 @@ class FeedbackRequest(BaseModel):
     product_id: str
     user_tier: int
     comment: str
+    synonyms: Optional[list[str]] = None
 
 class BatchRunRequest(BaseModel):
     cookie: str
@@ -478,6 +480,8 @@ async def unified_search(req: UnifiedSearchRequest):
 @app.post("/api/feedback")
 def calibrate_feedback(req: FeedbackRequest):
     calibration_manager.save_feedback(req.keyword, req.product_id, req.user_tier, req.comment)
+    if req.synonyms:
+        synonym_service.add_synonyms(req.keyword, req.synonyms)
     return {"success": True}
 
 @app.get("/api/keywords")

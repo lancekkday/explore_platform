@@ -1,7 +1,7 @@
 import { safeString } from '../utils/safeString'
 import { IconX } from './icons/Icons'
 
-export default function CalibrationModal({ product, calibTier, calibComment, onTierChange, onCommentChange, onSubmit, onClose }) {
+export default function CalibrationModal({ product, calibTier, calibComment, calibSynonyms, onTierChange, onCommentChange, onSynonymsChange, onSubmit, onClose }) {
   if (!product) return null;
   return (
     <div className="fixed inset-0 z-[500] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-xl animate-in fade-in transition-all">
@@ -32,7 +32,12 @@ export default function CalibrationModal({ product, calibTier, calibComment, onT
                   </button>
                 ))}
              </div>
-             <textarea value={calibComment} onChange={e => onCommentChange(e.target.value)} className="w-full h-28 bg-slate-100 border-2 border-slate-50 rounded-3xl p-6 text-[13px] font-bold focus:bg-white focus:border-indigo-500 transition-all outline-none resize-none mb-10 text-slate-900 shadow-inner" placeholder="請詳細輸入判定修正之邏輯原因..." />
+             <textarea value={calibComment} onChange={e => onCommentChange(e.target.value)} className="w-full h-28 bg-slate-100 border-2 border-slate-50 rounded-3xl p-6 text-[13px] font-bold focus:bg-white focus:border-indigo-500 transition-all outline-none resize-none mb-8 text-slate-900 shadow-inner" placeholder="請詳細輸入判定修正之邏輯原因..." />
+             <div className="mb-10">
+                <div className="text-[10px] text-slate-400 font-black uppercase tracking-[2px] mb-2">同義詞 / 別名（選填，逗號分隔）</div>
+                <input value={calibSynonyms} onChange={e => onSynonymsChange(e.target.value)} className="w-full bg-slate-100 border-2 border-slate-50 rounded-2xl px-6 py-4 text-[13px] font-bold focus:bg-white focus:border-indigo-500 transition-all outline-none text-slate-900 shadow-inner" placeholder="例：吉伊卡哇, チーカワ" />
+                <div className="text-[10px] text-slate-400 mt-2 px-2">填入後會自動寫入同義詞表，之後搜同關鍵字時所有含這些詞的商品都會自動判為 T2</div>
+             </div>
              <div className="flex gap-6 items-center">
                 <button onClick={onClose} className="flex-1 py-5 text-xs font-black text-slate-400 uppercase tracking-[4px] hover:text-slate-950 transition-colors">取消動作</button>
                 <button onClick={onSubmit} className="flex-[2] py-5 bg-[#0F172A] text-white rounded-3xl text-[13px] font-black shadow-2xl hover:bg-black uppercase tracking-[6px] active:scale-95 transition-all">

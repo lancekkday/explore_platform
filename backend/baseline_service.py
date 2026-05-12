@@ -52,14 +52,14 @@ class BaselineService:
         self._load()
 
     def _load(self):
-        # Load precise CSV
+        # Load precise CSV (case-insensitive: keys stored as lowercase)
         if PRECISE_CSV.exists():
             with open(PRECISE_CSV, newline="", encoding="utf-8") as f:
                 for row in csv.DictReader(f):
                     q = row.get("query", "").strip()
                     if not q:
                         continue
-                    self._precise[q] = {
+                    self._precise[q.lower()] = {
                         "query": q,
                         "is_destination": row.get("is_destination", "").strip().lower() == "true",
                         "search_pv": _safe_int(row.get("search_pv")),
@@ -90,7 +90,7 @@ class BaselineService:
                         "ctr": _safe_float(row.get("ctr")),
                         "profit_rank": _safe_int(row.get("profit_rank")),
                     }
-                    self._broad.setdefault(q, []).append(entry)
+                    self._broad.setdefault(q.lower(), []).append(entry)
             # Sort each group by profit_rank
             for q in self._broad:
                 self._broad[q].sort(key=lambda x: x.get("profit_rank") or 999)
@@ -104,7 +104,7 @@ class BaselineService:
 
     def get_baseline(self, keyword: str) -> dict:
         """Return baseline data for a keyword."""
-        kw = keyword.strip()
+        kw = keyword.strip().lower()
         has_precise = kw in self._precise
         has_broad = kw in self._broad
 
@@ -132,7 +132,7 @@ class BaselineService:
 
     def annotate_products(self, keyword: str, products: list[dict]) -> list[dict]:
         """Add baseline_tag, baseline_profit, baseline_profit_rank to each product."""
-        kw = keyword.strip()
+        kw = keyword.strip().lower()
         precise = self._precise.get(kw)
         broad_list = self._broad.get(kw, [])
 
@@ -185,7 +185,7 @@ class BaselineService:
 
     def find_baseline_alerts(self, keyword: str, products: list[dict]) -> list[dict]:
         """Check which baseline products are missing or dropped in the results."""
-        kw = keyword.strip()
+        kw = keyword.strip().lower()
         precise = self._precise.get(kw)
         broad_list = self._broad.get(kw, [])
 

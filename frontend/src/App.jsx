@@ -48,6 +48,7 @@ export default function App() {
   const [edittingProduct, setEdittingProduct] = useState(null)
   const [calibTier, setCalibTier] = useState(1)
   const [calibComment, setCalibComment] = useState('')
+  const [calibSynonyms, setCalibSynonyms] = useState('')
 
   // ── Batch state ───────────────────────────────────────────────────────────
   const [showBatch, setShowBatch] = useState(false)
@@ -164,12 +165,14 @@ export default function App() {
     setEdittingProduct(p)
     setCalibTier(p.user_tier || p.tier || 1)
     setCalibComment(p.user_comment || p.comment || '')
+    setCalibSynonyms('')
   }
 
   const submitCalibration = async () => {
     if (!edittingProduct) return
     try {
-      const res = await saveFeedback(keyword, edittingProduct.id, parseInt(calibTier), calibComment)
+      const synonyms = calibSynonyms.split(/[,，]/).map(s => s.trim()).filter(s => s)
+      const res = await saveFeedback(keyword, edittingProduct.id, parseInt(calibTier), calibComment, synonyms.length ? synonyms : undefined)
       if (res.success) { setEdittingProduct(null); handleSearch() }
     } catch { /* silent */ }
   }
@@ -417,8 +420,10 @@ export default function App() {
         product={edittingProduct}
         calibTier={calibTier}
         calibComment={calibComment}
+        calibSynonyms={calibSynonyms}
         onTierChange={setCalibTier}
         onCommentChange={setCalibComment}
+        onSynonymsChange={setCalibSynonyms}
         onSubmit={submitCalibration}
         onClose={() => setEdittingProduct(null)}
       />

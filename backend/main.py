@@ -1,5 +1,5 @@
 from typing import Any, Optional
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
@@ -21,6 +21,7 @@ from skills.calibration_manager import calibration_manager
 from skills.synonym_service import synonym_service
 from ab_check import run_ab_check, find_rank as ab_find_rank
 from baseline_service import baseline_service, BASELINE_DROP_MULTIPLIER
+from baseline_version_manager import baseline_version_manager
 
 TZ_TAIPEI = timezone(timedelta(hours=8))  # UTC+8, no system tzdata needed
 scheduler = BackgroundScheduler(timezone=TZ_TAIPEI)
@@ -323,6 +324,90 @@ def get_baseline_keywords():
         "keywords": kws,
         "total": len(kws),
     }
+
+
+@app.post("/api/baseline/upload")
+async def upload_baseline(file: UploadFile = File(...), type: Optional[str] = Form(None)):
+    """Upload a baseline CSV or HTML report. CSV requires type=precise|broad."""
+    content = await file.read()
+    filename = file.filename or ""
+    text = content.decode("utf-8")
+
+    is_html = filename.lower().endswith(".html") or filename.lower().endswith(".htm")
+
+    if is_html:
+        # Parse HTML report into two CSVs
+        try:
+            import sys, tempfile
+            sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "handoff" / "scripts"))
+            from parse_html import parse_report
+            with tempfile.NamedTemporaryFile(suffix=".html", mode="w", encoding="utf-8", delete=False) as tmp:
+                tmp.write(text)
+                tmp_path = tmp.name
+            from pathlib import Path as P
+            pdf, bdf = parse_report(P(tmp_path))
+            P(tmp_path).unlink(missing_ok=True)
+            precise_csv = pdf.to_csv(index=False)
+            broad_csv = bdf.to_csv(index=False)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"HTML 解析失敗: {str(e)}")
+
+        meta = baseline_version_manager.create_version(precise_csv, broad_csv, source_filename=filename)
+        baseline_service.reload()
+        return {"success": True, "mode": "html", "version": meta}
+
+    elif filename.lower().endswith(".csv"):
+        if type not in ("precise", "broad"):
+            raise HTTPException(status_code=400, detail="CSV 上傳需指定 type=precise 或 type=broad")
+        # Validate CSV header
+        first_line = text.split("\n", 1)[0].lower()
+        if type == "precise" and not all(k in first_line for k in ("query", "top1_prod_mid", "top2_prod_mid")):
+            raise HTTPException(status_code=400, detail="精準詞 CSV header 必須包含 query, top1_prod_mid, top2_prod_mid")
+        if type == "broad" and not all(k in first_line for k in ("query", "prod_mid", "profit_rank")):
+            raise HTTPException(status_code=400, detail="泛詞 CSV header 必須包含 query, prod_mid, profit_rank")
+
+        precise_csv = text if type == "precise" else None
+        broad_csv = text if type == "broad" else None
+        meta = baseline_version_manager.create_version(precise_csv, broad_csv, source_filename=filename)
+        baseline_service.reload()
+        return {"success": True, "mode": "csv", "type": type, "version": meta}
+
+    else:
+        raise HTTPException(status_code=400, detail="只支援 .csv 或 .html 檔案")
+
+
+@app.get("/api/baseline/versions")
+def list_baseline_versions():
+    versions = baseline_version_manager.list_versions()
+    return {"success": True, "versions": versions}
+
+
+@app.post("/api/baseline/rollback")
+def rollback_baseline(req: dict):
+    timestamp = req.get("timestamp")
+    if not timestamp:
+        raise HTTPException(status_code=400, detail="需提供 timestamp")
+    meta = baseline_version_manager.activate(timestamp)
+    if not meta:
+        raise HTTPException(status_code=404, detail=f"版本 {timestamp} 不存在")
+    baseline_service.reload()
+    return {"success": True, "version": meta}
+
+
+@app.delete("/api/baseline/versions/{timestamp}")
+def archive_baseline_version(timestamp: str):
+    """Archive (soft-delete) a non-active baseline version."""
+    ok = baseline_version_manager.archive(timestamp)
+    if not ok:
+        raise HTTPException(status_code=400, detail="無法刪除：版本不存在或為使用中版本")
+    return {"success": True}
+
+
+@app.post("/api/baseline/reload")
+def reload_baseline():
+    baseline_service.reload()
+    kws = baseline_service.get_all_keywords()
+    return {"success": True, "total_keywords": len(kws)}
 
 
 def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp):

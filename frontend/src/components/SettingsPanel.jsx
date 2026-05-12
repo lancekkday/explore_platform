@@ -1,4 +1,6 @@
+import { useState, useEffect, useRef } from 'react'
 import { IconRefresh } from './icons/Icons'
+import { uploadBaseline, fetchBaselineVersions, rollbackBaseline, archiveBaselineVersion, fetchBaselineKeywords } from '../api'
 
 export default function SettingsPanel({
   visible, onClose,
@@ -12,7 +14,71 @@ export default function SettingsPanel({
   onOpenScheduleModal,
   schedules,
 }) {
+  const [versions, setVersions] = useState([])
+  const [baselineTotal, setBaselineTotal] = useState(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadMsg, setUploadMsg] = useState(null)
+  const fileRef = useRef()
+
+  useEffect(() => {
+    if (!visible) return
+    fetchBaselineVersions().then(r => { if (r?.versions) setVersions(r.versions) }).catch(() => {})
+    fetchBaselineKeywords().then(r => { if (r?.total != null) setBaselineTotal(r.total) }).catch(() => {})
+  }, [visible])
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    setUploadMsg(null)
+    try {
+      const isCSV = file.name.toLowerCase().endsWith('.csv')
+      let type = null
+      if (isCSV) {
+        type = prompt('CSV 類型？輸入 precise（精準詞）或 broad（泛詞）：')
+        if (!type || !['precise', 'broad'].includes(type.trim().toLowerCase())) {
+          setUploadMsg({ ok: false, text: '已取消：CSV 需指定 precise 或 broad' })
+          setUploading(false)
+          return
+        }
+        type = type.trim().toLowerCase()
+      }
+      const res = await uploadBaseline(file, type)
+      if (res.success) {
+        const v = res.version
+        setUploadMsg({ ok: true, text: `上傳成功！精準詞 ${v.precise_keywords} 個、泛詞 ${v.broad_keywords} 個` })
+        fetchBaselineVersions().then(r => { if (r?.versions) setVersions(r.versions) }).catch(() => {})
+        fetchBaselineKeywords().then(r => { if (r?.total != null) setBaselineTotal(r.total) }).catch(() => {})
+      } else {
+        setUploadMsg({ ok: false, text: res.detail || '上傳失敗' })
+      }
+    } catch (err) {
+      setUploadMsg({ ok: false, text: '上傳失敗：' + (err.message || '未知錯誤') })
+    }
+    setUploading(false)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const handleSwitchVersion = async (ts) => {
+    const res = await rollbackBaseline(ts)
+    if (res.success) {
+      setVersions(prev => prev.map(v => ({ ...v, is_active: v.timestamp === ts })))
+      fetchBaselineKeywords().then(r => { if (r?.total != null) setBaselineTotal(r.total) }).catch(() => {})
+      setUploadMsg({ ok: true, text: `已切換至版本 ${ts}` })
+    }
+  }
+
+  const handleArchiveVersion = async (ts) => {
+    const res = await archiveBaselineVersion(ts)
+    if (res.success) {
+      setVersions(prev => prev.filter(v => v.timestamp !== ts))
+      setUploadMsg({ ok: true, text: `已刪除版本 ${ts}` })
+    }
+  }
+
   if (!visible) return null
+
+  const activeVersion = versions.find(v => v.is_active)
 
   return (
     <div className="fixed inset-0 z-[500] flex justify-end" onClick={onClose}>
@@ -89,6 +155,81 @@ export default function SettingsPanel({
                   <span className={`absolute top-[3px] w-[14px] h-[14px] bg-white rounded-full shadow-md transition-all duration-200 ${aiEnabled ? 'left-[19px]' : 'left-[3px]'}`} />
                 </button>
               </div>
+            </div>
+          </section>
+
+          {/* Baseline Management */}
+          <section>
+            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[3px] mb-3">BASELINE 管理</h3>
+            <div className="space-y-3">
+              {/* Current status */}
+              <div className="px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-600">目前 Baseline</span>
+                  <span className="text-[11px] font-black text-indigo-600">{baselineTotal ?? '—'} 個關鍵字</span>
+                </div>
+                {activeVersion && (
+                  <div className="text-[9px] text-slate-400 mt-1">
+                    版本 {activeVersion.timestamp} | 來源: {activeVersion.source || '—'}
+                  </div>
+                )}
+              </div>
+
+              {/* Upload */}
+              <div>
+                <input ref={fileRef} type="file" accept=".csv,.html,.htm" onChange={handleUpload} className="hidden" />
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  disabled={uploading}
+                  className="w-full px-4 py-2.5 border-2 border-dashed border-slate-300 rounded-xl text-[11px] font-black text-slate-600 hover:border-indigo-400 hover:text-indigo-600 transition-all disabled:opacity-50"
+                >
+                  {uploading ? '上傳中...' : '上傳 Baseline（HTML 報告 或 CSV）'}
+                </button>
+                {uploadMsg && (
+                  <div className={`mt-2 px-3 py-2 rounded-lg text-[10px] font-bold ${uploadMsg.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+                    {uploadMsg.text}
+                  </div>
+                )}
+              </div>
+
+              {/* Version selector */}
+              {versions.length > 0 && (
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 mb-1 block">歷史版本（點擊切換）</label>
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {versions.map(v => (
+                      <div key={v.timestamp} className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => !v.is_active && handleSwitchVersion(v.timestamp)}
+                          className={`flex-1 px-3 py-2 rounded-lg border text-left transition-all ${
+                            v.is_active
+                              ? 'border-indigo-400 bg-indigo-50 text-indigo-800'
+                              : 'border-slate-150 bg-white text-slate-600 hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black">{v.timestamp}</span>
+                            <span className="text-[9px] font-bold">
+                              {v.is_active && <span className="text-indigo-600 mr-1">使用中</span>}
+                              精準 {v.precise_keywords} / 泛 {v.broad_keywords}
+                            </span>
+                          </div>
+                          {v.source && <div className="text-[9px] text-slate-400 mt-0.5">{v.source}</div>}
+                        </button>
+                        {!v.is_active && (
+                          <button
+                            onClick={() => handleArchiveVersion(v.timestamp)}
+                            className="px-2 py-2 rounded-lg border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-300 transition-all text-[10px]"
+                            title="刪除此版本"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 

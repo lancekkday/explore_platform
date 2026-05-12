@@ -10,10 +10,15 @@ Loads precise/broad baseline CSVs at startup and provides:
 from __future__ import annotations
 
 import csv
+import os
 from pathlib import Path
 from typing import Optional
 
 from loguru import logger
+
+# ── 設定 ──────────────────────────────────────────────────────────────────────
+# 「排名下降」閾值倍數：current_rank > expected_rank * N 視為 dropped
+BASELINE_DROP_MULTIPLIER = int(os.environ.get("BASELINE_DROP_MULTIPLIER", "3"))
 
 # ── CSV paths (same as ab_check.py) ─────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -222,7 +227,7 @@ class BaselineService:
             current_rank = result_ranks.get(mid)
             if current_rank is None:
                 status = "missing"
-            elif e["expected_rank"] and current_rank > e["expected_rank"] * 5:
+            elif e["expected_rank"] and current_rank > e["expected_rank"] * BASELINE_DROP_MULTIPLIER:
                 status = "dropped"
             else:
                 status = "present"

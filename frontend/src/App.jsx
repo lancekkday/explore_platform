@@ -42,6 +42,7 @@ export default function App() {
   const [baselineData, setBaselineData] = useState(null)
   const [abComparison, setAbComparison] = useState(null)
   const [baselineKeywords, setBaselineKeywords] = useState([])
+  const [baselineDropMultiplier, setBaselineDropMultiplier] = useState(3)
 
   // ── Calibration ───────────────────────────────────────────────────────────
   const [edittingProduct, setEdittingProduct] = useState(null)
@@ -105,6 +106,7 @@ export default function App() {
         setVersionBData(res.version_b || null)
         setBaselineData(res.baseline)
         setAbComparison(res.ab_comparison || null)
+        if (res.baseline_drop_multiplier != null) setBaselineDropMultiplier(res.baseline_drop_multiplier)
       } else {
         setError(res?.detail || '返回數據異常')
       }
@@ -349,6 +351,7 @@ export default function App() {
                 keyword={keyword}
                 versionLabel={versionBData ? `v${versionAData.test_exp}` : null}
                 otherVersionResults={versionBData?.results}
+                baselineDropMultiplier={baselineDropMultiplier}
               />
               {versionBData && (
                 <AnnotatedResultList
@@ -361,6 +364,7 @@ export default function App() {
                   keyword={keyword}
                   versionLabel={`v${versionBData.test_exp}`}
                   otherVersionResults={versionAData?.results}
+                  baselineDropMultiplier={baselineDropMultiplier}
                 />
               )}
             </div>

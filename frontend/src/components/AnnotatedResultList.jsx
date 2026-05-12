@@ -65,6 +65,7 @@ export default function AnnotatedResultList({
   onCalibrate, doubtOnly, keyword,
   versionLabel,
   otherVersionResults,  // for computing rank delta (optional)
+  baselineDropMultiplier = 3,
 }) {
   const rawItems = Array.isArray(items) ? items : []
 
@@ -86,8 +87,8 @@ export default function AnnotatedResultList({
         if (it.tier === 0 || it.tier === 3) return true
         // Calibrated
         if (it.is_calibrated) return true
-        // Baseline product that dropped significantly (rank > expected * 3)
-        if (it.baseline_tag && it.baseline_profit_rank && it.rank > it.baseline_profit_rank * 3) return true
+        // Baseline product that dropped significantly
+        if (it.baseline_tag && it.baseline_profit_rank && it.rank > it.baseline_profit_rank * baselineDropMultiplier) return true
         // Significant rank change vs other version
         const mid = it.prod_mid || it.id
         if (mid && otherRankMap[mid] != null) {

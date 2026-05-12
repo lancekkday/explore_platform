@@ -19,7 +19,7 @@ from batch_engine import engine as batch_engine
 from skills.intent_judger import judger
 from skills.calibration_manager import calibration_manager
 from ab_check import run_ab_check, find_rank as ab_find_rank
-from baseline_service import baseline_service
+from baseline_service import baseline_service, BASELINE_DROP_MULTIPLIER
 
 TZ_TAIPEI = timezone(timedelta(hours=8))  # UTC+8, no system tzdata needed
 scheduler = BackgroundScheduler(timezone=TZ_TAIPEI)
@@ -450,6 +450,7 @@ async def unified_search(req: UnifiedSearchRequest):
         "success": True,
         "keyword": kw,
         "baseline": baseline,
+        "baseline_drop_multiplier": BASELINE_DROP_MULTIPLIER,
         "version_a": {
             "test_exp": req.version_a,
             "total": a_total,

@@ -37,7 +37,7 @@ class BaselineVersionManager:
         Create a new version directory with the given CSV content.
         Returns version metadata dict.
         """
-        ts = datetime.now(TZ_TAIPEI).strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(TZ_TAIPEI).strftime("%Y%m%d_%H%M%S_%f")
         version_dir = VERSIONS_DIR / ts
         version_dir.mkdir(parents=True, exist_ok=True)
 

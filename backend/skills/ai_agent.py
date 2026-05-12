@@ -87,6 +87,66 @@ def parse_intent_with_ai(keyword: str) -> tuple[SearchIntent, dict]:
         return SearchIntent(core_product=keyword, location=None, category=None, theme=None, reason="Fallback due to API error"), _zero_usage
 
 
+class SynonymResult(BaseModel):
+    """AI synonym detection result."""
+    synonyms: Optional[list[str]]
+
+
+def check_synonym_with_ai(keyword: str, product_name: str) -> tuple[list[str] | None, dict]:
+    """
+    問 AI：keyword 和 product_name 之間是否有同義詞/別名/翻譯關係？
+    回傳 (synonyms_list_or_None, usage_dict)。
+    """
+    prompt = f"""你是多語言同義詞/別名判斷專家。
+
+搜尋關鍵字：「{keyword}」
+商品名稱：「{product_name}」
+
+請判斷：商品名稱中是否包含與搜尋關鍵字「{keyword}」意思相同的同義詞、別名、翻譯、暱稱、縮寫或品牌別名？
+
+判斷範圍：
+- 不同語言翻譯（中↔日↔英↔韓）
+- IP 角色名 / 品牌名的不同寫法
+- 常見暱稱、縮寫（如 USJ ↔ 環球影城）
+- 同一概念的不同表達
+
+注意：只判斷關鍵字本身是否有同義詞出現在商品名稱中。不要判斷商品整體是否相關。
+
+如果找到同義詞，回傳 {{"synonyms": ["找到的同義詞1", "找到的同義詞2"]}}
+如果沒有同義詞關係，回傳 {{"synonyms": null}}
+
+範例：
+- keyword="chiikawa", product_name="吉伊卡哇聯名體驗" → {{"synonyms": ["吉伊卡哇"]}}
+- keyword="usj", product_name="大阪環球影城門票" → {{"synonyms": ["環球影城"]}}
+- keyword="chiikawa", product_name="東京迪士尼門票" → {{"synonyms": null}}"""
+
+    _zero = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "estimated_cost_usd": 0.0}
+
+    try:
+        completion = client.beta.chat.completions.parse(
+            model=AI_MODEL,
+            messages=[
+                {"role": "system", "content": "你是多語言同義詞判斷專家，專門判斷搜尋關鍵字與商品名稱之間的同義詞關係。"},
+                {"role": "user", "content": prompt},
+            ],
+            response_format=SynonymResult,
+        )
+        res = completion.choices[0].message.parsed
+        usage = completion.usage
+        cost = (usage.prompt_tokens * AI_PRICE_INPUT + usage.completion_tokens * AI_PRICE_OUTPUT) / 1_000_000
+        usage_dict = {
+            "prompt_tokens": usage.prompt_tokens,
+            "completion_tokens": usage.completion_tokens,
+            "total_tokens": usage.total_tokens,
+            "estimated_cost_usd": round(cost, 8),
+        }
+        logger.info(f"[Synonym AI] '{keyword}' vs '{product_name[:40]}' → {res.synonyms} | tokens={usage.total_tokens}")
+        return res.synonyms, usage_dict
+    except Exception as e:
+        logger.error(f"[Synonym AI] Failed for '{keyword}' vs '{product_name[:40]}': {e}")
+        return None, _zero
+
+
 TIER_LABELS = {1: "T1 完全相關", 2: "T2 部分相關", 3: "T3 疑似相關", 0: "MISS 不相關"}
 
 def explain_product_match(keyword: str, product_name: str, tier: int,

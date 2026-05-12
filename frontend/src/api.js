@@ -10,11 +10,11 @@ export const fetchCompare = (keyword, cookie, count, ai_enabled, search_api) =>
 export const fetchGuestCookie = (env = 'stage') =>
   fetch(`${API_BASE}/guest-cookie?env=${env}`).then(r => r.json())
 
-export const saveFeedback = (keyword, product_id, user_tier, comment) =>
+export const saveFeedback = (keyword, product_id, user_tier, comment, synonyms) =>
   fetch(`${API_BASE}/feedback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ keyword, product_id, user_tier, comment }),
+    body: JSON.stringify({ keyword, product_id, user_tier, comment, synonyms }),
   }).then(r => r.json())
 
 export const fetchKeywords = () =>

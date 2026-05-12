@@ -255,7 +255,7 @@ class BatchEngine:
             return {
                 "keyword": keyword, "error": str(e),
                 "stage": {"total": 0, "results": [], "metrics": {"ndcg_10": 0, "mismatch_rate": 1.0}},
-                "production": {"total": 0, "results": [], "metrics": {"ndcg_10": 0, "mismatch_rate": 1.0}}
+                "version_b": {"total": 0, "results": [], "metrics": {"ndcg_10": 0, "mismatch_rate": 1.0}}
             }
 
     def run_batch_sync(self, cookie, ai_enabled_override=None, keyword_list_override=None, search_api="ajax", version_a=0, version_b=None):

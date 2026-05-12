@@ -194,8 +194,9 @@ class BaselineVersionManager:
             return 0
         try:
             lines = path.read_text(encoding="utf-8").strip().split("\n")
-            return max(0, len(lines) - 1)  # subtract header
-        except Exception:
+            with path.open("r", encoding="utf-8") as f:
+                count = sum(1 for _ in f)
+            return max(0, count - 1)  # subtract header
             return 0
 
     @staticmethod

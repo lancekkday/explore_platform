@@ -57,8 +57,9 @@ class SynonymService:
     def get_synonyms(self, keyword: str) -> list[str]:
         """取得 keyword 的所有同義詞（不含自己）"""
         kw = keyword.lower()
-        group = self._index.get(kw, set())
-        return [s for s in group if s != kw]
+        with self._lock:
+            group = self._index.get(kw, set())
+            return [s for s in group if s != kw]
 
     def add_synonyms(self, keyword: str, synonyms: list[str]):
         """新增同義詞並持久化，自動建立雙向索引"""
@@ -69,10 +70,12 @@ class SynonymService:
             merged = set(new_members)
             for m in new_members:
                 merged |= self._index.get(m, set())
-            for m in merged:
-                self._index[m] = merged
+            # Copy per key to avoid shared mutable reference
+            frozen = frozenset(merged)
+            for m in frozen:
+                self._index[m] = set(frozen)
             self._save()
-            logger.info(f"[Synonym] Added group: {sorted(merged)}")
+            logger.info(f"[Synonym] Added group: {sorted(frozen)}")
 
     def check_product_match(self, keyword: str, title: str, intro: str) -> str | None:
         """用同義詞比對商品 title/intro，回傳命中的同義詞或 None"""

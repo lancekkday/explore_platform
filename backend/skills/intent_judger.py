@@ -147,11 +147,15 @@ class IntentJudger:
 
         return result
 
+    def reset_synonym_cache(self):
+        """Reset per-session synonym AI cache. Call before processing a new keyword batch."""
+        self._synonym_ai_done: set[str] = set()
+
     def _try_synonym_rescue(self, product: Dict[str, Any], keyword: str) -> Optional[Dict]:
         """
         嘗試用同義詞救回 MISS 判定。
         Step 1: 查本地同義詞表
-        Step 2: 呼叫 AI 判別 keyword 與商品名稱的同義詞關係
+        Step 2: 呼叫 AI 判別（每個 keyword 每次 session 只問一次）
         """
         title = product.get("name", "") or ""
         intro = product.get("introduction", "") or product.get("intro", "") or ""
@@ -161,7 +165,12 @@ class IntentJudger:
         if hit:
             return {"tier": 2, "reasons": [f"同義詞命中: {hit}"]}
 
-        # Step 2: AI 判別
+        # Step 2: AI 判別（同 keyword 只問一次，問過就跳過）
+        if not hasattr(self, "_synonym_ai_done"):
+            self._synonym_ai_done = set()
+        kw_lower = keyword.lower()
+        if kw_lower in self._synonym_ai_done:
+            return None
         if not title.strip():
             return None
         synonyms, usage = check_synonym_with_ai(keyword, title)
@@ -169,9 +178,13 @@ class IntentJudger:
             self._log_ai_usage(keyword, "synonym_check", usage)
         if synonyms:
             synonym_service.add_synonyms(keyword, synonyms)
+            self._synonym_ai_done.add(kw_lower)
             hit = synonym_service.check_product_match(keyword, title, intro)
             if hit:
                 return {"tier": 2, "reasons": [f"AI 同義詞命中: {hit}"]}
+        else:
+            # AI 確認無同義詞，同 keyword 不再重試
+            self._synonym_ai_done.add(kw_lower)
 
         return None
 

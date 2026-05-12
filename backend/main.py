@@ -26,12 +26,15 @@ from baseline_version_manager import baseline_version_manager
 import sys as _sys
 from pathlib import Path as _Path
 # Support both local (backend/../handoff/scripts) and Docker (/app/handoff/scripts)
+_base_dir = _Path(__file__).resolve().parent
 for _candidate in [
-    _Path(__file__).resolve().parent.parent / "handoff" / "scripts",
-    _Path(__file__).resolve().parent / "handoff" / "scripts",
+    _base_dir.parent / "handoff" / "scripts",
+    _base_dir / "handoff" / "scripts",
 ]:
-    if _candidate.is_dir() and str(_candidate) not in _sys.path:
-        _sys.path.insert(0, str(_candidate))
+    if _candidate.is_dir():
+        _path_str = str(_candidate)
+        if _path_str not in _sys.path:
+            _sys.path.insert(0, _path_str)
         break
 
 TZ_TAIPEI = timezone(timedelta(hours=8))  # UTC+8, no system tzdata needed

@@ -1,24 +1,23 @@
-import { useState, useEffect, useRef } from 'react'
-import { normalizeKw } from './utils/safeString'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { IconRefresh } from './components/icons/Icons'
-import CompactMetricBar from './components/ui/CompactMetricBar'
 import AnnotatedResultList from './components/AnnotatedResultList'
 import BaselineAlertBar from './components/BaselineAlertBar'
-import ABComparisonSummary from './components/ABComparisonSummary'
 import UnifiedSearchBar from './components/UnifiedSearchBar'
+import FilterBar from './components/FilterBar'
+import Drawer from './components/Drawer'
+import LegendBar from './components/LegendBar'
 import BatchPanel from './components/BatchPanel'
 import SettingsPanel from './components/SettingsPanel'
 import CalibrationModal from './components/CalibrationModal'
 import KeywordEditorModal from './components/KeywordEditorModal'
 import ScheduleModal from './components/ScheduleModal'
+import { aggregateAlerts } from './utils/baselineReport'
 import {
   fetchGuestCookie, saveFeedback,
   fetchKeywords, updateKeywords,
-  startBatch as apiBatchStart, stopBatch as apiBatchStop,
-  fetchBatchStatus, fetchBatchResults, fetchBatchHistory,
-  fetchBatchHistoryDetail,
   fetchSchedules, addSchedule, updateSchedule, deleteSchedule,
   fetchUnifiedSearch, fetchBaselineKeywords,
+  runABCheck,
 } from './api'
 
 export default function App() {
@@ -31,7 +30,6 @@ export default function App() {
   const [versionA, setVersionA] = useState(0)
   const [versionB, setVersionB] = useState(1)
   const [enableAB, setEnableAB] = useState(true)
-  const [doubtOnly, setDoubtOnly] = useState(false)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -44,21 +42,26 @@ export default function App() {
   const [baselineKeywords, setBaselineKeywords] = useState([])
   const [baselineDropMultiplier, setBaselineDropMultiplier] = useState(3)
 
+  // ── New layout state ──────────────────────────────────────────────────────
+  const [filterMode, setFilterMode] = useState('all') // 'all' | 'diff' | 'focus'
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerType, setDrawerType] = useState(null)  // 'exact' | 'broad' | null
+  const [highlightId, setHighlightId] = useState(null)
+  const rowRefs = useRef({})
+
   // ── Calibration ───────────────────────────────────────────────────────────
   const [edittingProduct, setEdittingProduct] = useState(null)
   const [calibTier, setCalibTier] = useState(1)
   const [calibComment, setCalibComment] = useState('')
   const [calibSynonyms, setCalibSynonyms] = useState('')
 
-  // ── Batch state ───────────────────────────────────────────────────────────
+  // ── Baseline batch check state ────────────────────────────────────────────
   const [showBatch, setShowBatch] = useState(false)
-  const [auditKeywords, setAuditKeywords] = useState([])
-  const [batchStatus, setBatchStatus] = useState({ is_running: false, progress: 0, current_keyword: null })
-  const [batchResults, setBatchResults] = useState({})
-  const [batchHistory, setBatchHistory] = useState([])
-  const [viewingRunId, setViewingRunId] = useState(null)
-  const [liveResults, setLiveResults] = useState(null)
-  const viewingRunIdRef = useRef(null)
+  const [baselineReport, setBaselineReport] = useState(null)
+  const [baselineRunning, setBaselineRunning] = useState(false)
+  const [baselineError, setBaselineError] = useState(null)
+  const [baselineCounts, setBaselineCounts] = useState({ precise: 0, broad: 0 })
+  const [auditKeywords, setAuditKeywords] = useState([])    // used by keyword editor modal
 
   // ── UI modals ─────────────────────────────────────────────────────────────
   const [kwEditorVisible, setKwEditorVisible] = useState(false)
@@ -83,14 +86,8 @@ export default function App() {
 
   async function fetchAuditData() {
     try {
-      const [kwRes, statRes, resRes, histRes, schedRes] = await Promise.all([
-        fetchKeywords(), fetchBatchStatus(), fetchBatchResults(),
-        fetchBatchHistory(), fetchSchedules(),
-      ])
+      const [kwRes, schedRes] = await Promise.all([fetchKeywords(), fetchSchedules()])
       if (kwRes?.keywords) setAuditKeywords(kwRes.keywords)
-      if (statRes) setBatchStatus(statRes)
-      if (resRes?.results && !viewingRunIdRef.current) setBatchResults(resRes.results)
-      if (histRes?.history) setBatchHistory(histRes.history)
       if (Array.isArray(schedRes)) setSchedules(schedRes)
     } catch { /* silent */ }
   }
@@ -117,29 +114,28 @@ export default function App() {
     setLoading(false)
   }
 
-  const findResult = (kw) => {
-    if (!kw || !batchResults) return null
-    return batchResults[normalizeKw(kw)] || null
-  }
-
-  async function loadArchive(id) {
+  async function runBaselineCheck() {
+    setBaselineRunning(true)
+    setBaselineError(null)
     try {
-      viewingRunIdRef.current = id
-      const res = await fetchBatchHistoryDetail(id)
-      if (!res?.results) { viewingRunIdRef.current = null; return }
-      setLiveResults(prev => prev ?? batchResults)
-      setBatchResults(res.results)
-      setViewingRunId(id)
-      setShowBatch(true)
-    } catch { viewingRunIdRef.current = null }
+      const res = await runABCheck(versionA, versionB, false, false)
+      if (res?.success) {
+        setBaselineReport(aggregateAlerts(res.alerts || []))
+      } else {
+        setBaselineError(res?.detail || '巡檢失敗')
+      }
+    } catch (e) {
+      setBaselineError(e?.message || '伺服器連線異常')
+    }
+    setBaselineRunning(false)
   }
 
-  function exitArchive() {
-    viewingRunIdRef.current = null
-    setBatchResults(liveResults || {})
-    setLiveResults(null)
-    setViewingRunId(null)
-    fetchAuditData()
+  function jumpToKeyword(kw) {
+    if (!kw) return
+    setKeyword(kw)
+    setFilterMode('diff')
+    setShowBatch(false)
+    handleSearch(kw)
   }
 
   // ── Effects ───────────────────────────────────────────────────────────────
@@ -149,14 +145,11 @@ export default function App() {
     fetchAuditData()
     fetchBaselineKeywords().then(res => {
       if (res?.keywords) setBaselineKeywords(res.keywords)
+      if (res?.precise_count != null || res?.broad_count != null) {
+        setBaselineCounts({ precise: res.precise_count || 0, broad: res.broad_count || 0 })
+      }
     }).catch(() => {})
   }, [])
-
-  useEffect(() => {
-    if (!batchStatus?.is_running) return
-    const timer = setInterval(() => fetchAuditData(), 3000)
-    return () => clearInterval(timer)
-  }, [batchStatus?.is_running])
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -175,16 +168,6 @@ export default function App() {
       const res = await saveFeedback(keyword, edittingProduct.id, parseInt(calibTier), calibComment, synonyms.length ? synonyms : undefined)
       if (res.success) { setEdittingProduct(null); handleSearch() }
     } catch { /* silent */ }
-  }
-
-  const handleStartBatch = async () => {
-    const vb = enableAB ? versionB : null
-    await apiBatchStart(cookie, searchApi, versionA, vb)
-    fetchAuditData()
-  }
-  const handleStopBatch = async () => {
-    await apiBatchStop()
-    fetchAuditData()
   }
 
   const saveKeywords = async () => {
@@ -219,7 +202,7 @@ export default function App() {
     fetchAuditData()
   }
 
-  // ── Export ───────────────────────────────────────────────────────────────
+  // ── Export ────────────────────────────────────────────────────────────────
 
   function handleExportCSV() {
     if (!versionAData) return
@@ -262,7 +245,7 @@ export default function App() {
     addRows(versionAData, `Version A (v${versionAData.test_exp})`)
     if (versionBData) addRows(versionBData, `Version B (v${versionBData.test_exp})`)
 
-    const bom = '\uFEFF'
+    const bom = '﻿'
     const blob = new Blob([bom + rows.join('\n')], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -273,132 +256,230 @@ export default function App() {
     URL.revokeObjectURL(url)
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Derived data ──────────────────────────────────────────────────────────
 
   const hasResults = !!versionAData
 
+  // Baseline 守門商品 Map：合併精準 (Top1/Top2) + 泛詞 (#1~#10)
+  const baselineMap = useMemo(() => {
+    const m = new Map()
+    const p = baselineData?.precise
+    if (p?.top1_prod_mid) m.set(p.top1_prod_mid, {
+      label: 'Top1', kind: 'precise',
+      original: { prod_mid: p.top1_prod_mid, prod_nm: p.top1_prod_nm },
+    })
+    if (p?.top2_prod_mid) m.set(p.top2_prod_mid, {
+      label: 'Top2', kind: 'precise',
+      original: { prod_mid: p.top2_prod_mid, prod_nm: p.top2_prod_nm },
+    })
+    for (const b of baselineData?.broad_products || []) {
+      m.set(b.prod_mid, {
+        label: `泛#${b.profit_rank}`, kind: 'broad',
+        original: { prod_mid: b.prod_mid, prod_nm: b.prod_nm, profit_rank: b.profit_rank },
+      })
+    }
+    return m
+  }, [baselineData])
+
+  const { totalCount, focusCount, focusIds } = useMemo(() => {
+    const aItems = versionAData?.results || []
+    const bItems = versionBData?.results || []
+    // Focus: T3/MISS, calibrated, baseline-drop, large rank delta (≥5)
+    const focus = new Set()
+    const both = [...aItems, ...bItems]
+    for (const it of both) {
+      const mid = it.prod_mid || it.id
+      if (!mid) continue
+      if (it.tier === 0 || it.tier === 3) { focus.add(mid); continue }
+      if (it.is_calibrated) { focus.add(mid); continue }
+      if (it.baseline_tag && it.baseline_profit_rank && it.rank > it.baseline_profit_rank * baselineDropMultiplier) {
+        focus.add(mid); continue
+      }
+      const aMatch = aItems.find(r => (r.prod_mid || r.id) === mid)
+      const bMatch = bItems.find(r => (r.prod_mid || r.id) === mid)
+      if (aMatch && bMatch && Math.abs(aMatch.rank - bMatch.rank) >= 5) focus.add(mid)
+    }
+    return {
+      totalCount: Math.max(aItems.length, bItems.length),
+      focusCount: focus.size,
+      focusIds: focus,
+    }
+  }, [versionAData, versionBData, baselineDropMultiplier])
+
+  const diffCount = baselineMap.size
+
+  const preciseItems = useMemo(() => {
+    const p = baselineData?.precise
+    if (!p) return []
+    const out = []
+    if (p.top1_prod_mid) out.push({ name: p.top1_prod_nm, prod_mid: p.top1_prod_mid })
+    if (p.top2_prod_mid) out.push({ name: p.top2_prod_nm, prod_mid: p.top2_prod_mid })
+    return out
+  }, [baselineData])
+
+  const broadItems = useMemo(() => baselineData?.broad_products || [], [baselineData])
+
+  const handleChipJump = (alert) => {
+    const id = alert.prod_mid
+    setHighlightId(id)
+    const candidate = rowRefs.current[`B:${id}`] || rowRefs.current[`A:${id}`]
+    if (candidate?.scrollIntoView) {
+      candidate.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    setTimeout(() => setHighlightId(null), 1800)
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col h-screen overflow-hidden text-[13px] select-none text-slate-900 antialiased font-sans">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-8 py-2.5 flex items-center justify-between shrink-0 z-[100] shadow-sm">
-        <div className="flex flex-col text-slate-950">
-          <span className="text-[13px] font-black tracking-[4px] uppercase leading-none">搜尋巡檢平台</span>
-          <span className="text-[8px] font-black text-indigo-600 uppercase tracking-[3px] mt-1 font-mono">Search Audit Platform</span>
+    <div className="flex flex-col h-screen overflow-hidden bg-[#F8FAFC] text-slate-900 text-[13px]">
+      {/* Brand strip */}
+      <header className="bg-white border-b border-slate-200 px-4 py-1.5 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2 text-slate-950">
+          <span className="text-[11px] font-bold tracking-[3px] uppercase leading-none">搜尋巡檢平台</span>
+          <span className="text-[8px] font-bold text-indigo-600 uppercase tracking-[2px] font-mono">Search Audit</span>
         </div>
-        <div className="flex items-center gap-5 text-[10px] font-black">
-          {error && <div className="px-3 py-1 bg-red-50 text-red-600 border border-red-100 rounded-lg animate-pulse">{error}</div>}
-          <div className="flex items-center gap-3 px-4 py-1.5 bg-slate-50 border border-slate-200 rounded-full">
-            <div className={`w-1.5 h-1.5 rounded-full ${cookieInfo ? 'bg-emerald-500 shadow-[0_0_8px_#10B981]' : 'bg-red-500'}`} />
-            <span className="text-slate-500 tracking-wider uppercase font-mono">{cookieInfo ? '連線正常' : '連線斷開'}</span>
+        <div className="flex items-center gap-2 text-[10px]">
+          {error && <div className="px-2 py-0.5 bg-red-50 text-red-600 border border-red-100 rounded">{error}</div>}
+          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-50 border border-slate-200 rounded-full">
+            <div className={`w-1.5 h-1.5 rounded-full ${cookieInfo ? 'bg-emerald-500' : 'bg-red-500'}`} />
+            <span className="text-slate-500 uppercase tracking-wide font-mono">{cookieInfo ? '連線正常' : '連線斷開'}</span>
           </div>
-          <button onClick={autoFetchCookie} className="text-slate-300 hover:text-indigo-600 transition-all active:rotate-180 duration-500"><IconRefresh /></button>
+          <button onClick={autoFetchCookie} className="text-slate-300 hover:text-indigo-600">
+            <IconRefresh />
+          </button>
         </div>
       </header>
 
-      {/* Search bar */}
-      <UnifiedSearchBar
-        keyword={keyword} setKeyword={setKeyword}
-        versionA={versionA} setVersionA={setVersionA}
-        versionB={versionB} setVersionB={setVersionB}
-        enableAB={enableAB} setEnableAB={setEnableAB}
-        searchApi={searchApi} setSearchApi={setSearchApi}
-        aiEnabled={aiEnabled} setAiEnabled={setAiEnabled}
-        loading={loading} cookieInfo={cookieInfo}
-        baselineKeywords={baselineKeywords}
-        onSearch={handleSearch}
-        onOpenSettings={() => setSettingsVisible(true)}
-        hasResults={hasResults}
-        doubtOnly={doubtOnly} setDoubtOnly={setDoubtOnly}
-        onExportCSV={handleExportCSV}
-      />
+      {/* Topbar (search + 巡檢 + 下載 + 設定) */}
+      <div className="pt-2">
+        <UnifiedSearchBar
+          keyword={keyword} setKeyword={setKeyword}
+          loading={loading} cookieInfo={cookieInfo}
+          baselineKeywords={baselineKeywords}
+          onSearch={handleSearch}
+          onOpenSettings={() => setSettingsVisible(true)}
+          hasResults={hasResults}
+          onExportCSV={handleExportCSV}
+        />
+      </div>
+
+      {/* Alert bar */}
+      {hasResults && (
+        <div className="px-2">
+          <BaselineAlertBar
+            aAlerts={versionAData?.baseline_alerts}
+            bAlerts={versionBData?.baseline_alerts}
+            abComparison={abComparison}
+            baseline={baselineData}
+            onChipClick={handleChipJump}
+          />
+        </div>
+      )}
+
+      {/* Filter bar */}
+      {hasResults && (
+        <FilterBar
+          filterMode={filterMode}
+          setFilterMode={setFilterMode}
+          totalCount={totalCount}
+          diffCount={diffCount}
+          focusCount={focusCount}
+        />
+      )}
 
       {/* Main content */}
-      <main className="flex-1 flex flex-col overflow-hidden bg-[#F8FAFC]">
+      <main className="flex-1 flex overflow-hidden">
         {loading && (
           <div className="flex-1 flex flex-col items-center justify-center gap-3">
-            <div className="w-8 h-8 border-[4px] border-white/10 border-t-indigo-600 rounded-full animate-spin shadow-2xl" />
-            <div className="text-indigo-900 font-black text-[11px] tracking-[6px] animate-pulse uppercase">
-              {enableAB ? 'Comparing A vs B...' : 'Analyzing...'}
+            <div className="w-7 h-7 border-[3px] border-slate-200 border-t-indigo-600 rounded-full animate-spin" />
+            <div className="text-slate-500 text-[11px] tracking-widest uppercase">
+              {enableAB ? '比對 A / B 版本中…' : '分析中…'}
             </div>
           </div>
         )}
 
         {!loading && hasResults && (
-          <div className="flex-1 flex flex-col overflow-hidden p-4 gap-3">
-            {/* Metrics + Baseline alerts */}
-            <div className="flex gap-3 shrink-0">
-              <div className="flex-1">
-                <CompactMetricBar data={versionAData} env={`Version A (v${versionAData.test_exp})`} envCode="A" color="#10B981" />
-              </div>
-              {versionBData && (
-                <div className="flex-1">
-                  <CompactMetricBar data={versionBData} env={`Version B (v${versionBData.test_exp})`} envCode="B" color="#6366F1" />
-                </div>
-              )}
-            </div>
-
-            <BaselineAlertBar alerts={versionAData.baseline_alerts} baseline={baselineData} />
-
-            {/* AB Comparison summary */}
-            {abComparison && <ABComparisonSummary comparison={abComparison} />}
-
-            {/* Product lists */}
-            <div className={`flex-1 flex ${versionBData ? 'gap-3' : ''} overflow-hidden`}>
+          <>
+            <div className="flex-1 flex gap-2 px-2 min-w-0">
               <AnnotatedResultList
-                items={versionAData.results}
-                title={versionBData ? 'Version A' : 'STAGE 巡檢清單'}
-                total={versionAData.total || 0}
-                color={versionBData ? '#10B981' : '#10B981'}
+                column="A"
+                data={versionAData}
+                version={String(versionA)}
+                onVersionChange={(s) => {
+                  if (s === '') { setVersionA(0); return }
+                  const n = parseInt(s, 10)
+                  if (Number.isFinite(n)) setVersionA(n)
+                }}
+                onSubmit={() => handleSearch()}
+                filterMode={filterMode}
+                focusIds={focusIds}
+                baselineMap={baselineMap}
+                otherResults={versionBData?.results}
                 onCalibrate={handleCalibrate}
-                doubtOnly={doubtOnly}
                 keyword={keyword}
-                versionLabel={versionBData ? `v${versionAData.test_exp}` : null}
-                otherVersionResults={versionBData?.results}
-                baselineDropMultiplier={baselineDropMultiplier}
+                rowRefs={rowRefs}
+                highlightId={highlightId}
               />
               {versionBData && (
                 <AnnotatedResultList
-                  items={versionBData.results}
-                  title="Version B"
-                  total={versionBData.total || 0}
-                  color="#6366F1"
+                  column="B"
+                  data={versionBData}
+                  version={String(versionB)}
+                  onVersionChange={(s) => {
+                    if (s === '') { setVersionB(0); return }
+                    const n = parseInt(s, 10)
+                    if (Number.isFinite(n)) setVersionB(n)
+                  }}
+                  onSubmit={() => handleSearch()}
+                  filterMode={filterMode}
+                  focusIds={focusIds}
+                  baselineMap={baselineMap}
+                  otherResults={versionAData?.results}
                   onCalibrate={handleCalibrate}
-                  doubtOnly={doubtOnly}
                   keyword={keyword}
-                  versionLabel={`v${versionBData.test_exp}`}
-                  otherVersionResults={versionAData?.results}
-                  baselineDropMultiplier={baselineDropMultiplier}
+                  rowRefs={rowRefs}
+                  highlightId={highlightId}
                 />
               )}
             </div>
-          </div>
+            <Drawer
+              drawerOpen={drawerOpen}
+              drawerType={drawerType}
+              setDrawerOpen={setDrawerOpen}
+              setDrawerType={setDrawerType}
+              preciseItems={preciseItems}
+              broadItems={broadItems}
+            />
+          </>
         )}
 
         {!loading && !hasResults && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <div className="text-slate-200 text-[48px] mb-4">🔍</div>
-              <div className="text-slate-400 font-black text-[12px] tracking-widest uppercase">輸入關鍵字開始巡檢</div>
-              <div className="text-slate-300 text-[10px] mt-2 font-bold">搜尋結果將自動標註 baseline 守門商品</div>
-              {enableAB && <div className="text-indigo-400 text-[10px] mt-1 font-bold">A/B 模式已啟用 — 將同時比對兩個版本</div>}
+              <div className="text-slate-300 text-[36px] mb-3">🔍</div>
+              <div className="text-slate-500 font-semibold text-[12px] tracking-widest uppercase">輸入關鍵字開始巡檢</div>
+              <div className="text-slate-400 text-[10px] mt-2">搜尋結果將自動標註 baseline 守門商品</div>
             </div>
           </div>
         )}
       </main>
 
-      {/* Batch panel (collapsible bottom) */}
+      {/* Legend bar */}
+      {hasResults && <LegendBar filterMode={filterMode} />}
+
+      {/* Batch baseline check panel (collapsible bottom) */}
       <BatchPanel
-        showBatch={showBatch} setShowBatch={setShowBatch}
-        auditKeywords={auditKeywords}
-        batchStatus={batchStatus}
-        batchResults={batchResults}
-        batchHistory={batchHistory}
-        viewingRunId={viewingRunId}
-        onLoadArchive={loadArchive}
-        onExitArchive={exitArchive}
-        onStartBatch={handleStartBatch}
-        onStopBatch={handleStopBatch}
-        findResult={findResult}
+        showBatch={showBatch}
+        setShowBatch={setShowBatch}
+        versionA={versionA}
+        versionB={versionB}
+        baselineReport={baselineReport}
+        baselineRunning={baselineRunning}
+        baselineCounts={baselineCounts}
+        onRun={runBaselineCheck}
+        onJumpToKeyword={jumpToKeyword}
+        error={baselineError}
       />
 
       {/* Modals */}
@@ -415,6 +496,8 @@ export default function App() {
         onOpenKeywordEditor={() => { setKwInputText(auditKeywords.map(k => k.keyword).join(', ')); setKwEditorVisible(true) }}
         onOpenScheduleModal={() => { setEditingSchedule(null); setScheduleModalVisible(true) }}
         schedules={schedules}
+        onToggleSchedule={handleToggleSchedule}
+        onDeleteSchedule={handleDeleteSchedule}
       />
       <CalibrationModal
         product={edittingProduct}

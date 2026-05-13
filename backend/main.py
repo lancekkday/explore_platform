@@ -337,6 +337,8 @@ def get_baseline_keywords():
         "success": True,
         "keywords": kws,
         "total": len(kws),
+        "precise_count": len(baseline_service._precise),
+        "broad_count": len(baseline_service._broad),
     }
 
 

@@ -38,7 +38,7 @@ function BaselineBadge({ tag, profit, ctr, profitRank }) {
   return (
     <span
       title={tooltipText}
-      className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border text-[8px] font-black tracking-wide cursor-help ${colorClass}`}
+      className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border text-[8px] font-black tracking-wide cursor-help shrink-0 ${colorClass}`}
     >
       {isPrecise ? '⭐' : '📊'} {label}
     </span>
@@ -66,6 +66,7 @@ export default function AnnotatedResultList({
   versionLabel,
   otherVersionResults,  // for computing rank delta (optional)
   baselineDropMultiplier = 3,
+  baselineOnly = false,
 }) {
   const rawItems = Array.isArray(items) ? items : []
 
@@ -80,8 +81,12 @@ export default function AnnotatedResultList({
     }
   }
 
+  const filtered = baselineOnly
+    ? rawItems.filter(it => it && it.baseline_tag)
+    : rawItems
+
   const displayed = doubtOnly
-    ? rawItems.filter(it => {
+    ? filtered.filter(it => {
         if (!it) return false
         // T3 or MISS
         if (it.tier === 0 || it.tier === 3) return true
@@ -97,7 +102,7 @@ export default function AnnotatedResultList({
         }
         return false
       })
-    : rawItems
+    : filtered
 
   const handleExplain = async (it) => {
     const pid = it.id
@@ -173,6 +178,12 @@ export default function AnnotatedResultList({
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
+                        <BaselineBadge
+                          tag={it.baseline_tag}
+                          profit={it.baseline_profit}
+                          ctr={it.baseline_ctr}
+                          profitRank={it.baseline_profit_rank}
+                        />
                         <a
                           href={it.url || (it.prod_mid ? `https://www.stage.kkday.com/zh-tw/product/${it.prod_mid}` : undefined)}
                           target="_blank"
@@ -184,12 +195,6 @@ export default function AnnotatedResultList({
                         >
                           {safeString(it.name)}
                         </a>
-                        <BaselineBadge
-                          tag={it.baseline_tag}
-                          profit={it.baseline_profit}
-                          ctr={it.baseline_ctr}
-                          profitRank={it.baseline_profit_rank}
-                        />
                       </div>
                       {it.mismatch_reasons?.length > 0 && (
                         <div className="mt-1 flex items-center gap-1.5 px-2 py-0.5 bg-rose-50/50 border border-rose-100/50 rounded text-[9px] font-black text-rose-500/80 italic leading-none w-fit">

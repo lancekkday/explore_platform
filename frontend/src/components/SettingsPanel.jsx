@@ -116,7 +116,7 @@ export default function SettingsPanel({
                           : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
                       }`}
                     >
-                      {v.toUpperCase()}
+                      {v === 'v3' ? 'Search API V3' : 'AJAX'}
                     </button>
                   ))}
                 </div>

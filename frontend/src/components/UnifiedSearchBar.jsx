@@ -3,10 +3,6 @@ import { IconSearch, IconBot } from './icons/Icons'
 
 export default function UnifiedSearchBar({
   keyword, setKeyword,
-  versionA, setVersionA,
-  versionB, setVersionB,
-  enableAB, setEnableAB,
-  searchApi, setSearchApi,
   aiEnabled, setAiEnabled,
   loading, cookieInfo,
   baselineKeywords,
@@ -83,48 +79,8 @@ export default function UnifiedSearchBar({
         )}
       </div>
 
-      {/* Version A/B selectors - only shown for v3 API */}
-      {searchApi === 'v3' && (
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">A</label>
-            <input
-              type="number"
-              value={versionA}
-              onChange={e => setVersionA(parseInt(e.target.value) || 0)}
-              className="w-12 px-1.5 py-1.5 text-[12px] font-black text-center border-2 border-slate-200 rounded-lg focus:border-indigo-500 outline-none"
-            />
-          </div>
-
-          {enableAB && (
-            <>
-              <span className="text-[9px] font-black text-indigo-500 uppercase tracking-wider">vs</span>
-              <div className="flex items-center gap-1.5">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">B</label>
-                <input
-                  type="number"
-                  value={versionB ?? 3}
-                  onChange={e => setVersionB(parseInt(e.target.value) || 0)}
-                  className="w-12 px-1.5 py-1.5 text-[12px] font-black text-center border-2 border-slate-200 rounded-lg focus:border-indigo-500 outline-none"
-                />
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
       {/* Toggles */}
       <div className="flex gap-1.5 text-[10px] font-black">
-        <button
-          onClick={() => setSearchApi(searchApi === 'ajax' ? 'v3' : 'ajax')}
-          className={`px-3 py-1.5 rounded-lg border-2 transition-all ${
-            searchApi === 'v3'
-              ? 'bg-indigo-600 text-white border-indigo-700'
-              : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
-          }`}
-        >
-          {searchApi === 'v3' ? 'v3' : 'AJAX'}
-        </button>
         <button
           onClick={() => setAiEnabled(!aiEnabled)}
           className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border-2 transition-all ${

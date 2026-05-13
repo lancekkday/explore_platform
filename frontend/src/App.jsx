@@ -32,6 +32,7 @@ export default function App() {
   const [versionB, setVersionB] = useState(1)
   const [enableAB, setEnableAB] = useState(true)
   const [doubtOnly, setDoubtOnly] = useState(false)
+  const [baselineOnly, setBaselineOnly] = useState(false)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -298,10 +299,6 @@ export default function App() {
       {/* Search bar */}
       <UnifiedSearchBar
         keyword={keyword} setKeyword={setKeyword}
-        versionA={versionA} setVersionA={setVersionA}
-        versionB={versionB} setVersionB={setVersionB}
-        enableAB={enableAB} setEnableAB={setEnableAB}
-        searchApi={searchApi} setSearchApi={setSearchApi}
         aiEnabled={aiEnabled} setAiEnabled={setAiEnabled}
         loading={loading} cookieInfo={cookieInfo}
         baselineKeywords={baselineKeywords}
@@ -339,8 +336,43 @@ export default function App() {
 
             <BaselineAlertBar alerts={versionAData.baseline_alerts} baseline={baselineData} />
 
-            {/* AB Comparison summary */}
-            {abComparison && <ABComparisonSummary comparison={abComparison} />}
+            {/* Version inputs + Baseline filter */}
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="flex items-center gap-1.5">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Version A</label>
+                <input
+                  type="number"
+                  value={versionA}
+                  onChange={e => setVersionA(parseInt(e.target.value) || 0)}
+                  onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                  className="w-14 px-1.5 py-1 text-[12px] font-black text-center border-2 border-slate-200 rounded-lg focus:border-indigo-500 outline-none"
+                />
+              </div>
+              {enableAB && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-black text-indigo-500 uppercase tracking-wider">vs</span>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Version B</label>
+                  <input
+                    type="number"
+                    value={versionB ?? 1}
+                    onChange={e => setVersionB(parseInt(e.target.value) || 0)}
+                    onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                    className="w-14 px-1.5 py-1 text-[12px] font-black text-center border-2 border-slate-200 rounded-lg focus:border-indigo-500 outline-none"
+                  />
+                </div>
+              )}
+              <div className="flex-1" />
+              <button
+                onClick={() => setBaselineOnly(!baselineOnly)}
+                className={`px-3 py-1.5 rounded-lg border-2 text-[10px] font-black transition-all ${
+                  baselineOnly
+                    ? 'bg-amber-500 text-white border-amber-600'
+                    : 'bg-white text-slate-500 border-slate-200 hover:border-amber-400'
+                }`}
+              >
+                {baselineOnly ? '全量展示' : '僅 Baseline'}
+              </button>
+            </div>
 
             {/* Product lists */}
             <div className={`flex-1 flex ${versionBData ? 'gap-3' : ''} overflow-hidden`}>
@@ -355,6 +387,7 @@ export default function App() {
                 versionLabel={versionBData ? `v${versionAData.test_exp}` : null}
                 otherVersionResults={versionBData?.results}
                 baselineDropMultiplier={baselineDropMultiplier}
+                baselineOnly={baselineOnly}
               />
               {versionBData && (
                 <AnnotatedResultList
@@ -368,6 +401,7 @@ export default function App() {
                   versionLabel={`v${versionBData.test_exp}`}
                   otherVersionResults={versionAData?.results}
                   baselineDropMultiplier={baselineDropMultiplier}
+                  baselineOnly={baselineOnly}
                 />
               )}
             </div>

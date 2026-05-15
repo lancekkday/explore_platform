@@ -7,16 +7,13 @@
 """
 from __future__ import annotations
 
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
-from functools import lru_cache
-from pathlib import Path
 from typing import Optional
 
-import pandas as pd
 from loguru import logger
 
+from baseline_service import baseline_service
 from kkday_api import fetch_kkday_products_v3
 
 # ── 閾值 ──────────────────────────────────────────────────────────────────────
@@ -29,16 +26,6 @@ SIDE_BROAD_RANK_DELTA = 20
 
 API_PARALLEL_WORKERS = 10
 API_MAX_RESULTS = 300
-
-# ── Baseline CSV 路徑 ────────────────────────────────────────────────────────
-# Support both local (backend/../handoff/data) and Docker (/app/handoff/data)
-_app_dir = Path(__file__).resolve().parent
-HANDOFF_DATA = next(
-    (p for p in [_app_dir.parent / "handoff" / "data", _app_dir / "handoff" / "data"] if p.is_dir()),
-    _app_dir.parent / "handoff" / "data",  # fallback
-)
-PRECISE_CSV = HANDOFF_DATA / "search_keyword_precise.csv"
-BROAD_CSV = HANDOFF_DATA / "search_keyword_broad.csv"
 
 
 @dataclass
@@ -135,8 +122,8 @@ def _process_precise_query(row, version_a, version_b, cookie, cache=None) -> lis
 
     alerts = []
     for rank_n, mid_col in [(1, "top1_prod_mid"), (2, "top2_prod_mid")]:
-        mid = row[mid_col]
-        if pd.isna(mid):
+        mid = row.get(mid_col)
+        if mid is None:
             continue
         mid = int(mid)
         a_rank = find_rank(mid, a_results)
@@ -195,13 +182,18 @@ def check_ab_broad(query, mid, baseline_rank, a_rank, b_rank) -> Optional[Alert]
 
 
 def _process_broad_query(query, group, version_a, version_b, cookie, cache=None) -> list[Alert]:
+    """group: list of broad baseline row dicts (prod_mid, profit_rank, ...) for this query."""
     a_results = _fetch_results(query, version_a, cookie, cache)
     b_results = _fetch_results(query, version_b, cookie, cache)
 
     alerts = []
-    for _, row in group.iterrows():
-        mid = int(row["prod_mid"])
-        baseline_rank = int(row["profit_rank"])
+    for row in group:
+        mid = row.get("prod_mid")
+        baseline_rank = row.get("profit_rank")
+        if mid is None or baseline_rank is None:
+            continue
+        mid = int(mid)
+        baseline_rank = int(baseline_rank)
         a_rank = find_rank(mid, a_results)
         b_rank = find_rank(mid, b_results)
 
@@ -216,13 +208,13 @@ def _process_broad_query(query, group, version_a, version_b, cookie, cache=None)
 
 # ── 並行調度 ─────────────────────────────────────────────────────────────────
 
-def _run_precise(precise_df, va, vb, cookie, cache=None) -> list[Alert]:
+def _run_precise(precise_rows, va, vb, cookie, cache=None) -> list[Alert]:
+    """precise_rows: iterable of baseline_service._precise.values()"""
     alerts = []
-    rows = list(precise_df.to_dict(orient="records"))
     with ThreadPoolExecutor(max_workers=API_PARALLEL_WORKERS) as ex:
         futures = {
             ex.submit(_process_precise_query, r, va, vb, cookie, cache): r["query"]
-            for r in rows
+            for r in precise_rows
         }
         for f in as_completed(futures):
             try:
@@ -232,13 +224,13 @@ def _run_precise(precise_df, va, vb, cookie, cache=None) -> list[Alert]:
     return alerts
 
 
-def _run_broad(broad_df, va, vb, cookie, cache=None) -> list[Alert]:
+def _run_broad(broad_groups, va, vb, cookie, cache=None) -> list[Alert]:
+    """broad_groups: iterable of (query, [row dict, ...])"""
     alerts = []
-    groups = list(broad_df.groupby("query"))
     with ThreadPoolExecutor(max_workers=API_PARALLEL_WORKERS) as ex:
         futures = {
             ex.submit(_process_broad_query, q, g, va, vb, cookie, cache): q
-            for q, g in groups
+            for q, g in broad_groups
         }
         for f in as_completed(futures):
             try:
@@ -262,20 +254,20 @@ def run_ab_check(
     cache 為 request-local，避免 concurrency 問題。
     """
     cache: dict[tuple[str, int], tuple[int, ...]] = {}
-
-    precise_df = pd.read_csv(PRECISE_CSV) if not skip_precise and PRECISE_CSV.exists() else None
-    broad_df = pd.read_csv(BROAD_CSV) if not skip_broad and BROAD_CSV.exists() else None
-
     all_alerts: list[Alert] = []
 
-    if precise_df is not None and not skip_precise:
-        logger.info(f"[AB] Running precise check: {len(precise_df)} queries, A={version_a} B={version_b}")
-        all_alerts += _run_precise(precise_df, version_a, version_b, cookie, cache)
+    # Use baseline_service singleton (already loaded in memory) instead of re-reading CSVs
+    if not skip_precise:
+        precise_rows = list(baseline_service._precise.values())
+        if precise_rows:
+            logger.info(f"[AB] Running precise check: {len(precise_rows)} queries, A={version_a} B={version_b}")
+            all_alerts += _run_precise(precise_rows, version_a, version_b, cookie, cache)
 
-    if broad_df is not None and not skip_broad:
-        n_queries = broad_df["query"].nunique()
-        logger.info(f"[AB] Running broad check: {n_queries} queries, A={version_a} B={version_b}")
-        all_alerts += _run_broad(broad_df, version_a, version_b, cookie, cache)
+    if not skip_broad:
+        broad_groups = list(baseline_service._broad.items())
+        if broad_groups:
+            logger.info(f"[AB] Running broad check: {len(broad_groups)} queries, A={version_a} B={version_b}")
+            all_alerts += _run_broad(broad_groups, version_a, version_b, cookie, cache)
 
     severity_counts = {"P0": 0, "P1": 0, "P2": 0, "INFO": 0}
     for a in all_alerts:

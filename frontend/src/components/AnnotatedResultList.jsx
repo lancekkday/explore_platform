@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { safeString } from '../utils/safeString'
 import TierBadge from './ui/TierBadge'
 import { IconTag } from './icons/Icons'
@@ -135,16 +135,32 @@ function ResultRow({
         <span className="text-[10px] text-slate-400 w-[20px] text-right tabular-nums">#{item.rank}</span>
         {/* baseline label before title */}
         <BaselineBadge info={baselineInfo} />
-        {/* title */}
-        <a
-          href={item.url || (item.prod_mid ? `https://www.stage.kkday.com/zh-tw/product/${item.prod_mid}` : undefined)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex-1 min-w-0 text-[11px] leading-[1.4] text-slate-800 truncate hover:text-indigo-600 hover:underline"
-          title={safeString(item.name)}
-        >
-          {safeString(item.name)}
-        </a>
+        {/* title — render as link only when we have a URL, else plain span */}
+        {(() => {
+          const href = item.url || (item.prod_mid ? `https://www.stage.kkday.com/zh-tw/product/${item.prod_mid}` : null)
+          const name = safeString(item.name)
+          if (href) {
+            return (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 min-w-0 text-[11px] leading-[1.4] text-slate-800 truncate hover:text-indigo-600 hover:underline"
+                title={name}
+              >
+                {name}
+              </a>
+            )
+          }
+          return (
+            <span
+              className="flex-1 min-w-0 text-[11px] leading-[1.4] text-slate-800 truncate"
+              title={name}
+            >
+              {name}
+            </span>
+          )
+        })()}
         {/* Tier */}
         <TierBadge it={item} />
         {/* Cross-rank tag (only in diff/baseline mode) */}
@@ -246,25 +262,18 @@ export default function AnnotatedResultList({
   highlightId,
 }) {
   const [explanations, setExplanations] = useState({})
-  const localRefs = useRef({})
 
   const items = data?.results || []
   const otherItems = otherResults || []
   const otherByMid = new Map(otherItems.map(r => [r.prod_mid || r.id, r]))
-  const otherByRank = new Map(otherItems.map(r => [r.rank, r]))
   const myByMid = new Map(items.map(r => [r.prod_mid || r.id, r]))
 
-  // Per-rank diff annotation (still useful for status dot)
   const annotated = items.map(it => {
     const mid = it.prod_mid || it.id
-    const other = otherByRank.get(it.rank)
-    const otherMid = other ? (other.prod_mid || other.id) : null
-    const isDiff = otherMid != null && otherMid !== mid
     const otherSameProduct = otherByMid.get(mid)
     return {
       item: it,
       mid,
-      isDiff,
       // For cross-rank display, we want the SAME PRODUCT's rank in the other column (not whatever sits at the same rank)
       crossRank: otherSameProduct?.rank ?? null,
       baselineInfo: baselineMap?.get(mid) || null,
@@ -333,7 +342,6 @@ export default function AnnotatedResultList({
             }
             const mid = r.mid
             const refFn = (el) => {
-              localRefs.current[mid] = el
               if (rowRefs && mid != null) rowRefs.current[`${column}:${mid}`] = el
             }
             const explanation = explanations[r.item.id]

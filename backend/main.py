@@ -83,6 +83,7 @@ class KeywordListRequest(BaseModel):
 class ABCheckRequest(BaseModel):
     version_a: int
     version_b: int
+    cookie: str = ""
     skip_precise: bool = False
     skip_broad: bool = False
 
@@ -320,7 +321,7 @@ def compare_envs(req: CompareRequest):
 
 @app.post("/api/ab-check")
 def ab_check(req: ABCheckRequest):
-    cookie = os.getenv("KKDAY_SEARCH_COOKIE", "")
+    cookie = req.cookie or os.getenv("KKDAY_SEARCH_COOKIE", "")
     result = run_ab_check(
         version_a=req.version_a,
         version_b=req.version_b,

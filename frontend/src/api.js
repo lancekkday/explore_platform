@@ -89,11 +89,11 @@ export const explainProduct = (keyword, product) =>
     }),
   }).then(r => r.json())
 
-export const runABCheck = (version_a, version_b, skip_precise, skip_broad) =>
+export const runABCheck = (version_a, version_b, cookie, skip_precise, skip_broad) =>
   fetch(`${API_BASE}/ab-check`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ version_a, version_b, skip_precise, skip_broad }),
+    body: JSON.stringify({ version_a, version_b, cookie, skip_precise, skip_broad }),
   }).then(r => r.json())
 
 export const fetchUnifiedSearch = (keyword, cookie, count, ai_enabled, search_api, version_a, version_b) =>

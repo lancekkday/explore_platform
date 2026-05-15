@@ -106,17 +106,20 @@ export default function SettingsPanel({
               <div className="flex items-center justify-between">
                 <label className="text-[12px] font-bold text-slate-700">Search API</label>
                 <div className="flex gap-1">
-                  {['ajax', 'v3'].map(v => (
+                  {[
+                    { value: 'ajax', label: 'Web_AJAX' },
+                    { value: 'v3', label: 'Search_V3' },
+                  ].map(({ value, label }) => (
                     <button
-                      key={v}
-                      onClick={() => setSearchApi(v)}
+                      key={value}
+                      onClick={() => setSearchApi(value)}
                       className={`px-3 py-1 rounded-lg border text-[10px] font-black transition-all ${
-                        searchApi === v
+                        searchApi === value
                           ? 'bg-indigo-600 text-white border-indigo-700'
                           : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
                       }`}
                     >
-                      {v.toUpperCase()}
+                      {label}
                     </button>
                   ))}
                 </div>

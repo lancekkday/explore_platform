@@ -10,6 +10,9 @@ services:
     volumes:
       - sip_data:/app/data
       - ./handoff:/app/handoff
+      # Mount BQ baseline SQL files so backend can read them at runtime
+      # (backend's Dockerfile only COPYs ./backend/, scripts/sql/ lives at repo root)
+      - ./scripts/sql:/app/scripts/sql:ro
     ports:
       - "${BACKEND_PORT:-19426}:8000"
 

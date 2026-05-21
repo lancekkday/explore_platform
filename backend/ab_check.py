@@ -139,7 +139,7 @@ def check_ab_precise(query, mid, baseline_rank, a_rank, b_rank) -> Optional[Aler
     return None
 
 
-def _process_precise_query(row, version_a, version_b, cookie, cache=None) -> list[Alert]:
+def process_one_precise_query(row, version_a, version_b, cookie, cache=None) -> list[Alert]:
     query = row["query"]
     a_results = _fetch_results(query, version_a, cookie, cache)
     b_results = _fetch_results(query, version_b, cookie, cache)
@@ -216,7 +216,7 @@ def check_ab_broad(query, mid, baseline_rank, a_rank, b_rank) -> Optional[Alert]
     return None
 
 
-def _process_broad_query(query, group, version_a, version_b, cookie, cache=None) -> list[Alert]:
+def process_one_broad_query(query, group, version_a, version_b, cookie, cache=None) -> list[Alert]:
     """group: list of broad baseline row dicts (prod_mid, profit_rank, ...) for this query."""
     a_results = _fetch_results(query, version_a, cookie, cache)
     b_results = _fetch_results(query, version_b, cookie, cache)
@@ -248,7 +248,7 @@ def _run_precise(precise_rows, va, vb, cookie, cache=None) -> list[Alert]:
     alerts = []
     with ThreadPoolExecutor(max_workers=API_PARALLEL_WORKERS) as ex:
         futures = {
-            ex.submit(_process_precise_query, r, va, vb, cookie, cache): r["query"]
+            ex.submit(process_one_precise_query, r, va, vb, cookie, cache): r["query"]
             for r in precise_rows
         }
         for f in as_completed(futures):
@@ -264,7 +264,7 @@ def _run_broad(broad_groups, va, vb, cookie, cache=None) -> list[Alert]:
     alerts = []
     with ThreadPoolExecutor(max_workers=API_PARALLEL_WORKERS) as ex:
         futures = {
-            ex.submit(_process_broad_query, q, g, va, vb, cookie, cache): q
+            ex.submit(process_one_broad_query, q, g, va, vb, cookie, cache): q
             for q, g in broad_groups
         }
         for f in as_completed(futures):

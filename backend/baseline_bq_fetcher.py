@@ -26,9 +26,19 @@ from loguru import logger
 
 from baseline_version_manager import baseline_version_manager, HANDOFF_DATA, PRECISE_NAME, BROAD_NAME
 
-# SQL lives alongside the CLI (single source of truth)
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-SQL_DIR = _REPO_ROOT / "scripts" / "sql"
+# SQL lives alongside the CLI (single source of truth).
+# Resolve across layouts:
+#   - Local dev: backend/baseline_bq_fetcher.py → repo_root/scripts/sql
+#   - Docker: backend/* is COPYed flat into /app/, scripts/sql/ must be mounted
+#     to /app/scripts/sql via docker-compose
+_app_dir = Path(__file__).resolve().parent
+SQL_DIR = next(
+    (p for p in [
+        _app_dir.parent / "scripts" / "sql",  # local dev
+        _app_dir / "scripts" / "sql",          # Docker (mounted)
+    ] if p.is_dir()),
+    _app_dir.parent / "scripts" / "sql",       # fallback (for clearer error message)
+)
 
 PRECISE_COLS = [
     "query", "is_destination", "search_pv",

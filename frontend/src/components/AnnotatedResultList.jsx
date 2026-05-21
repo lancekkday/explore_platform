@@ -334,7 +334,9 @@ export default function AnnotatedResultList({
     }
   }
 
-  const showCrossRank = filterMode === 'diff'
+  // 只要有另一版資料就顯示 cross-rank 箭頭 (▲ 上升 / ▼ 下降);
+  // 原本只在 baseline diff filter 才顯示,被使用者反映砍掉了
+  const showCrossRank = Array.isArray(otherResults) && otherResults.length > 0
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-white border border-slate-200 rounded-md overflow-hidden">

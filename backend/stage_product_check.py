@@ -66,6 +66,10 @@ class StageProductChecker:
         self.retries = retries
         self.enabled = enabled
         self._cache: dict[int, tuple[StageStatus, float]] = {}
+        # 同個 mid 同時被多個 thread 查時,只有 owner 實際發 HTTP,
+        # 其他人等 owner 寫完 cache 再讀 (single-flight,避免 ab_check 工作池
+        # 內多個 worker 重複打 stage 同一個下架商品)
+        self._inflight: dict[int, threading.Event] = {}
         self._lock = threading.Lock()
         self._session = requests.Session()
         self._session.headers.update({
@@ -92,20 +96,26 @@ class StageProductChecker:
                 time.sleep(0.4 * (attempt + 1))
         return "check_failed"
 
+    def _own_fetch(self, mid: int) -> StageStatus:
+        """Owner side:跑 HTTP + 寫 cache + signal 等待中的 waiter。
+        前置條件:呼叫者已經在 self._inflight[mid] 放了 Event。"""
+        status: StageStatus = "check_failed"
+        try:
+            if self.enabled:
+                status = self._do_check(mid)
+        finally:
+            with self._lock:
+                self._cache[mid] = (status, time.time())  # ← 用當下時間,不是 stale 的 now
+                event = self._inflight.pop(mid, None)
+            if event is not None:
+                event.set()
+        return status
+
     def check(self, mid: Optional[int]) -> StageStatus:
         if mid is None:
             return "check_failed"
-        if not self.enabled:
-            return "check_failed"
-        now = time.time()
-        with self._lock:
-            cached = self._cache.get(mid)
-            if cached and now - cached[1] < self.ttl_sec:
-                return cached[0]
-        status = self._do_check(int(mid))
-        with self._lock:
-            self._cache[int(mid)] = (status, now)
-        return status
+        # 直接走 check_many,共用 TTL + single-flight 邏輯
+        return self.check_many([int(mid)])[int(mid)]
 
     def check_many(
         self,
@@ -114,32 +124,44 @@ class StageProductChecker:
     ) -> dict[int, StageStatus]:
         if not mids:
             return {}
-        # cache hits 先撈,僅未命中的丟去並行檢查
+        clean_mids = [int(m) for m in dict.fromkeys(mids) if m is not None]
+
         results: dict[int, StageStatus] = {}
-        to_fetch: list[int] = []
+        to_fetch: list[int] = []                                # we own
+        to_wait: list[tuple[int, threading.Event]] = []         # someone else owns
+
         now = time.time()
         with self._lock:
-            for m in mids:
-                if m is None:
-                    continue
-                m = int(m)
+            for m in clean_mids:
                 cached = self._cache.get(m)
                 if cached and now - cached[1] < self.ttl_sec:
                     results[m] = cached[0]
+                    continue
+                event = self._inflight.get(m)
+                if event is not None:
+                    to_wait.append((m, event))
                 else:
+                    self._inflight[m] = threading.Event()
                     to_fetch.append(m)
-        if not to_fetch:
-            return results
-        if not self.enabled:
-            for m in to_fetch:
-                results[m] = "check_failed"
-            return results
-        # 並行查
-        with ThreadPoolExecutor(max_workers=min(workers, len(to_fetch))) as pool:
-            for mid, status in zip(to_fetch, pool.map(self._do_check, to_fetch)):
-                results[mid] = status
+
+        # Fetch our owned mids (並行;只 1 個就不開 pool 省 overhead)
+        if to_fetch:
+            if len(to_fetch) == 1:
+                results[to_fetch[0]] = self._own_fetch(to_fetch[0])
+            else:
+                with ThreadPoolExecutor(max_workers=min(workers, len(to_fetch))) as pool:
+                    for mid, status in zip(to_fetch, pool.map(self._own_fetch, to_fetch)):
+                        results[mid] = status
+
+        # Wait for in-flight mids owned by other callers (bounded timeout 防卡死)
+        if to_wait:
+            bounded_timeout = self.timeout * (self.retries + 1) + 5.0
+            for m, ev in to_wait:
+                ev.wait(timeout=bounded_timeout)
                 with self._lock:
-                    self._cache[mid] = (status, time.time())
+                    cached = self._cache.get(m)
+                results[m] = cached[0] if cached else "check_failed"
+
         return results
 
     def cache_size(self) -> int:

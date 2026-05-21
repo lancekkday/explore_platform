@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { IconPlay } from './icons/Icons'
+import { useNavigate } from 'react-router-dom'
+import { IconPlay } from '../components/icons/Icons'
+import { useAppContext } from '../context/AppContext'
 
 const SEVERITY_STYLE = {
   P0: { cls: 'bg-rose-100 text-rose-700 border-rose-200', label: 'P0' },
@@ -57,10 +59,11 @@ function PreciseTable({ rows, totalCount, onJump, onShowDetail }) {
           <LegendLine>
             <strong className="text-slate-600">Top1/Top2</strong>：該 baseline 守門商品在 A/B 的位置（<span className="text-emerald-600">✓</span> 正常 ·
             <span className="ml-1">A#N 偏低</span>：在 A 排得太後面 ·
-            <span className="ml-1 text-rose-600">A→B 消失</span>：B 完全找不到） ·
+            <span className="ml-1 text-rose-600">B 商品下架</span>：stage 確認 404 ·
+            <span className="ml-1 text-orange-600">B 排名 &gt;300</span>：stage 仍存在但排到 300 名外） ·
             <strong className="ml-2 text-slate-600">嚴重</strong>：該 query 最高 severity（點擊看明細） · 點 row 跳主列表
           </LegendLine>
-          <div className="max-h-64 overflow-y-auto">
+          <div className="max-h-[40vh] overflow-y-auto">
             {rows.length === 0 ? (
               <div className="py-6 text-center text-emerald-600 text-[11px]">所有精準詞 baseline 均正常 🎉</div>
             ) : (
@@ -117,11 +120,13 @@ function BroadTable({ rows, totalCount, onJump, onShowDetail }) {
       {!collapsed && (
         <>
           <LegendLine>
-            <strong className="text-slate-600">異常</strong>：該 query 產生的 alert 總筆數（一個 baseline 商品可能貢獻 1~2 筆） ·
-            <strong className="ml-1 text-slate-600">消失</strong>：其中 B 版完全找不到該商品（a_rank 有、b_rank 為空）的筆數 ·
-            <strong className="ml-1 text-slate-600">嚴重</strong>：最高 severity（點擊看明細） · 點 row 跳主列表
+            <strong className="text-slate-600">異常</strong>：該 query 的 alert 總筆數 ·
+            <strong className="ml-1 text-rose-600">下架</strong>：B 找不到且 stage 已 404 ·
+            <strong className="ml-1 text-orange-600">偏離</strong>：B 找不到但 stage 仍存在 (排名 &gt; 300) ·
+            <strong className="ml-1 text-slate-600">嚴重</strong>：最高 severity ·
+            點 row 跳主列表
           </LegendLine>
-          <div className="max-h-64 overflow-y-auto">
+          <div className="max-h-[40vh] overflow-y-auto">
             {rows.length === 0 ? (
               <div className="py-6 text-center text-emerald-600 text-[11px]">所有泛詞 baseline 均正常 🎉</div>
             ) : (
@@ -129,8 +134,9 @@ function BroadTable({ rows, totalCount, onJump, onShowDetail }) {
                 <thead>
                   <tr className="bg-slate-50/60 sticky top-0 border-b border-slate-200 text-slate-500 text-[10px] uppercase tracking-wider">
                     <th className="px-3 py-1.5 font-medium">query</th>
-                    <th className="px-3 py-1.5 font-medium w-[60px]">異常</th>
-                    <th className="px-3 py-1.5 font-medium w-[60px]">消失</th>
+                    <th className="px-3 py-1.5 font-medium w-[55px]">異常</th>
+                    <th className="px-3 py-1.5 font-medium w-[55px]" title="商品已下架 (stage 404)">下架</th>
+                    <th className="px-3 py-1.5 font-medium w-[55px]" title="排名 >300,stage 仍存在">偏離</th>
                     <th className="px-3 py-1.5 font-medium w-[60px] text-right">嚴重</th>
                   </tr>
                 </thead>
@@ -143,7 +149,8 @@ function BroadTable({ rows, totalCount, onJump, onShowDetail }) {
                     >
                       <td className="px-3 py-1.5 font-medium text-slate-800">{r.query}</td>
                       <td className="px-3 py-1.5 tabular-nums text-slate-700">{r.anomalies}</td>
-                      <td className="px-3 py-1.5 tabular-nums text-rose-600">{r.missingCount || ''}</td>
+                      <td className="px-3 py-1.5 tabular-nums text-rose-600">{r.removedCount || ''}</td>
+                      <td className="px-3 py-1.5 tabular-nums text-orange-600">{r.outOfWindowCount || ''}</td>
                       <td className="px-3 py-1.5 text-right">
                         <SevChip
                           severity={r.worstSeverity}
@@ -237,30 +244,31 @@ function AlertDetailModal({ detail, onClose }) {
   )
 }
 
-export default function BatchPanel({
-  showBatch, setShowBatch,
-  versionA, versionB,
-  baselineReport,
-  baselineRunning,
-  baselineCounts,
-  onRun,
-  onJumpToKeyword,
-  error,
-}) {
+export default function BatchPage() {
+  const {
+    versionA, versionB,
+    baselineCounts,
+    baselineReport, baselineRunning, baselineError,
+    runBaselineCheck,
+  } = useAppContext()
+  const navigate = useNavigate()
+  const [detail, setDetail] = useState(null)
+
   const totalPrecise = baselineCounts?.precise ?? 0
   const totalBroad = baselineCounts?.broad ?? 0
   const summary = baselineReport?.summary
-  const [detail, setDetail] = useState(null)
+
+  const onJumpToKeyword = (kw) => {
+    if (!kw) return
+    navigate(`/?keyword=${encodeURIComponent(kw)}&filter=diff`)
+  }
 
   return (
-    <div className="shrink-0 border-t border-slate-200">
-      {/* Toggle header */}
-      <button
-        onClick={() => setShowBatch(!showBatch)}
-        className="w-full px-6 py-2 bg-white hover:bg-slate-50 flex items-center justify-between transition-colors"
-      >
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Page header bar */}
+      <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <span className="text-[11px] font-bold text-slate-800 uppercase tracking-[3px]">
+          <span className="text-[12px] font-bold text-slate-800 uppercase tracking-[3px]">
             批次 baseline 巡檢
           </span>
           {baselineRunning && (
@@ -277,72 +285,71 @@ export default function BatchPanel({
             </span>
           )}
         </div>
-        <span className={`text-slate-400 transition-transform ${showBatch ? 'rotate-180' : ''}`}>▼</span>
-      </button>
-
-      {showBatch && (
-        <div className="bg-slate-50 border-t border-slate-100 px-4 py-3 max-h-[60vh] overflow-y-auto custom-scroll">
-          {/* Control row */}
-          <div className="flex items-center gap-3 mb-3">
-            <div className="text-[11px] text-slate-600 inline-flex items-center gap-2">
-              <span>A test_exp</span>
-              <span className="inline-block px-2 py-0.5 rounded border border-slate-300 bg-white font-mono tabular-nums text-slate-800">{versionA}</span>
-              <span className="text-slate-400">vs</span>
-              <span>B test_exp</span>
-              <span className="inline-block px-2 py-0.5 rounded border border-slate-300 bg-white font-mono tabular-nums text-slate-800">{versionB}</span>
-            </div>
-            <button
-              onClick={onRun}
-              disabled={baselineRunning}
-              className={`ml-auto px-4 py-1.5 rounded-md text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors ${
-                baselineRunning
-                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                  : 'bg-slate-900 text-white hover:bg-black'
-              }`}
-            >
-              <IconPlay />
-              {baselineRunning ? '巡檢中…' : (summary ? '重新巡檢' : '啟動')}
-            </button>
+        <div className="flex items-center gap-3">
+          <div className="text-[11px] text-slate-600 inline-flex items-center gap-2">
+            <span>A test_exp</span>
+            <span className="inline-block px-2 py-0.5 rounded border border-slate-300 bg-white font-mono tabular-nums text-slate-800">{versionA}</span>
+            <span className="text-slate-400">vs</span>
+            <span>B test_exp</span>
+            <span className="inline-block px-2 py-0.5 rounded border border-slate-300 bg-white font-mono tabular-nums text-slate-800">{versionB}</span>
           </div>
-
-          {error && (
-            <div className="mb-3 px-3 py-2 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-700">
-              {error}
-            </div>
-          )}
-
-          {baselineRunning && !summary && (
-            <div className="flex flex-col items-center gap-2 py-12">
-              <div className="w-7 h-7 border-[3px] border-slate-200 border-t-indigo-600 rounded-full animate-spin" />
-              <div className="text-[11px] text-slate-500">巡檢中… 預計 3~5 分鐘</div>
-              <div className="text-[10px] text-slate-400">將執行 {totalPrecise + totalBroad} 個關鍵字 × A/B 兩版本</div>
-            </div>
-          )}
-
-          {baselineReport && (
-            <>
-              <PreciseTable
-                rows={baselineReport.precise}
-                totalCount={totalPrecise}
-                onJump={onJumpToKeyword}
-                onShowDetail={setDetail}
-              />
-              <BroadTable
-                rows={baselineReport.broad}
-                totalCount={totalBroad}
-                onJump={onJumpToKeyword}
-                onShowDetail={setDetail}
-              />
-            </>
-          )}
-
-          {!baselineRunning && !baselineReport && !error && (
-            <div className="py-10 text-center text-[11px] text-slate-400">
-              點「啟動」開始巡檢全部 baseline 守門關鍵字
-            </div>
-          )}
+          <button
+            onClick={runBaselineCheck}
+            disabled={baselineRunning}
+            className={`px-4 py-1.5 rounded-md text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors ${
+              baselineRunning
+                ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                : 'bg-slate-900 text-white hover:bg-black'
+            }`}
+          >
+            <IconPlay />
+            {baselineRunning ? '巡檢中…' : (summary ? '重新巡檢' : '啟動')}
+          </button>
         </div>
-      )}
+      </div>
+
+      {/* Content area */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 bg-slate-50 custom-scroll">
+        {baselineError && (
+          <div className="mb-3 px-3 py-2 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-700">
+            {baselineError}
+          </div>
+        )}
+
+        {baselineRunning && !summary && (
+          <div className="flex flex-col items-center gap-2 py-16">
+            <div className="w-7 h-7 border-[3px] border-slate-200 border-t-indigo-600 rounded-full animate-spin" />
+            <div className="text-[11px] text-slate-500">巡檢中… 預計 3~5 分鐘</div>
+            <div className="text-[10px] text-slate-400">將執行 {totalPrecise + totalBroad} 個關鍵字 × A/B 兩版本</div>
+            <div className="text-[10px] text-slate-400 mt-2">可切到「巡檢」頁繼續操作,跑完會推 toast 通知</div>
+          </div>
+        )}
+
+        {baselineReport && (
+          <>
+            <PreciseTable
+              rows={baselineReport.precise}
+              totalCount={totalPrecise}
+              onJump={onJumpToKeyword}
+              onShowDetail={setDetail}
+            />
+            <BroadTable
+              rows={baselineReport.broad}
+              totalCount={totalBroad}
+              onJump={onJumpToKeyword}
+              onShowDetail={setDetail}
+            />
+          </>
+        )}
+
+        {!baselineRunning && !baselineReport && !baselineError && (
+          <div className="py-16 text-center text-[12px] text-slate-400">
+            <div className="text-slate-300 text-[36px] mb-3">📊</div>
+            <div>點上方「啟動」開始巡檢全部 baseline 守門關鍵字</div>
+            <div className="text-[10px] mt-2">產出 alert 報表,點任一 query 可跳「巡檢」頁帶該 keyword 搜尋</div>
+          </div>
+        )}
+      </div>
 
       <AlertDetailModal detail={detail} onClose={() => setDetail(null)} />
     </div>

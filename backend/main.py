@@ -22,6 +22,7 @@ from skills.synonym_service import synonym_service
 from ab_check import run_ab_check, find_rank as ab_find_rank
 from baseline_service import baseline_service, BASELINE_DROP_MULTIPLIER
 from baseline_version_manager import baseline_version_manager
+import baseline_scheduler
 
 import sys as _sys
 from pathlib import Path as _Path
@@ -243,6 +244,7 @@ def _reload_scheduler_jobs():
 def startup_event():
     scheduler.start()
     _reload_scheduler_jobs()
+    baseline_scheduler.register_job(scheduler)
 
 
 @app.on_event("shutdown")
@@ -345,54 +347,29 @@ def get_baseline_keywords():
 
 @app.post("/api/baseline/upload")
 async def upload_baseline(file: UploadFile = File(...), type: Optional[str] = Form(None)):
-    """Upload a baseline CSV or HTML report. CSV requires type=precise|broad."""
+    """Upload a baseline CSV (Plan B for when BQ fetch is unavailable).
+    HTML upload deprecated — use BQ fetch or manually-exported CSV instead."""
     content = await file.read()
     filename = file.filename or ""
+
+    if not filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="只支援 .csv 檔案（HTML 上傳已停用，請改用 BQ 自動 fetch 或手動匯出 CSV）")
+
+    if type not in ("precise", "broad"):
+        raise HTTPException(status_code=400, detail="CSV 上傳需指定 type=precise 或 type=broad")
+
     text = content.decode("utf-8")
+    first_line = text.split("\n", 1)[0].lower()
+    if type == "precise" and not all(k in first_line for k in ("query", "top1_prod_mid", "top2_prod_mid")):
+        raise HTTPException(status_code=400, detail="精準詞 CSV header 必須包含 query, top1_prod_mid, top2_prod_mid")
+    if type == "broad" and not all(k in first_line for k in ("query", "prod_mid", "profit_rank")):
+        raise HTTPException(status_code=400, detail="泛詞 CSV header 必須包含 query, prod_mid, profit_rank")
 
-    is_html = filename.lower().endswith(".html") or filename.lower().endswith(".htm")
-
-    if is_html:
-        # Parse HTML report into two CSVs
-        import tempfile
-        from pathlib import Path as P
-        from parse_html import parse_report
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".html", mode="w", encoding="utf-8", delete=False) as tmp:
-                tmp.write(text)
-                tmp_path = tmp.name
-            pdf, bdf = parse_report(P(tmp_path))
-            precise_csv = pdf.to_csv(index=False)
-            broad_csv = bdf.to_csv(index=False)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"HTML 解析失敗: {str(e)}")
-        finally:
-            if tmp_path:
-                P(tmp_path).unlink(missing_ok=True)
-
-        meta = baseline_version_manager.create_version(precise_csv, broad_csv, source_filename=filename)
-        baseline_service.reload()
-        return {"success": True, "mode": "html", "version": meta}
-
-    elif filename.lower().endswith(".csv"):
-        if type not in ("precise", "broad"):
-            raise HTTPException(status_code=400, detail="CSV 上傳需指定 type=precise 或 type=broad")
-        # Validate CSV header
-        first_line = text.split("\n", 1)[0].lower()
-        if type == "precise" and not all(k in first_line for k in ("query", "top1_prod_mid", "top2_prod_mid")):
-            raise HTTPException(status_code=400, detail="精準詞 CSV header 必須包含 query, top1_prod_mid, top2_prod_mid")
-        if type == "broad" and not all(k in first_line for k in ("query", "prod_mid", "profit_rank")):
-            raise HTTPException(status_code=400, detail="泛詞 CSV header 必須包含 query, prod_mid, profit_rank")
-
-        precise_csv = text if type == "precise" else None
-        broad_csv = text if type == "broad" else None
-        meta = baseline_version_manager.create_version(precise_csv, broad_csv, source_filename=filename)
-        baseline_service.reload()
-        return {"success": True, "mode": "csv", "type": type, "version": meta}
-
-    else:
-        raise HTTPException(status_code=400, detail="只支援 .csv 或 .html 檔案")
+    precise_csv = text if type == "precise" else None
+    broad_csv = text if type == "broad" else None
+    meta = baseline_version_manager.create_version(precise_csv, broad_csv, source_filename=filename)
+    baseline_service.reload()
+    return {"success": True, "mode": "csv", "type": type, "version": meta}
 
 
 @app.get("/api/baseline/versions")
@@ -428,6 +405,47 @@ def reload_baseline():
     baseline_service.reload()
     kws = baseline_service.get_all_keywords()
     return {"success": True, "total_keywords": len(kws)}
+
+
+@app.post("/api/baseline/refresh-from-bq")
+def refresh_baseline_from_bq():
+    """Manually trigger BQ fetch + activate, bypassing the daily cron."""
+    last_run = baseline_scheduler.run_now()
+    if last_run.get("success"):
+        baseline_service.reload()
+    return {"success": last_run["success"], "last_run": last_run}
+
+
+@app.get("/api/baseline/source-status")
+def baseline_source_status():
+    """Last fetch outcome (for UI banner) + active version meta."""
+    cfg = baseline_scheduler.get_config()
+    active = baseline_version_manager.get_active_version()
+    return {
+        "success": True,
+        "cron": {"enabled": cfg["enabled"], "hour": cfg["hour"], "minute": cfg["minute"]},
+        "last_run": cfg.get("last_run"),
+        "active_version": active,
+    }
+
+
+class CronScheduleRequest(BaseModel):
+    hour: int
+    minute: int
+    enabled: bool = True
+
+@app.get("/api/baseline/cron-schedule")
+def get_baseline_cron_schedule():
+    cfg = baseline_scheduler.get_config()
+    return {"success": True, "schedule": {k: cfg[k] for k in ("enabled", "hour", "minute")}}
+
+@app.patch("/api/baseline/cron-schedule")
+def patch_baseline_cron_schedule(req: CronScheduleRequest):
+    try:
+        cfg = baseline_scheduler.update_schedule(scheduler, req.hour, req.minute, req.enabled)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"success": True, "schedule": {k: cfg[k] for k in ("enabled", "hour", "minute")}}
 
 
 def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp):

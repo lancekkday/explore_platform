@@ -125,3 +125,19 @@ export const rollbackBaseline = (timestamp) =>
 
 export const archiveBaselineVersion = (timestamp) =>
   fetch(`${API_BASE}/baseline/versions/${timestamp}`, { method: 'DELETE' }).then(r => r.json())
+
+export const refreshBaselineFromBQ = () =>
+  fetch(`${API_BASE}/baseline/refresh-from-bq`, { method: 'POST' }).then(r => r.json())
+
+export const fetchBaselineSourceStatus = () =>
+  fetch(`${API_BASE}/baseline/source-status`).then(r => r.json())
+
+export const fetchBaselineCronSchedule = () =>
+  fetch(`${API_BASE}/baseline/cron-schedule`).then(r => r.json())
+
+export const updateBaselineCronSchedule = (hour, minute, enabled = true) =>
+  fetch(`${API_BASE}/baseline/cron-schedule`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hour, minute, enabled }),
+  }).then(r => r.json())

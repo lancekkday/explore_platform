@@ -126,7 +126,7 @@ function ResultRow({
   return (
     <div
       ref={rowRef}
-      className={`group relative flex flex-col px-2.5 py-1.5 border-b border-slate-100 transition-colors ${
+      className={`group relative flex flex-col justify-center px-2.5 py-1 h-[42px] border-b border-slate-100 transition-colors ${
         highlight ? 'bg-amber-100' : 'hover:bg-slate-50'
       }`}
     >
@@ -169,8 +169,7 @@ function ResultRow({
         )}
       </div>
       {/* metadata (left) + mismatch reasons (right) in one row */}
-      {/* min-h reserves consistent height so hover actions never crowd the TierBadge */}
-      <div className="ml-[28px] mt-0.5 flex items-center gap-2 text-[9px] text-slate-500 leading-none min-h-[20px]">
+      <div className="ml-[28px] mt-0.5 flex items-center gap-2 text-[9px] text-slate-500 leading-none">
         <span className="inline-flex items-center gap-0.5">
           <IconTag />
           <span className="uppercase tracking-wider">{safeString(item.main_cat_key) || 'UNIDENTIFIED'}</span>
@@ -188,33 +187,34 @@ function ResultRow({
         )}
         {item.mismatch_reasons?.length > 0 && (
           <span
-            className="ml-auto mr-[72px] inline-flex items-center gap-1 px-1.5 py-0.5 bg-rose-50 border border-rose-100 rounded italic text-rose-600/90 max-w-[420px]"
+            className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] bg-rose-50 border border-rose-100 rounded italic text-rose-600/90 max-w-[420px]"
             title={item.mismatch_reasons.join(' | ')}
           >
             <span className="w-1 h-1 bg-rose-400 rounded-full shrink-0" />
             <span className="truncate">{item.mismatch_reasons.join(' | ')}</span>
           </span>
         )}
-      </div>
-      {/* Hover actions — anchored to bottom-right (under TierBadge), fades in on row hover. */}
-      <div className="absolute right-2 bottom-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto">
-        <button
-          onClick={() => onExplain?.(item)}
-          className={`px-1.5 py-px rounded text-[10px] font-medium transition-colors ${
-            explanation
-              ? 'bg-indigo-600 text-white'
-              : 'bg-white text-indigo-600 border border-indigo-200 hover:bg-indigo-50'
-          }`}
-          title={`AI 解釋（關鍵字：${keyword}）`}
-        >
-          {explanation === 'loading' ? '…' : 'AI'}
-        </button>
-        <button
-          onClick={() => onCalibrate?.(item)}
-          className="px-1.5 py-px rounded text-[10px] font-medium bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
-        >
-          校正
-        </button>
+        {/* Hover actions — sits inline in meta row so baselines align with mismatch chip;
+            always takes space (invisible until hover) to avoid layout jump. */}
+        <div className={`${item.mismatch_reasons?.length > 0 ? '' : 'ml-auto'} flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto`}>
+          <button
+            onClick={() => onExplain?.(item)}
+            className={`inline-flex items-center px-1.5 py-0.5 text-[9px] font-medium rounded border leading-none transition-colors ${
+              explanation
+                ? 'bg-indigo-600 text-white border-indigo-700'
+                : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'
+            }`}
+            title={`AI 解釋（關鍵字：${keyword}）`}
+          >
+            {explanation === 'loading' ? '…' : 'AI'}
+          </button>
+          <button
+            onClick={() => onCalibrate?.(item)}
+            className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-medium rounded border leading-none bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+          >
+            校正
+          </button>
+        </div>
       </div>
       {/* AI explanation (when active) */}
       {explanation && explanation !== 'loading' && explanation !== 'error' && (

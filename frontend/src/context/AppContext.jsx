@@ -78,7 +78,7 @@ export function AppContextProvider({ children }) {
       const [kwRes, schedRes] = await Promise.all([fetchKeywords(), fetchSchedules()])
       if (kwRes?.keywords) setAuditKeywords(kwRes.keywords)
       if (Array.isArray(schedRes)) setSchedules(schedRes)
-    } catch { /* silent */ }
+    } catch (e) { console.error('Failed to fetch audit data:', e) }
   }
 
   async function runBaselineCheck() {

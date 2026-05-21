@@ -406,28 +406,6 @@ export default function SettingsPanel({
             </div>
           </section>
 
-          {/* Batch Settings */}
-          <section>
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[3px] mb-3">批次設定</h3>
-            <div className="space-y-2">
-              <button
-                onClick={() => { onClose(); onOpenKeywordEditor() }}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-[11px] font-black text-slate-700 hover:border-slate-400 transition-all text-left"
-              >
-                任務配置（關鍵字管理）
-              </button>
-              <button
-                onClick={() => { onClose(); onOpenScheduleModal() }}
-                className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-black transition-all text-left ${
-                  schedules?.some(s => s.enabled)
-                    ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                    : 'border-slate-200 text-slate-700 hover:border-slate-400'
-                }`}
-              >
-                排程設定 {schedules?.filter(s => s.enabled).length > 0 && `(${schedules.filter(s => s.enabled).length} 個啟用中)`}
-              </button>
-            </div>
-          </section>
         </div>
       </div>
     </div>

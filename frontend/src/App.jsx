@@ -416,6 +416,7 @@ export default function App() {
                 focusIds={focusIds}
                 baselineMap={baselineMap}
                 otherResults={versionBData?.results}
+                baselineAlerts={versionAData?.baseline_alerts}
                 onCalibrate={handleCalibrate}
                 keyword={keyword}
                 rowRefs={rowRefs}
@@ -436,6 +437,7 @@ export default function App() {
                   focusIds={focusIds}
                   baselineMap={baselineMap}
                   otherResults={versionAData?.results}
+                  baselineAlerts={versionBData?.baseline_alerts}
                   onCalibrate={handleCalibrate}
                   keyword={keyword}
                   rowRefs={rowRefs}

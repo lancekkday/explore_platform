@@ -271,6 +271,13 @@ AI parsing is optional and falls back gracefully if the key is missing or the ca
 - **No TypeScript** — frontend is plain JavaScript/JSX
 - **No DB migration system** — SQLite schema is created inline in `batch_engine.py` on startup
 - **Product links point to stage** — `https://www.stage.kkday.com/zh-tw/product/{prod_mid}` since API uses stage environment
+- **Baseline alert status 5 級** — `baseline_service.find_baseline_alerts()` 不再把「沒出現在前 300 結果」一律當 `missing`,改成:
+  - `present` — 在前 300 內且在 `expected_rank × BASELINE_DROP_MULTIPLIER` 內
+  - `rank_drop` — 在前 300 內但偏離 baseline (原 `dropped` 改名)
+  - `out_of_window` — 不在前 300,但 stage HEAD 確認商品還存在 (僅是排到 300 名外)
+  - `removed` — 不在前 300,且 stage HEAD 回 404 (商品確實下架)
+  - `check_failed` — 不在前 300,且 stage 檢查 timeout/5xx (UI 顯示「未確認」)
+  Stage 檢查走 `stage_product_check.py` 的 module-level singleton (執行緒安全 + TTL cache,預設 600s)。同個 prod_mid 跨 request 共享快取;`/api/ab-check` 與 `/api/unified-search` 共用。可用 `STAGE_CHECK_ENABLED=false` 關掉,所有原 missing 商品會 fallback 成 check_failed。
 
 ## Known Limitations & Gotchas
 

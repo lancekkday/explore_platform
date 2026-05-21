@@ -57,7 +57,8 @@ function PreciseTable({ rows, totalCount, onJump, onShowDetail }) {
           <LegendLine>
             <strong className="text-slate-600">Top1/Top2</strong>：該 baseline 守門商品在 A/B 的位置（<span className="text-emerald-600">✓</span> 正常 ·
             <span className="ml-1">A#N 偏低</span>：在 A 排得太後面 ·
-            <span className="ml-1 text-rose-600">A→B 消失</span>：B 完全找不到） ·
+            <span className="ml-1 text-rose-600">B 商品下架</span>：stage 確認 404 ·
+            <span className="ml-1 text-orange-600">B 排名 &gt;300</span>：stage 仍存在但排到 300 名外） ·
             <strong className="ml-2 text-slate-600">嚴重</strong>：該 query 最高 severity（點擊看明細） · 點 row 跳主列表
           </LegendLine>
           <div className="max-h-64 overflow-y-auto">
@@ -117,9 +118,11 @@ function BroadTable({ rows, totalCount, onJump, onShowDetail }) {
       {!collapsed && (
         <>
           <LegendLine>
-            <strong className="text-slate-600">異常</strong>：該 query 產生的 alert 總筆數（一個 baseline 商品可能貢獻 1~2 筆） ·
-            <strong className="ml-1 text-slate-600">消失</strong>：其中 B 版完全找不到該商品（a_rank 有、b_rank 為空）的筆數 ·
-            <strong className="ml-1 text-slate-600">嚴重</strong>：最高 severity（點擊看明細） · 點 row 跳主列表
+            <strong className="text-slate-600">異常</strong>：該 query 的 alert 總筆數 ·
+            <strong className="ml-1 text-rose-600">下架</strong>：B 找不到且 stage 已 404 ·
+            <strong className="ml-1 text-orange-600">偏離</strong>：B 找不到但 stage 仍存在 (排名 &gt; 300) ·
+            <strong className="ml-1 text-slate-600">嚴重</strong>：最高 severity ·
+            點 row 跳主列表
           </LegendLine>
           <div className="max-h-64 overflow-y-auto">
             {rows.length === 0 ? (
@@ -129,8 +132,9 @@ function BroadTable({ rows, totalCount, onJump, onShowDetail }) {
                 <thead>
                   <tr className="bg-slate-50/60 sticky top-0 border-b border-slate-200 text-slate-500 text-[10px] uppercase tracking-wider">
                     <th className="px-3 py-1.5 font-medium">query</th>
-                    <th className="px-3 py-1.5 font-medium w-[60px]">異常</th>
-                    <th className="px-3 py-1.5 font-medium w-[60px]">消失</th>
+                    <th className="px-3 py-1.5 font-medium w-[55px]">異常</th>
+                    <th className="px-3 py-1.5 font-medium w-[55px]" title="商品已下架 (stage 404)">下架</th>
+                    <th className="px-3 py-1.5 font-medium w-[55px]" title="排名 >300,stage 仍存在">偏離</th>
                     <th className="px-3 py-1.5 font-medium w-[60px] text-right">嚴重</th>
                   </tr>
                 </thead>
@@ -143,7 +147,8 @@ function BroadTable({ rows, totalCount, onJump, onShowDetail }) {
                     >
                       <td className="px-3 py-1.5 font-medium text-slate-800">{r.query}</td>
                       <td className="px-3 py-1.5 tabular-nums text-slate-700">{r.anomalies}</td>
-                      <td className="px-3 py-1.5 tabular-nums text-rose-600">{r.missingCount || ''}</td>
+                      <td className="px-3 py-1.5 tabular-nums text-rose-600">{r.removedCount || ''}</td>
+                      <td className="px-3 py-1.5 tabular-nums text-orange-600">{r.outOfWindowCount || ''}</td>
                       <td className="px-3 py-1.5 text-right">
                         <SevChip
                           severity={r.worstSeverity}

@@ -493,6 +493,7 @@ def _compute_ab_comparison(keyword, a_results, b_results):
                     "delta": (b_rank - a_rank) if (a_rank and b_rank) else None,
                     "baseline_tag": f"precise_top{rank_n}",
                     "severity": alert.severity if alert else "OK",
+                    "stage_status": alert.stage_status if alert else None,
                 })
 
     # Check broad baseline
@@ -515,6 +516,7 @@ def _compute_ab_comparison(keyword, a_results, b_results):
                 "delta": (b_rank - a_rank) if (a_rank and b_rank) else None,
                 "baseline_tag": f"broad_rank_{bl_rank}",
                 "severity": alert.severity if alert else "OK",
+                "stage_status": alert.stage_status if alert else None,
             })
 
     sev_counts = {"P0": 0, "P1": 0, "P2": 0, "INFO": 0}

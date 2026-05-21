@@ -17,12 +17,15 @@ function bucket(aAlerts, bAlerts, abComparison) {
   for (const x of bAlerts || []) bByMid.set(x.prod_mid, x)
 
   const buckets = {
-    both_missing: [],
-    b_missing: [],
-    a_missing: [],
-    ab_changed: [],
-    a_dropped: [],
-    b_dropped: [],
+    both_removed: [],        // A,B 雙下架
+    b_removed: [],           // B 商品下架
+    a_removed: [],           // A 商品下架
+    b_out_of_window: [],     // B 排名 >300
+    a_out_of_window: [],     // A 排名 >300
+    check_failed: [],        // stage 查詢失敗
+    ab_changed: [],          // AB 變動 >5
+    a_rank_drop: [],         // A 在 300 內但偏離 baseline
+    b_rank_drop: [],         // B 在 300 內但偏離 baseline
   }
 
   const assigned = new Set()  // prod_mid already placed
@@ -31,6 +34,9 @@ function bucket(aAlerts, bAlerts, abComparison) {
     ...(bAlerts || []).map(x => x.prod_mid),
     ...((abComparison?.rank_changes) || []).map(x => x.prod_mid),
   ])
+
+  // 「不在前 300 內」的所有 status (從前一句改名,涵蓋 removed / out_of_window / check_failed)
+  const isAbsent = (s) => s === 'removed' || s === 'out_of_window' || s === 'check_failed' || s === 'missing'
 
   for (const mid of allMids) {
     const a = aByMid.get(mid)
@@ -47,19 +53,40 @@ function bucket(aAlerts, bAlerts, abComparison) {
       baseline_label: baselineLabel(tag),
     }
 
-    // Priority: both missing > B missing > A missing > AB changed > A dropped > B dropped
-    if (aStatus === 'missing' && bStatus === 'missing') {
-      buckets.both_missing.push({ ...entry, hint: 'A,B' })
+    // Priority:
+    //   both removed > B/A removed > out_of_window > check_failed > AB changed > rank_drop
+    if (aStatus === 'removed' && bStatus === 'removed') {
+      buckets.both_removed.push({ ...entry, hint: 'A,B' })
       assigned.add(mid)
       continue
     }
-    if (bStatus === 'missing' && aStatus !== 'missing') {
-      buckets.b_missing.push(entry)
+    if (bStatus === 'removed' && aStatus !== 'removed') {
+      buckets.b_removed.push(entry)
       assigned.add(mid)
       continue
     }
-    if (aStatus === 'missing' && bStatus !== 'missing') {
-      buckets.a_missing.push(entry)
+    if (aStatus === 'removed' && bStatus !== 'removed') {
+      buckets.a_removed.push(entry)
+      assigned.add(mid)
+      continue
+    }
+    if (bStatus === 'out_of_window' && !isAbsent(aStatus)) {
+      buckets.b_out_of_window.push(entry)
+      assigned.add(mid)
+      continue
+    }
+    if (aStatus === 'out_of_window' && !isAbsent(bStatus)) {
+      buckets.a_out_of_window.push(entry)
+      assigned.add(mid)
+      continue
+    }
+    if (aStatus === 'out_of_window' && bStatus === 'out_of_window') {
+      buckets.b_out_of_window.push({ ...entry, hint: 'A,B' })
+      assigned.add(mid)
+      continue
+    }
+    if (aStatus === 'check_failed' || bStatus === 'check_failed') {
+      buckets.check_failed.push({ ...entry, hint: aStatus === 'check_failed' && bStatus === 'check_failed' ? 'A,B' : (aStatus === 'check_failed' ? 'A' : 'B') })
       assigned.add(mid)
       continue
     }
@@ -83,11 +110,11 @@ function bucket(aAlerts, bAlerts, abComparison) {
     assigned.add(rc.prod_mid)
   }
 
-  // A dropped (not in any missing/changed)
+  // A rank_drop (在前 300 內但偏離 baseline)
   for (const a of aAlerts || []) {
     if (assigned.has(a.prod_mid)) continue
-    if (a.status !== 'dropped') continue
-    buckets.a_dropped.push({
+    if (a.status !== 'rank_drop') continue
+    buckets.a_rank_drop.push({
       prod_mid: a.prod_mid,
       prod_nm: a.prod_nm,
       baseline_tag: a.baseline_tag,
@@ -98,11 +125,11 @@ function bucket(aAlerts, bAlerts, abComparison) {
     assigned.add(a.prod_mid)
   }
 
-  // B dropped (not in any other bucket)
+  // B rank_drop
   for (const b of bAlerts || []) {
     if (assigned.has(b.prod_mid)) continue
-    if (b.status !== 'dropped') continue
-    buckets.b_dropped.push({
+    if (b.status !== 'rank_drop') continue
+    buckets.b_rank_drop.push({
       prod_mid: b.prod_mid,
       prod_nm: b.prod_nm,
       baseline_tag: b.baseline_tag,
@@ -113,13 +140,7 @@ function bucket(aAlerts, bAlerts, abComparison) {
     assigned.add(b.prod_mid)
   }
 
-  const total =
-    buckets.both_missing.length +
-    buckets.b_missing.length +
-    buckets.a_missing.length +
-    buckets.ab_changed.length +
-    buckets.a_dropped.length +
-    buckets.b_dropped.length
+  const total = Object.values(buckets).reduce((acc, arr) => acc + arr.length, 0)
 
   return { buckets, total }
 }
@@ -193,12 +214,15 @@ export default function BaselineAlertBar({ aAlerts, bAlerts, abComparison, basel
         <span className="text-[12px] leading-none">⚠</span>
         <span className="font-semibold">Baseline 異常 {total} 筆</span>
       </div>
-      <CategoryRow label="A、B 雙消失" items={buckets.both_missing} onChipClick={onChipClick} />
-      <CategoryRow label="B 消失" items={buckets.b_missing} onChipClick={onChipClick} />
-      <CategoryRow label="A 消失" items={buckets.a_missing} onChipClick={onChipClick} />
-      <CategoryRow label="A vs B 變動 > 5" items={buckets.ab_changed} onChipClick={onChipClick} />
-      <CategoryRow label="A 排名偏離 baseline" items={buckets.a_dropped} onChipClick={onChipClick} />
-      <CategoryRow label="B 排名偏離 baseline" items={buckets.b_dropped} onChipClick={onChipClick} />
+      <CategoryRow label="🔴 A、B 雙下架" items={buckets.both_removed} onChipClick={onChipClick} />
+      <CategoryRow label="🔴 B 商品下架" items={buckets.b_removed} onChipClick={onChipClick} />
+      <CategoryRow label="🔴 A 商品下架" items={buckets.a_removed} onChipClick={onChipClick} />
+      <CategoryRow label="🟠 B 排名偏離 (>300)" items={buckets.b_out_of_window} onChipClick={onChipClick} />
+      <CategoryRow label="🟠 A 排名偏離 (>300)" items={buckets.a_out_of_window} onChipClick={onChipClick} />
+      <CategoryRow label="⚪ Stage 未確認" items={buckets.check_failed} onChipClick={onChipClick} />
+      <CategoryRow label="🟡 A vs B 變動 > 5" items={buckets.ab_changed} onChipClick={onChipClick} />
+      <CategoryRow label="🟡 A 排名下降" items={buckets.a_rank_drop} onChipClick={onChipClick} />
+      <CategoryRow label="🟡 B 排名下降" items={buckets.b_rank_drop} onChipClick={onChipClick} />
     </div>
   )
 }

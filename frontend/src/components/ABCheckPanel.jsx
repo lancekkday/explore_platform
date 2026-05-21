@@ -191,7 +191,12 @@ export default function ABCheckPanel() {
                           {a.a_rank != null ? `#${a.a_rank}` : '—'}
                         </td>
                         <td className="px-4 py-2.5 text-center border-l border-slate-50 font-mono text-[11px] font-bold text-slate-700">
-                          {a.b_rank != null ? `#${a.b_rank}` : <span className="text-red-500">消失</span>}
+                          {a.b_rank != null ? `#${a.b_rank}` : (
+                            a.stage_status === 'removed' ? <span className="text-red-600 font-bold">下架</span> :
+                            a.stage_status === 'exists'  ? <span className="text-orange-600">&gt;300</span> :
+                            a.stage_status === 'check_failed' ? <span className="text-slate-500">未確認</span> :
+                            <span className="text-red-500">消失</span>
+                          )}
                         </td>
                         <td className="px-6 py-2.5 border-l border-slate-50 text-[11px] text-slate-600">{a.reason}</td>
                       </tr>

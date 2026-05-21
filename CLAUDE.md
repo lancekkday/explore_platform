@@ -271,7 +271,7 @@ AI parsing is optional and falls back gracefully if the key is missing or the ca
 - **No TypeScript** — frontend is plain JavaScript/JSX
 - **No DB migration system** — SQLite schema is created inline in `batch_engine.py` on startup
 - **Product links point to stage** — `https://www.stage.kkday.com/zh-tw/product/{prod_mid}` since API uses stage environment
-- **Baseline alert status 4 級** — `baseline_service.find_baseline_alerts()` 不再把「沒出現在前 300 結果」一律當 `missing`,改成:
+- **Baseline alert status 5 級** — `baseline_service.find_baseline_alerts()` 不再把「沒出現在前 300 結果」一律當 `missing`,改成:
   - `present` — 在前 300 內且在 `expected_rank × BASELINE_DROP_MULTIPLIER` 內
   - `rank_drop` — 在前 300 內但偏離 baseline (原 `dropped` 改名)
   - `out_of_window` — 不在前 300,但 stage HEAD 確認商品還存在 (僅是排到 300 名外)

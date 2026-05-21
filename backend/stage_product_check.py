@@ -98,14 +98,14 @@ class StageProductChecker:
 
     def _own_fetch(self, mid: int) -> StageStatus:
         """Owner side:跑 HTTP + 寫 cache + signal 等待中的 waiter。
-        前置條件:呼叫者已經在 self._inflight[mid] 放了 Event。"""
+        前置條件:呼叫者已經在 self._inflight[mid] 放了 Event,且 self.enabled=True
+        (disabled 由 check_many 開頭 fast-path 處理,不會走到這裡)。"""
         status: StageStatus = "check_failed"
         try:
-            if self.enabled:
-                status = self._do_check(mid)
+            status = self._do_check(mid)
         finally:
             with self._lock:
-                self._cache[mid] = (status, time.time())  # ← 用當下時間,不是 stale 的 now
+                self._cache[mid] = (status, time.time())
                 event = self._inflight.pop(mid, None)
             if event is not None:
                 event.set()
@@ -125,6 +125,9 @@ class StageProductChecker:
         if not mids:
             return {}
         clean_mids = [int(m) for m in dict.fromkeys(mids) if m is not None]
+        # Disabled fast-path:全部標 check_failed,跳過 cache/inflight bookkeeping
+        if not self.enabled:
+            return {m: "check_failed" for m in clean_mids}
 
         results: dict[int, StageStatus] = {}
         to_fetch: list[int] = []                                # we own

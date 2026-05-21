@@ -2,6 +2,7 @@ import { Component } from 'react'
 import { BrowserRouter, Outlet, Route, Routes } from 'react-router-dom'
 import AppHeader from './components/AppHeader'
 import BatchToast from './components/BatchToast'
+import BaselineStatusBanner from './components/BaselineStatusBanner'
 import SettingsPanel from './components/SettingsPanel'
 import KeywordEditorModal from './components/KeywordEditorModal'
 import ScheduleModal from './components/ScheduleModal'
@@ -46,6 +47,7 @@ function Layout() {
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#F8FAFC] text-slate-900 text-[13px]">
       <AppHeader />
+      <BaselineStatusBanner />
       <BatchToast />
       <div className="flex-1 flex flex-col overflow-hidden">
         <Outlet />

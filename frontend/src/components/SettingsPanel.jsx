@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { IconRefresh } from './icons/Icons'
-import { uploadBaseline, fetchBaselineVersions, rollbackBaseline, archiveBaselineVersion, fetchBaselineKeywords } from '../api'
+import {
+  uploadBaseline, fetchBaselineVersions, rollbackBaseline, archiveBaselineVersion, fetchBaselineKeywords,
+  refreshBaselineFromBQ, fetchBaselineSourceStatus, updateBaselineCronSchedule,
+} from '../api'
 
 export default function SettingsPanel({
   visible, onClose,
@@ -21,11 +24,68 @@ export default function SettingsPanel({
   const [pendingCsvFile, setPendingCsvFile] = useState(null)
   const fileRef = useRef()
 
+  // BQ cron state
+  const [sourceStatus, setSourceStatus] = useState(null)
+  const [cronHour, setCronHour] = useState(7)
+  const [cronMinute, setCronMinute] = useState(0)
+  const [cronEnabled, setCronEnabled] = useState(true)
+  const [bqFetching, setBqFetching] = useState(false)
+
+  const reloadSourceStatus = () =>
+    fetchBaselineSourceStatus().then(r => {
+      if (!r?.success) return
+      setSourceStatus(r)
+      if (r.cron) {
+        setCronHour(r.cron.hour)
+        setCronMinute(r.cron.minute)
+        setCronEnabled(r.cron.enabled)
+      }
+    }).catch(() => {})
+
   useEffect(() => {
     if (!visible) return
     fetchBaselineVersions().then(r => { if (r?.versions) setVersions(r.versions) }).catch(() => {})
     fetchBaselineKeywords().then(r => { if (r?.total != null) setBaselineTotal(r.total) }).catch(() => {})
+    reloadSourceStatus()
   }, [visible])
+
+  const handleBqRefresh = async () => {
+    setBqFetching(true)
+    setUploadMsg(null)
+    try {
+      const res = await refreshBaselineFromBQ()
+      const lr = res.last_run
+      if (res.success) {
+        setUploadMsg({
+          ok: true,
+          text: `BQ fetch 成功！精準詞 ${lr.precise_rows} / 泛詞 ${lr.broad_rows}` +
+            (lr.warnings?.length ? `（warning: ${lr.warnings.join('; ')}）` : ''),
+        })
+      } else {
+        setUploadMsg({ ok: false, text: `BQ fetch 失敗：${lr?.error || '未知錯誤'}` })
+      }
+      fetchBaselineVersions().then(r => { if (r?.versions) setVersions(r.versions) }).catch(() => {})
+      fetchBaselineKeywords().then(r => { if (r?.total != null) setBaselineTotal(r.total) }).catch(() => {})
+      reloadSourceStatus()
+    } catch (e) {
+      setUploadMsg({ ok: false, text: `BQ fetch 失敗：${e.message || '未知錯誤'}` })
+    }
+    setBqFetching(false)
+  }
+
+  const handleCronUpdate = async () => {
+    try {
+      const res = await updateBaselineCronSchedule(cronHour, cronMinute, cronEnabled)
+      if (res.success) {
+        setUploadMsg({ ok: true, text: `Cron 已更新：每天 ${String(cronHour).padStart(2,'0')}:${String(cronMinute).padStart(2,'0')}` })
+        reloadSourceStatus()
+      } else {
+        setUploadMsg({ ok: false, text: `Cron 更新失敗：${res.detail || ''}` })
+      }
+    } catch (e) {
+      setUploadMsg({ ok: false, text: `Cron 更新失敗：${e.message || ''}` })
+    }
+  }
 
   const doUpload = async (file, type) => {
     setUploading(true)
@@ -50,12 +110,12 @@ export default function SettingsPanel({
   const handleUpload = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const isCSV = file.name.toLowerCase().endsWith('.csv')
-    if (isCSV) {
-      setPendingCsvFile(file)
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      setUploadMsg({ ok: false, text: '只支援 .csv 檔案（HTML 上傳已停用）' })
+      if (fileRef.current) fileRef.current.value = ''
       return
     }
-    doUpload(file, null)
+    setPendingCsvFile(file)
   }
 
   const handleCsvTypeSelect = (type) => {
@@ -184,15 +244,76 @@ export default function SettingsPanel({
                 )}
               </div>
 
-              {/* Upload */}
+              {/* BQ Auto Fetch */}
+              <div className="px-3 py-2.5 bg-indigo-50/60 rounded-xl border border-indigo-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black text-indigo-700 uppercase tracking-wider">BQ 自動 fetch</span>
+                  <button
+                    onClick={() => setCronEnabled(!cronEnabled)}
+                    className={`relative inline-flex w-9 h-5 rounded-full transition-colors duration-200 shrink-0 ${cronEnabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                  >
+                    <span className={`absolute top-[3px] w-[14px] h-[14px] bg-white rounded-full shadow-md transition-all duration-200 ${cronEnabled ? 'left-[19px]' : 'left-[3px]'}`} />
+                  </button>
+                </div>
+
+                {sourceStatus?.last_run && (
+                  <div className="text-[9px] text-slate-500 leading-relaxed">
+                    上次 fetch：<span className="font-bold text-slate-700">{sourceStatus.last_run.ts}</span>
+                    （{sourceStatus.last_run.trigger}）
+                    {sourceStatus.last_run.success
+                      ? <span className="ml-1 text-emerald-600">✓ 成功</span>
+                      : <span className="ml-1 text-red-600">✗ 失敗</span>}
+                    {sourceStatus.last_run.warnings?.length > 0 && (
+                      <div className="text-amber-700 mt-0.5">⚠ {sourceStatus.last_run.warnings.join('; ')}</div>
+                    )}
+                    {sourceStatus.last_run.error && (
+                      <div className="text-red-600 mt-0.5">Error: {sourceStatus.last_run.error}</div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <label className="text-[10px] font-bold text-slate-600">每日 cron</label>
+                  <input
+                    type="number" min="0" max="23"
+                    value={cronHour}
+                    onChange={e => setCronHour(Math.max(0, Math.min(23, parseInt(e.target.value) || 0)))}
+                    className="w-12 px-1 py-0.5 text-[11px] font-black text-center border border-slate-200 rounded outline-none focus:border-indigo-500"
+                  />
+                  <span className="text-[11px] font-black text-slate-500">:</span>
+                  <input
+                    type="number" min="0" max="59"
+                    value={cronMinute}
+                    onChange={e => setCronMinute(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                    className="w-12 px-1 py-0.5 text-[11px] font-black text-center border border-slate-200 rounded outline-none focus:border-indigo-500"
+                  />
+                  <span className="text-[9px] text-slate-500">TW</span>
+                  <button
+                    onClick={handleCronUpdate}
+                    className="ml-auto px-2 py-1 bg-indigo-600 text-white rounded text-[10px] font-black hover:bg-indigo-700"
+                  >
+                    儲存
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleBqRefresh}
+                  disabled={bqFetching}
+                  className="w-full px-3 py-1.5 bg-white border border-indigo-300 rounded-lg text-[10px] font-black text-indigo-700 hover:bg-indigo-50 transition-all disabled:opacity-50"
+                >
+                  {bqFetching ? '抽取中...' : '⚡ 立即從 BQ 抽取'}
+                </button>
+              </div>
+
+              {/* Manual CSV upload (Plan B) */}
               <div>
-                <input ref={fileRef} type="file" accept=".csv,.html,.htm" onChange={handleUpload} className="hidden" />
+                <input ref={fileRef} type="file" accept=".csv" onChange={handleUpload} className="hidden" />
                 <button
                   onClick={() => fileRef.current?.click()}
                   disabled={uploading}
                   className="w-full px-4 py-2.5 border-2 border-dashed border-slate-300 rounded-xl text-[11px] font-black text-slate-600 hover:border-indigo-400 hover:text-indigo-600 transition-all disabled:opacity-50"
                 >
-                  {uploading ? '上傳中...' : '上傳 Baseline（HTML 報告 或 CSV）'}
+                  {uploading ? '上傳中...' : '上傳 CSV（手動匯出備援）'}
                 </button>
                 {pendingCsvFile && (
                   <div className="mt-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg">
@@ -285,28 +406,6 @@ export default function SettingsPanel({
             </div>
           </section>
 
-          {/* Batch Settings */}
-          <section>
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[3px] mb-3">批次設定</h3>
-            <div className="space-y-2">
-              <button
-                onClick={() => { onClose(); onOpenKeywordEditor() }}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-[11px] font-black text-slate-700 hover:border-slate-400 transition-all text-left"
-              >
-                任務配置（關鍵字管理）
-              </button>
-              <button
-                onClick={() => { onClose(); onOpenScheduleModal() }}
-                className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-black transition-all text-left ${
-                  schedules?.some(s => s.enabled)
-                    ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                    : 'border-slate-200 text-slate-700 hover:border-slate-400'
-                }`}
-              >
-                排程設定 {schedules?.filter(s => s.enabled).length > 0 && `(${schedules.filter(s => s.enabled).length} 個啟用中)`}
-              </button>
-            </div>
-          </section>
         </div>
       </div>
     </div>

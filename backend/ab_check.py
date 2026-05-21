@@ -114,11 +114,13 @@ def check_ab_precise(query, mid, baseline_rank, a_rank, b_rank) -> Optional[Aler
         return None
     if b_rank is None:
         stage = stage_checker.check(mid)
-        # 商品下架 = severity 不變 (P0/P1);只是排名偏離降一階
-        if stage == "removed":
-            sev = "P0" if baseline_rank == 1 else "P1"
-        else:  # exists 或 check_failed → 排名偏離,輕一階
+        # 保守:確認商品還存在 (exists) 才降一階為「排名偏離」;
+        # removed 或 check_failed 都不降 (前者確認下架,後者不確定也當下架處理,
+        # 避免 transient network blip 把真正的 regression 默默變輕)
+        if stage == "exists":
             sev = "P1" if baseline_rank == 1 else "P2"
+        else:  # removed 或 check_failed
+            sev = "P0" if baseline_rank == 1 else "P1"
         return Alert(
             alert_type="main", keyword_type="precise", query=query, prod_mid=mid,
             baseline_rank=baseline_rank, a_rank=a_rank, b_rank=None,
@@ -188,10 +190,13 @@ def check_ab_broad(query, mid, baseline_rank, a_rank, b_rank) -> Optional[Alert]
         return None
     if b_rank is None:
         stage = stage_checker.check(mid)
-        if stage == "removed":
-            sev = "P1" if baseline_rank <= 3 else "P2"
-        else:
+        # 保守:exists 才降一階 (確認排名偏離 ≠ 下架);
+        # removed 或 check_failed 都不降 — check_failed 假設最壞情況,
+        # 避免網路 transient blip 默默把 P1 降到 P2
+        if stage == "exists":
             sev = "P2"
+        else:  # removed 或 check_failed
+            sev = "P1" if baseline_rank <= 3 else "P2"
         return Alert(
             alert_type="main", keyword_type="broad", query=query, prod_mid=mid,
             baseline_rank=baseline_rank, a_rank=a_rank, b_rank=None,

@@ -17,15 +17,16 @@ function bucket(aAlerts, bAlerts, abComparison) {
   for (const x of bAlerts || []) bByMid.set(x.prod_mid, x)
 
   const buckets = {
-    both_removed: [],        // A,B 雙下架
-    b_removed: [],           // B 商品下架
-    a_removed: [],           // A 商品下架
-    b_out_of_window: [],     // B 排名 >300
-    a_out_of_window: [],     // A 排名 >300
-    check_failed: [],        // stage 查詢失敗
-    ab_changed: [],          // AB 變動 >5
-    a_rank_drop: [],         // A 在 300 內但偏離 baseline
-    b_rank_drop: [],         // B 在 300 內但偏離 baseline
+    both_removed: [],          // A,B 雙下架
+    b_removed: [],             // B 商品下架
+    a_removed: [],             // A 商品下架
+    both_out_of_window: [],    // A,B 雙排名 >300
+    b_out_of_window: [],       // B 排名 >300
+    a_out_of_window: [],       // A 排名 >300
+    check_failed: [],          // stage 查詢失敗
+    ab_changed: [],            // AB 變動 >5
+    a_rank_drop: [],           // A 在 300 內但偏離 baseline
+    b_rank_drop: [],           // B 在 300 內但偏離 baseline
   }
 
   const assigned = new Set()  // prod_mid already placed
@@ -81,7 +82,7 @@ function bucket(aAlerts, bAlerts, abComparison) {
       continue
     }
     if (aStatus === 'out_of_window' && bStatus === 'out_of_window') {
-      buckets.b_out_of_window.push({ ...entry, hint: 'A,B' })
+      buckets.both_out_of_window.push({ ...entry, hint: 'A,B' })
       assigned.add(mid)
       continue
     }
@@ -217,6 +218,7 @@ export default function BaselineAlertBar({ aAlerts, bAlerts, abComparison, basel
       <CategoryRow label="🔴 A、B 雙下架" items={buckets.both_removed} onChipClick={onChipClick} />
       <CategoryRow label="🔴 B 商品下架" items={buckets.b_removed} onChipClick={onChipClick} />
       <CategoryRow label="🔴 A 商品下架" items={buckets.a_removed} onChipClick={onChipClick} />
+      <CategoryRow label="🟠 A、B 雙排名偏離 (>300)" items={buckets.both_out_of_window} onChipClick={onChipClick} />
       <CategoryRow label="🟠 B 排名偏離 (>300)" items={buckets.b_out_of_window} onChipClick={onChipClick} />
       <CategoryRow label="🟠 A 排名偏離 (>300)" items={buckets.a_out_of_window} onChipClick={onChipClick} />
       <CategoryRow label="⚪ Stage 未確認" items={buckets.check_failed} onChipClick={onChipClick} />

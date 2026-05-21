@@ -90,6 +90,14 @@ def _run_fetch(trigger: str) -> dict:
     result = fetch_from_bq()
     if result.success:
         result = apply_and_activate(result, source=f"bq_{trigger}")
+        if result.success:
+            # Hot-reload in-memory baseline so query handlers pick up the new CSVs
+            # without waiting for a manual /api/baseline/reload or process restart.
+            try:
+                from baseline_service import baseline_service
+                baseline_service.reload()
+            except Exception as e:
+                logger.warning(f"[BaselineCron] baseline_service.reload failed after activate: {e}")
 
     last_run = {
         "ts": datetime.now(TZ_TAIPEI).isoformat(timespec="seconds"),

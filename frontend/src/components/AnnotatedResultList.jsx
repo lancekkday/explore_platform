@@ -126,7 +126,7 @@ function ResultRow({
   return (
     <div
       ref={rowRef}
-      className={`group relative flex flex-col justify-center px-2.5 py-1 h-[42px] border-b border-slate-100 transition-colors ${
+      className={`group relative flex flex-col justify-center px-2.5 py-1 min-h-[42px] border-b border-slate-100 transition-colors ${
         highlight ? 'bg-amber-100' : 'hover:bg-slate-50'
       }`}
     >

@@ -84,7 +84,7 @@ export default function CalibrationModal({ product, calibTier, calibComment, cal
               placeholder="例：吉伊卡哇, チーカワ"
             />
             <div className="text-[10px] text-slate-400 mt-1 leading-snug">
-              填入後自動寫入同義詞表,之後搜同關鍵字時所有含這些詞的商品都會套用此 Tier 判定。
+              填入後自動寫入同義詞表,之後搜同關鍵字時所有含這些詞的商品都會自動判為 T2。
             </div>
           </div>
 

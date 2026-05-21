@@ -113,7 +113,7 @@ export function AppContextProvider({ children }) {
       setEditingSchedule(null)
       fetchAuditData()
     } catch (e) {
-      alert(`儲存失敗: ${e?.message || e}`)
+      console.error('儲存失敗:', e)
     }
   }
 

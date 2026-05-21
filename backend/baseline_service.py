@@ -16,8 +16,10 @@ from typing import Optional
 
 from loguru import logger
 
+from stage_product_check import stage_checker
+
 # ── 設定 ──────────────────────────────────────────────────────────────────────
-# 「排名下降」閾值倍數：current_rank > expected_rank * N 視為 dropped
+# 「排名下降」閾值倍數：current_rank > expected_rank * N 視為 rank_drop (在前 300 內但偏離)
 BASELINE_DROP_MULTIPLIER = int(os.environ.get("BASELINE_DROP_MULTIPLIER", "3"))
 
 # ── CSV paths (same as ab_check.py) ─────────────────────────────────────────
@@ -195,7 +197,14 @@ class BaselineService:
         return products
 
     def find_baseline_alerts(self, keyword: str, products: list[dict]) -> list[dict]:
-        """Check which baseline products are missing or dropped in the results."""
+        """Classify each expected baseline product as one of:
+
+          - present        在前 300 內且在 expected_rank * N 以內
+          - rank_drop      在前 300 內但 current_rank > expected_rank * N
+          - out_of_window  不在前 300,但 stage 確認商品仍存在
+          - removed        不在前 300,且 stage 回 404 (商品下架)
+          - check_failed   不在前 300,且 stage 檢查失敗 (timeout/5xx)
+        """
         kw = keyword.strip().lower()
         precise = self._precise.get(kw)
         broad_list = self._broad.get(kw, [])
@@ -232,14 +241,26 @@ class BaselineService:
             if pid and rank:
                 result_ranks[pid] = rank
 
+        # 哪些 mid 在搜尋結果裡找不到 → 才需要去 stage 確認商品是否還在
+        absent_mids = [e["prod_mid"] for e in expected if result_ranks.get(e["prod_mid"]) is None]
+        stage_results = stage_checker.check_many(absent_mids) if absent_mids else {}
+
+        _absent_to_status = {
+            "exists": "out_of_window",
+            "removed": "removed",
+            "check_failed": "check_failed",
+        }
+
         alerts = []
         for e in expected:
             mid = e["prod_mid"]
             current_rank = result_ranks.get(mid)
+            stage_status = None
             if current_rank is None:
-                status = "missing"
+                stage_status = stage_results.get(mid, "check_failed")
+                status = _absent_to_status[stage_status]
             elif e["expected_rank"] and current_rank > e["expected_rank"] * BASELINE_DROP_MULTIPLIER:
-                status = "dropped"
+                status = "rank_drop"
             else:
                 status = "present"
             alerts.append({
@@ -247,6 +268,7 @@ class BaselineService:
                 "prod_nm": e["prod_nm"],
                 "baseline_tag": e["baseline_tag"],
                 "status": status,
+                "stage_status": stage_status,   # None if 在前 300 內,有值時表示去 stage 查過
                 "current_rank": current_rank,
                 "expected_rank": e["expected_rank"],
             })

@@ -15,6 +15,7 @@ from loguru import logger
 
 from baseline_service import baseline_service
 from kkday_api import fetch_kkday_products_v3
+from stage_product_check import stage_checker
 
 # ── 閾值 ──────────────────────────────────────────────────────────────────────
 PRECISE_DROP_THRESHOLD = 5
@@ -39,6 +40,18 @@ class Alert:
     b_rank: Optional[int]
     severity: str         # 'P0' | 'P1' | 'P2' | 'INFO'
     reason: str
+    # 當 a_rank/b_rank 為 None 時去 stage 查得的結果
+    # 'removed' = 商品下架; 'exists' = 商品存在但排名 >300; 'check_failed' = stage 查詢失敗
+    stage_status: Optional[str] = None
+
+
+def _stage_label_zh(stage_status: Optional[str]) -> str:
+    """產出 alert reason 用的中文 label"""
+    return {
+        "removed": "商品已下架",
+        "exists": "排名 >300 名",
+        "check_failed": "未確認 (stage 查詢失敗)",
+    }.get(stage_status, "未出現")
 
 
 # ── API 呼叫 ─────────────────────────────────────────────────────────────────
@@ -80,10 +93,12 @@ def find_rank(mid: int, results: tuple[int, ...]) -> Optional[int]:
 def check_a_health_precise(query, mid, baseline_rank, a_rank) -> Optional[Alert]:
     threshold = SIDE_PRECISE_TOP1_MAX_RANK if baseline_rank == 1 else SIDE_PRECISE_TOP2_MAX_RANK
     if a_rank is None:
+        stage = stage_checker.check(mid)
         return Alert(
             alert_type="side", keyword_type="precise", query=query, prod_mid=mid,
             baseline_rank=baseline_rank, a_rank=None, b_rank=None, severity="INFO",
-            reason=f"baseline Top{baseline_rank} 商品在 A 版找不到",
+            reason=f"baseline Top{baseline_rank} 商品在 A 版{_stage_label_zh(stage)}",
+            stage_status=stage,
         )
     if a_rank > threshold:
         return Alert(
@@ -98,11 +113,20 @@ def check_ab_precise(query, mid, baseline_rank, a_rank, b_rank) -> Optional[Aler
     if a_rank is None:
         return None
     if b_rank is None:
+        stage = stage_checker.check(mid)
+        # 保守:確認商品還存在 (exists) 才降一階為「排名偏離」;
+        # removed 或 check_failed 都不降 (前者確認下架,後者不確定也當下架處理,
+        # 避免 transient network blip 把真正的 regression 默默變輕)
+        if stage == "exists":
+            sev = "P1" if baseline_rank == 1 else "P2"
+        else:  # removed 或 check_failed
+            sev = "P0" if baseline_rank == 1 else "P1"
         return Alert(
             alert_type="main", keyword_type="precise", query=query, prod_mid=mid,
             baseline_rank=baseline_rank, a_rank=a_rank, b_rank=None,
-            severity="P0" if baseline_rank == 1 else "P1",
-            reason=f"A 版第 {a_rank} 位,B 版完全消失",
+            severity=sev,
+            reason=f"A 版第 {a_rank} 位,B 版{_stage_label_zh(stage)}",
+            stage_status=stage,
         )
     drop = b_rank - a_rank
     if drop > PRECISE_DROP_THRESHOLD:
@@ -143,10 +167,12 @@ def _process_precise_query(row, version_a, version_b, cookie, cache=None) -> lis
 def check_a_health_broad(query, mid, baseline_rank, a_rank) -> Optional[Alert]:
     if a_rank is None:
         if baseline_rank <= 3:
+            stage = stage_checker.check(mid)
             return Alert(
                 alert_type="side", keyword_type="broad", query=query, prod_mid=mid,
                 baseline_rank=baseline_rank, a_rank=None, b_rank=None, severity="INFO",
-                reason=f"baseline profit_rank={baseline_rank} 商品在 A 版找不到",
+                reason=f"baseline profit_rank={baseline_rank} 商品在 A 版{_stage_label_zh(stage)}",
+                stage_status=stage,
             )
         return None
     delta = abs(a_rank - baseline_rank)
@@ -163,11 +189,20 @@ def check_ab_broad(query, mid, baseline_rank, a_rank, b_rank) -> Optional[Alert]
     if a_rank is None:
         return None
     if b_rank is None:
+        stage = stage_checker.check(mid)
+        # 保守:exists 才降一階 (確認排名偏離 ≠ 下架);
+        # removed 或 check_failed 都不降 — check_failed 假設最壞情況,
+        # 避免網路 transient blip 默默把 P1 降到 P2
+        if stage == "exists":
+            sev = "P2"
+        else:  # removed 或 check_failed
+            sev = "P1" if baseline_rank <= 3 else "P2"
         return Alert(
             alert_type="main", keyword_type="broad", query=query, prod_mid=mid,
             baseline_rank=baseline_rank, a_rank=a_rank, b_rank=None,
-            severity="P1" if baseline_rank <= 3 else "P2",
-            reason=f"A 版第 {a_rank} 位,B 版完全消失",
+            severity=sev,
+            reason=f"A 版第 {a_rank} 位,B 版{_stage_label_zh(stage)}",
+            stage_status=stage,
         )
     delta = b_rank - a_rank
     if abs(delta) > BROAD_DELTA_THRESHOLD:

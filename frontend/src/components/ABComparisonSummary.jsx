@@ -67,7 +67,12 @@ export default function ABComparisonSummary({ comparison }) {
                   {rc.a_rank != null ? `#${rc.a_rank}` : '—'}
                 </td>
                 <td className="px-4 py-2 text-center border-l border-slate-50 font-mono text-[11px] text-slate-600">
-                  {rc.b_rank != null ? `#${rc.b_rank}` : <span className="text-red-500 font-bold">消失</span>}
+                  {rc.b_rank != null ? `#${rc.b_rank}` : (
+                    rc.stage_status === 'removed' ? <span className="text-red-600 font-bold">下架</span> :
+                    rc.stage_status === 'exists'  ? <span className="text-orange-600 font-bold">&gt;300</span> :
+                    rc.stage_status === 'check_failed' ? <span className="text-slate-500 font-bold">未確認</span> :
+                    <span className="text-red-500 font-bold">消失</span>
+                  )}
                 </td>
                 <td className="px-4 py-2 text-center border-l border-slate-50 font-mono text-[11px] font-bold">
                   {rc.delta != null ? (

@@ -133,7 +133,7 @@ export default function HomePage() {
     addRows(versionAData, `Version A (v${versionAData.test_exp})`)
     if (versionBData) addRows(versionBData, `Version B (v${versionBData.test_exp})`)
 
-    const bom = '﻿'
+    const bom = '\uFEFF'
     const blob = new Blob([bom + rows.join('\n')], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')

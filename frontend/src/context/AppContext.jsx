@@ -14,7 +14,8 @@ const POLL_INTERVAL_MS = 2000
 function emptyRun() {
   // rowsMap: idx → checkpoint row (live state)
   return { runId: null, status: null, total: 0, doneCount: 0,
-           runningIdx: null, rowsMap: new Map(), sinceIdx: 0, error: null }
+           runningIdx: null, rowsMap: new Map(), sinceIdx: 0,
+           limitN: null, error: null }
 }
 
 const TERMINAL = new Set(['done', 'failed', 'cancelled', 'interrupted'])
@@ -117,6 +118,7 @@ export function AppContextProvider({ children }) {
         runningIdx: res.progress?.running_idx ?? null,
         rowsMap: merged,
         sinceIdx: newSinceIdx,
+        limitN: res.run.limit_n,
       } : prev)
       if (TERMINAL.has(res.run.status)) clearPollTimer(type)
     } catch (e) {
@@ -150,6 +152,7 @@ export function AppContextProvider({ children }) {
         runningIdx: null,
         rowsMap: new Map(),
         sinceIdx: 0,
+        limitN: limitN,
         error: null,
       })
       // 立刻拉一次 status 把 pending rows 渲染出來,再開始 2s polling

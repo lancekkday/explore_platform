@@ -340,17 +340,31 @@ def _run_worker(
     version_b: int,
     cookie: str,
     cancel_flag: threading.Event,
+    skip_idx: Optional[set[int]] = None,
+    seed_counts: Optional[dict] = None,
 ) -> None:
-    """同步單緒跑 queue。每跑完一個 query 就 commit 一次 checkpoint。"""
+    """同步單緒跑 queue。每跑完一個 query 就 commit 一次 checkpoint。
+
+    skip_idx: query_idx 已從 parent run 複製過來(status=ok),worker 直接跳過。
+    seed_counts: parent run 的累積 alert tally,合到本 run 的 summary。
+    """
+    skip_idx = skip_idx or set()
     cache: dict[tuple[str, int], tuple[int, ...]] = {}
     severity_counts = {"P0": 0, "P1": 0, "P2": 0, "INFO": 0}
     total_alerts = 0
+    if seed_counts:
+        total_alerts = seed_counts.get("total", 0)
+        for k in ("P0", "P1", "P2", "INFO"):
+            severity_counts[k] = seed_counts.get(k, 0)
 
     for idx, item in enumerate(queue):
         if cancel_flag.is_set():
             _finish_run(run_id, RUN_STATUS_CANCELLED)
             logger.info(f"[ABRunner] run={run_id} cancelled at idx={idx}")
             return
+
+        if idx in skip_idx:
+            continue
 
         if type_ == "precise":
             row = item
@@ -388,6 +402,71 @@ def _run_worker(
 
 # ── Public entry point ────────────────────────────────────────────────────────
 
+def _copy_parent_done_rows(new_run_id: str, parent_run_id: str, total_new: int) -> tuple[set[int], dict]:
+    """
+    Copy parent run's status='ok' checkpoint rows into the new run (alerts_json
+    preserved). Returns (skip_idx, seed_counts). If parent's total_queries differs,
+    the queue ordering is presumed identical (same baseline + limit) so idx maps 1:1.
+    Returns empty if parent not found or no ok rows.
+    """
+    init_schema()
+    with _connect() as conn:
+        parent = conn.execute(
+            "SELECT total_queries FROM ab_check_runs WHERE run_id=?",
+            (parent_run_id,),
+        ).fetchone()
+        if not parent:
+            logger.warning(f"[ABRunner] resume parent={parent_run_id!r} not found, falling back to full run")
+            return set(), {}
+        parent_total = parent[0]
+        if parent_total != total_new:
+            logger.warning(
+                f"[ABRunner] resume parent total={parent_total} != current total={total_new}, "
+                f"skipping resume copy"
+            )
+            return set(), {}
+
+        ok_rows = conn.execute(
+            """SELECT query_idx, alerts_json
+               FROM ab_check_checkpoints
+               WHERE run_id=? AND status='ok'""",
+            (parent_run_id,),
+        ).fetchall()
+        if not ok_rows:
+            return set(), {}
+
+        now = _now_iso()
+        conn.executemany(
+            """UPDATE ab_check_checkpoints
+               SET status='ok', alerts_json=?, finished_at=?
+               WHERE run_id=? AND query_idx=?""",
+            [(alerts_json, now, new_run_id, idx) for idx, alerts_json in ok_rows],
+        )
+        conn.execute(
+            "UPDATE ab_check_runs SET done_count=? WHERE run_id=?",
+            (len(ok_rows), new_run_id),
+        )
+
+    # Tally alert counts so the resumed run's summary stays consistent.
+    seed_counts = {"total": 0, "P0": 0, "P1": 0, "P2": 0, "INFO": 0}
+    for _, alerts_json in ok_rows:
+        if not alerts_json:
+            continue
+        try:
+            alerts = json.loads(alerts_json)
+        except json.JSONDecodeError:
+            continue
+        for a in alerts or []:
+            seed_counts["total"] += 1
+            sev = a.get("severity")
+            if sev in seed_counts:
+                seed_counts[sev] += 1
+
+    skip_idx = {idx for idx, _ in ok_rows}
+    logger.info(f"[ABRunner] resume from {parent_run_id} → {new_run_id}: skipping {len(skip_idx)} idx")
+    return skip_idx, seed_counts
+
+
 def start_run(
     type_: str,
     version_a: int,
@@ -397,13 +476,14 @@ def start_run(
     resume_run_id: Optional[str] = None,
     sync: bool = False,
 ) -> str:
-    """
-    啟動一個 run,回傳 run_id。
-      sync=True : foreground (給 CLI / 測試用)
-      sync=False: daemon thread (API endpoint 用,等 step 3)
+    """啟動一個 run,回傳 run_id。
 
-    resume_run_id 目前先記在 parent_run_id 欄;實際續跑邏輯留待 step 3 接 API
-    時補完(需 UI 配合)。
+      sync=True : foreground (CLI / 測試)
+      sync=False: daemon thread (API endpoint)
+
+    resume_run_id: 帶入時,parent run 已 status='ok' 的 idx 會被複製進新 run
+    的 checkpoint(含 alerts_json),worker 跳過那些 idx 只跑剩下的。Queue 順序
+    必須跟 parent 一致(同 baseline + 同 limit)否則 fallback 全跑。
     """
     if type_ not in ("precise", "broad"):
         raise ValueError(f"unknown run type: {type_}")
@@ -424,11 +504,19 @@ def start_run(
     _insert_run(run_id, type_, version_a, version_b, limit, total, baseline_ts, resume_run_id)
     _insert_initial_checkpoints(run_id, queries)
 
+    skip_idx: set[int] = set()
+    seed_counts: dict = {}
+    if resume_run_id:
+        skip_idx, seed_counts = _copy_parent_done_rows(run_id, resume_run_id, total)
+
     cancel_flag = _new_cancel_flag(run_id)
 
     def _target():
         try:
-            _run_worker(run_id, type_, queue, version_a, version_b, cookie, cancel_flag)
+            _run_worker(
+                run_id, type_, queue, version_a, version_b, cookie, cancel_flag,
+                skip_idx=skip_idx, seed_counts=seed_counts,
+            )
         except Exception as e:
             logger.exception(f"[ABRunner] run={run_id} fatal: {e}")
             _finish_run(run_id, RUN_STATUS_FAILED, error_msg=str(e))

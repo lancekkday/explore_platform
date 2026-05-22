@@ -67,7 +67,7 @@ function ProgressBar({ done, total, status }) {
 }
 
 export default function ABCheckRunPanel({ type }) {
-  const { versionA, versionB, preciseRun, broadRun, startRun, resetRun } = useAppContext()
+  const { versionA, versionB, preciseRun, broadRun, startRun, cancelRun, resetRun } = useAppContext()
   const run = type === 'precise' ? preciseRun : broadRun
   const [limit, setLimit] = useState('')
 
@@ -79,9 +79,19 @@ export default function ABCheckRunPanel({ type }) {
 
   const isInflight = run.status === 'starting' || run.status === 'running'
   const isStarting = run.status === 'starting'
+  const canResume = run.runId && (run.status === 'interrupted' || run.status === 'cancelled')
 
   async function handleStart() {
     await startRun(type, limit, null)
+  }
+
+  async function handleCancel() {
+    await cancelRun(type)
+  }
+
+  async function handleResume() {
+    // 用 parent run 的 limit_n (而非表單上的 limit) 保證 queue ordering 一致
+    await startRun(type, run.limitN ?? '', run.runId)
   }
 
   function handleReset() {
@@ -110,13 +120,20 @@ export default function ABCheckRunPanel({ type }) {
           <span className="inline-block px-1.5 py-0.5 rounded border border-slate-300 bg-white font-mono tabular-nums text-slate-800 text-[10px]">{versionB}</span>
         </div>
         <div className="flex-1" />
-        {run.runId && (
+        {run.runId && !isInflight && (
           <button
             onClick={handleReset}
-            disabled={isInflight}
-            className="px-3 py-1 rounded text-[11px] text-slate-600 hover:bg-slate-100 transition-colors disabled:text-slate-300 disabled:cursor-not-allowed"
+            className="px-3 py-1 rounded text-[11px] text-slate-600 hover:bg-slate-100 transition-colors"
           >
             重設
+          </button>
+        )}
+        {isInflight && (
+          <button
+            onClick={handleCancel}
+            className="px-3 py-1.5 rounded-md text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors"
+          >
+            取消
           </button>
         )}
         <button
@@ -138,6 +155,21 @@ export default function ABCheckRunPanel({ type }) {
         {run.error && (
           <div className="mb-3 px-3 py-2 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-700">
             {run.error}
+          </div>
+        )}
+
+        {canResume && (
+          <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-300 rounded flex items-center gap-3">
+            <span className="text-[11px] text-amber-800">
+              run <span className="font-mono">{run.runId.slice(0, 12)}…</span> 中斷於 {run.doneCount}/{run.total} — 可續跑剩下的 {run.total - run.doneCount} 個 query
+            </span>
+            <div className="flex-1" />
+            <button
+              onClick={handleResume}
+              className="px-3 py-1 rounded text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 transition-colors"
+            >
+              續跑
+            </button>
           </div>
         )}
 

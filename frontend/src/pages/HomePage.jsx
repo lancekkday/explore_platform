@@ -18,17 +18,25 @@ export default function HomePage() {
     baselineKeywords,
     baselineDropMultiplier, setBaselineDropMultiplier,
     setSettingsVisible,
+    // Cross-route persistent search state (so coming back from /batch
+    // restores the last keyword + results instead of resetting to 'esim').
+    homeKeyword, setHomeKeyword,
+    homeFilterMode, setHomeFilterMode,
+    homeResults, setHomeResults,
   } = ctx
 
-  // ── Local state (HomePage owns) ──────────────────────────────────────────
-  const [keyword, setKeyword] = useState('esim')
+  const keyword = homeKeyword
+  const setKeyword = setHomeKeyword
+  const filterMode = homeFilterMode
+  const setFilterMode = setHomeFilterMode
+  const versionAData = homeResults.versionA
+  const versionBData = homeResults.versionB
+  const baselineData = homeResults.baseline
+  const abComparison = homeResults.abComparison
+
+  // ── Local state (transient — UI-only, no cross-route survival) ───────────
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [versionAData, setVersionAData] = useState(null)
-  const [versionBData, setVersionBData] = useState(null)
-  const [baselineData, setBaselineData] = useState(null)
-  const [abComparison, setAbComparison] = useState(null)
-  const [filterMode, setFilterMode] = useState('all')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerType, setDrawerType] = useState(null)
   const [highlightId, setHighlightId] = useState(null)
@@ -47,6 +55,9 @@ export default function HomePage() {
     if (kw) {
       setKeyword(kw)
       setFilterMode(searchParams.get('filter') || 'all')
+      // Clear previous keyword's results immediately — otherwise the loading
+      // gap (1-3s) shows the *old* products labelled with the *new* keyword.
+      setHomeResults({ versionA: null, versionB: null, baseline: null, abComparison: null })
       handleSearch(kw)
       setSearchParams({}, { replace: true })
     }
@@ -61,10 +72,12 @@ export default function HomePage() {
       const vb = enableAB ? versionB : null
       const res = await fetchUnifiedSearch(kw, cookie, 300, aiEnabled, searchApi, versionA, vb)
       if (res?.success) {
-        setVersionAData(res.version_a)
-        setVersionBData(res.version_b || null)
-        setBaselineData(res.baseline)
-        setAbComparison(res.ab_comparison || null)
+        setHomeResults({
+          versionA: res.version_a,
+          versionB: res.version_b || null,
+          baseline: res.baseline,
+          abComparison: res.ab_comparison || null,
+        })
         if (res.baseline_drop_multiplier != null) setBaselineDropMultiplier(res.baseline_drop_multiplier)
       } else {
         setError(res?.detail || '返回數據異常')

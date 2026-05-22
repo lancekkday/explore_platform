@@ -6,10 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A **Search Audit Platform (搜尋巡檢平台)** for auditing KKDay e-commerce search results. It supports:
 
-- **Unified search inspection** — single keyword A/B comparison across algorithm versions (via `test_exp` parameter)
+- **Unified search inspection** — single keyword A/B comparison across algorithm versions (via `test_exp` parameter); search state survives SPA route changes (back from `/batch` keeps last keyword + results)
 - **Baseline monitoring** — checks whether "守門商品" (guardian products) from precise/broad baseline CSVs maintain their expected rankings
 - **Tier judgment** — rule-based + optional GPT-4o-mini classification of each product's relevance to the search intent
-- **Batch inspection** — independent `/batch` route runs all baseline keywords through the AB check engine
+- **Batch inspection (async + checkpointed)** — independent `/batch` route runs all baseline keywords through an async sqlite-checkpointed runner; supports cancel mid-flight, resume from where the previous run stopped, and 50-row history. Polling timer lives in AppContext so the run keeps progressing while the user is on `/`
 - **BigQuery baseline pipeline** — daily APScheduler cron + manual UI button pulls baseline from `kkday-data-dap-sit.dm_search_keyword.kkday_search_keyword_{precise,broad}` views; status banner surfaces failures or row-count drops
 - **CSV export** — export inspection results for offline review
 
@@ -78,7 +78,8 @@ Frontend (React + Vite + React Router, :5888)
 Backend (FastAPI + APScheduler, :19426)
     ├── main.py              — all API endpoints (compare, unified-search, ab-check, batch, baseline, etc.)
     ├── kkday_api.py         — KKDay product fetching (stage & prod), paginated 50/page, test_exp for AB
-    ├── ab_check.py          — AB version check engine: precise/broad baseline comparison
+    ├── ab_check.py          — AB version check engine: per-query helpers (process_one_{precise,broad}_query) consumed by both legacy sync run_ab_check() and the new runner
+    ├── ab_check_runner.py   — NEW (PR #27): async + sqlite-checkpointed batch runner with cancel/resume/sweep; primary entry for /batch UI
     ├── baseline_service.py  — singleton: loads baseline CSVs into memory, provides annotation helpers + reload()
     ├── baseline_version_manager.py — versioned baseline snapshots (timestamp dirs, symlink switching, archive; MAX_VERSIONS=14)
     ├── baseline_bq_fetcher.py — shared core: query BQ views → DataFrame → CSV strings + guardrail; consumed by CLI / cron / API
@@ -110,7 +111,31 @@ Backend (FastAPI + APScheduler, :19426)
 
 ### AB Version Check (`ab_check.py`)
 
-Separate from unified search — a standalone check that runs all baseline keywords (precise + broad CSVs) against two algorithm versions to detect ranking regressions. Uses `ThreadPoolExecutor` with request-local cache for thread safety.
+Separate from unified search — a standalone check that runs all baseline keywords (precise + broad CSVs) against two algorithm versions to detect ranking regressions. Exposes two public per-query helpers (`process_one_precise_query` / `process_one_broad_query`) shared by both the legacy synchronous `run_ab_check()` (ThreadPool, 10 workers) and the new `ab_check_runner.py` (sequential per run).
+
+### Async AB-check Runner (`ab_check_runner.py`) — PR #27
+
+Primary entry for batch baseline AB checks. Replaces the synchronous `/api/ab-check` flow (which was hitting 3-5 min runtime and triggering SIT proxy 504s; the old endpoint stays for one release with a deprecation log).
+
+- **Persistence** — runs + per-query checkpoints in two sqlite tables (`ab_check_runs`, `ab_check_checkpoints`) inside the existing `history.db`. WAL mode enabled so polling readers don't serialize against the worker's writes.
+- **Threading model** — each `start_run()` spawns a daemon thread; precise + broad can run in parallel; same type runs serially (UI in-flight guard). The worker itself is single-threaded inside one run (finer cancel granularity, lower 504 risk than the legacy ThreadPool path).
+- **Cancel** — `_cancel_flags` registry (in-memory `threading.Event`). Worker checks the flag at each iteration boundary; cancel returns immediately, status flips at the next boundary.
+- **Resume** — `_copy_parent_done_rows()` copies the parent run's `status='ok'` checkpoints (alerts_json preserved) into the new run, then worker skips those idx. Validates parent type / version_a / version_b / baseline_version / per-idx query text before copying — any drift falls back to a clean re-run (avoids misattributing alerts).
+- **Startup sweep** — `sweep_interrupted_runs()` at FastAPI `startup_event`:
+  - Marks any DB `status='running'` runs as `'interrupted'` (worker died with the previous process) + writes `finished_at`
+  - Resets orphan `ab_check_checkpoints` rows from `'running'` to `'pending'` so the history detail view doesn't show phantom "executing" rows
+- **Phantom recovery** — `force_interrupt_run(run_id)` lets `/api/ab-check/cancel` unstick a run whose DB says `running` but no live in-process worker exists (process restart, OOM kill). Returns `{ok: true}` once flipped to `interrupted`.
+
+### Frontend AB-check state (`AppContext.jsx`)
+
+Runs are not local to the panel — they live at provider level so polling survives SPA route changes:
+
+- `preciseRun` / `broadRun` — `{ runId, status, total, doneCount, rowsMap: Map<idx, row>, sinceIdx, limitN, summary, errorMsg, error }`
+- `pollTimers.current` ref holds `setInterval` handles per type; `runStateRef.current` mirror is read inside `pollRunOnce` to avoid stale-closure / StrictMode double-fire issues
+- `since_idx` advances to the first non-terminal row's idx (sequential-worker assumption) so polling only re-fetches unfinished rows
+- Each tick auto-stops the timer when status enters {`done`, `failed`, `cancelled`, `interrupted`}
+- `api.js` wraps every fetch in `jsonOrThrow` — non-JSON proxy errors (SIT 504 HTML body) throw a typed `NetworkError` instead of `SyntaxError: Unexpected token '<'`
+- `getABCheckStatus()` uses `AbortController` with 8 s timeout so slow status responses don't pile up behind the 2 s `setInterval`
 
 ### BigQuery Baseline Pipeline (`baseline_bq_fetcher.py` + `baseline_scheduler.py`)
 
@@ -127,7 +152,7 @@ Underlying view rebuild SQL is owned by RD (Joyce 2026-05-08 v4 spec); `scripts/
 
 | File | Purpose |
 |------|---------|
-| `backend/data/history.db` | SQLite — `inspection_history` (batch runs) + `single_inspections` + `ai_usage_log` (gitignored — runtime state) |
+| `backend/data/history.db` | SQLite (WAL mode) — `inspection_history` + `single_inspections` + `ai_usage_log` + **NEW: `ab_check_runs` + `ab_check_checkpoints`** (gitignored — runtime state) |
 | `backend/data/baseline_cron.json` | BQ cron config + `last_run` outcome (gitignored — runtime state, read by source-status banner) |
 | `backend/data/keywords.json` | Legacy batch keyword list (no longer wired into new BatchPage; backend `batch_engine` retained for compat) |
 | `backend/data/feedback.json` | Human calibrations: `{keyword: {product_id: {user_tier, comment}}}` |
@@ -216,7 +241,12 @@ with Be2Session() as s:
 |----------|---------|
 | `POST /api/unified-search` | Main inspection: keyword search with AB comparison + baseline annotations |
 | `POST /api/compare` | Legacy single keyword comparison (stage vs. prod) |
-| `POST /api/ab-check` | Standalone AB baseline check (all keywords, precise + broad) |
+| `POST /api/ab-check` | **(Deprecated — kept one release)** Legacy synchronous AB baseline check. Logs a deprecation warning per call; UI now uses the runner endpoints below |
+| `POST /api/ab-check/start` | **NEW** — Kick off async AB-check (body: `{type, version_a, version_b, cookie, limit?, resume_run_id?}`); returns `{run_id, status, total_queries}` immediately |
+| `GET /api/ab-check/status?run_id=&since_idx=` | **NEW** — Live progress; returns `{run, progress:{done,total,running_idx}, rows:[…]}`. `since_idx` lets polling fetch only non-terminal rows |
+| `POST /api/ab-check/cancel` | **NEW** — Request cancel; for phantom runs (DB=running, no worker) auto-flips to `interrupted` so UI recovers |
+| `GET /api/ab-check/history?type=&limit=50` | **NEW** — Recent runs (filterable by `precise`/`broad`) |
+| `GET /api/ab-check/history/{run_id}` | **NEW** — Single run detail with checkpoint rows |
 | `POST /api/explain` | AI explanation for a product's tier/mismatch |
 | `POST /api/feedback` | Save manual tier correction (+ optional synonyms) |
 | `GET/POST /api/keywords` | Fetch or update keyword list |
@@ -247,12 +277,12 @@ with Be2Session() as s:
 ```
 src/
 ├── App.jsx                         — Router, ErrorBoundary, global Layout (AppHeader + BaselineStatusBanner + modals)
-├── api.js                          — all fetch calls as named exports
-├── context/AppContext.jsx          — shared state (cookie, versions, schedules, keyword editor, etc.)
+├── api.js                          — all fetch calls; `jsonOrThrow` guard turns non-JSON proxy errors into typed NetworkError; getABCheckStatus has 8s AbortController timeout
+├── context/AppContext.jsx          — shared state including `preciseRun` / `broadRun` polling state + cancel-flag refs + `homeKeyword` / `homeFilterMode` / `homeResults` (HomePage state survives route changes)
 ├── utils/safeString.js             — safeString(), normalizeKw()
 ├── pages/
-│   ├── HomePage.jsx                — 巡檢 route /  (single keyword + A/B columns)
-│   └── BatchPage.jsx               — 批次 route /batch (runs all baseline keywords, severity report)
+│   ├── HomePage.jsx                — 巡檢 route /  (single keyword + A/B columns); reads/writes home search state via context
+│   └── BatchPage.jsx               — 批次 route /batch (3-tab shell only)
 └── components/
     ├── icons/Icons.jsx
     ├── ui/
@@ -260,22 +290,29 @@ src/
     │   ├── TierBadge.jsx           — tier pill T1/T2/T3/MISS (px-1.5 py-0.5 text-[9px])
     │   ├── NdcgGauge.jsx
     │   └── CompactMetricBar.jsx
-    ├── AppHeader.jsx               — sticky top bar (title + 巡檢/批次 nav + cookie status)
+    ├── AppHeader.jsx               — sticky top bar (title + 巡檢/批次 nav + cookie status; in-flight pulse dot reads preciseRun/broadRun status)
     ├── BaselineStatusBanner.jsx    — red/amber banner under header, polls /api/baseline/source-status every 60s; dismissible per last_run.ts
-    ├── BatchToast.jsx              — toast for batch-finished notification
     ├── UnifiedSearchBar.jsx        — search bar with version inputs + filter + export
-    ├── AnnotatedResultList.jsx     — product row (h locked to min-h-[42px]; hover surfaces AI/校正 inline in meta row)
+    ├── AnnotatedResultList.jsx     — product row (h locked to min-h-[42px]; hover surfaces AI/校正 inline in meta row); query click in batch view navigates to / with ?keyword=
     ├── ABComparisonSummary.jsx
     ├── BaselineAlertBar.jsx
+    ├── ABCheckRunPanel.jsx         — NEW (PR #27): precise / broad batch tab content. limit input + A/B inline editor + 啟動/取消/重新啟動 (with confirm dialog) + live progress + per-row dot-status table + severity hover popup + click query → jump to /?keyword=&filter=diff
+    ├── ABCheckHistoryTable.jsx     — NEW (PR #27): 歷史紀錄 tab — last 50 runs with type filter; click row → detail view (run meta + checkpoint table)
+    ├── RunStatusBar.jsx            — NEW (PR #27): amber (cancelled/interrupted) / green (done) / red (failed) status bar with run_id + copy + progress + 續跑 CTA. running 不出現 — spec §5.3
     ├── SettingsPanel.jsx           — search settings + Baseline 管理 (BQ auto-fetch section + CSV upload fallback + version list)
     ├── CalibrationModal.jsx        — compact tier correction modal
     ├── KeywordEditorModal.jsx      — kept for compat with `batch_engine` keywords.json
     └── ScheduleModal.jsx           — kept for compat with `batch_engine` schedules
 ```
 
+Removed in PR #27 (legacy sync path retired): `BatchToast.jsx`, `ABCheckPanel.jsx`, `utils/baselineReport.js`.
+
 Layout per route:
 - `/` (HomePage) — search bar → A/B columns + alert bar + drawer → optional explanation rows
-- `/batch` — startup panel + precise/broad severity tables; row click jumps back to `/?keyword=...&filter=diff`
+- `/batch` — 3 sub-tabs (精準詞 / 泛詞 / 歷史紀錄). Each tab content:
+  - `ABCheckRunPanel`: 5 visible states — empty (no run) / running (no status bar, only inline progress) / cancelled (amber bar + 續跑 CTA + 待續跑 row tint) / done (green bar + summary pills) / failed (red bar + error message)
+  - Severity chip hover shows popup with per-alert detail (baseline rank, A/B rank, reason)
+  - Click query text → `navigate('/?keyword=X&filter=diff')` to inspect that keyword in single-keyword mode
 
 ## Environment
 
@@ -315,7 +352,9 @@ AI parsing is optional and falls back gracefully if the key is missing or the ca
 - **`test_exp` parameter** — KKDay search API v3 uses `test_exp` to select algorithm version (0=control, 1+=experimental)
 - **Baseline service singleton** — `baseline_service.py` loads CSVs once into memory; avoids re-reading on every request
 - **Request-local cache** — `ab_check.py` creates a new cache dict per `run_ab_check()` call (not module-level) for thread safety
-- **Batch runs are single-threaded** (sequential per keyword), not async — simplifies state management
+- **Batch AB-check is async + checkpointed** (PR #27) — `ab_check_runner.py` is the primary path; per-query checkpoints stream to sqlite so the UI sees progress from query 0. Worker is single-threaded within one run (precise/broad can be parallel runs). Legacy synchronous `/api/ab-check` kept for one release with a deprecation log.
+- **AppContext owns polling timers** — `setInterval` handles in a `useRef`; runs survive SPA navigation between `/` and `/batch`. Polling stops automatically when status enters {done, failed, cancelled, interrupted}.
+- **HomePage search state lives in context** — `homeKeyword` / `homeFilterMode` / `homeResults` survive route changes (`/` → `/batch` → `/` no longer resets to default "esim")
 - **Calibrations are additive** — feedback.json is append-only; re-running a search re-applies all saved corrections automatically
 - **No TypeScript** — frontend is plain JavaScript/JSX
 - **No DB migration system** — SQLite schema is created inline in `batch_engine.py` on startup

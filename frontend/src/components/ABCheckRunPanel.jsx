@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
 import RunStatusBar from './RunStatusBar'
 
@@ -58,6 +59,92 @@ function topSeverity(alerts) {
   }, null)
 }
 
+// Hover popup over the severity chip — quick alert summary
+// (replaces the legacy click-to-modal that lived in pre-step-4 BatchPage)
+// Uses position:fixed + measured anchor so the popup escapes the table's
+// overflow:hidden/overflow:auto ancestors.
+function SeverityHoverCell({ alerts, query }) {
+  const anchorRef = useRef(null)
+  const [pos, setPos] = useState(null)  // {top, right} viewport coords
+  const sev = topSeverity(alerts)
+
+  if (!sev) return <span className="text-text-tertiary text-[11px]">—</span>
+
+  const list = Array.isArray(alerts) ? alerts : []
+  const sortedAlerts = [...list].sort(
+    (a, b) => (SEVERITY_RANK[b.severity] || 0) - (SEVERITY_RANK[a.severity] || 0)
+  )
+
+  function handleEnter() {
+    const r = anchorRef.current?.getBoundingClientRect()
+    if (!r) return
+    const POP_W = 480
+    const POP_MAX_H = 320
+    const margin = 8
+    // Default: align right edge to chip's right edge, drop below
+    let right = Math.max(margin, window.innerWidth - r.right)
+    let top = r.bottom + 6
+    // Flip up if not enough room below
+    if (top + POP_MAX_H + margin > window.innerHeight) {
+      top = Math.max(margin, r.top - POP_MAX_H - 6)
+    }
+    // Make sure popup doesn't disappear to the left
+    if (window.innerWidth - right - POP_W < margin) {
+      right = Math.max(margin, window.innerWidth - POP_W - margin)
+    }
+    setPos({ top, right })
+  }
+
+  function handleLeave() {
+    setPos(null)
+  }
+
+  return (
+    <span
+      ref={anchorRef}
+      className="relative inline-block"
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+    >
+      <SeverityPill severity={sev} />
+      {pos && (
+        <div
+          className="bg-white rounded-lg p-3 text-left z-[200]"
+          style={{
+            position: 'fixed',
+            top: `${pos.top}px`,
+            right: `${pos.right}px`,
+            width: '480px',
+            maxHeight: '320px',
+            overflowY: 'auto',
+            border: '0.5px solid rgba(0,0,0,0.18)',
+            pointerEvents: 'none',  // 不攔截下方游標,離開 chip 就消失
+          }}
+        >
+          <div className="text-[12px] font-medium text-text-primary mb-2 pb-2" style={{ borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>
+            <span className="text-text-primary mr-1.5">{query}</span>
+            <span className="text-text-tertiary">·</span>
+            <span className="text-text-secondary text-[11px] ml-1.5">{list.length} 筆 alert</span>
+          </div>
+          {sortedAlerts.map((a, i) => (
+            <div key={i} className="py-1.5" style={{ borderTop: i === 0 ? 'none' : '0.5px solid rgba(0,0,0,0.06)' }}>
+              <div className="flex items-center gap-2 mb-0.5 text-[11px]">
+                <SeverityPill severity={a.severity} />
+                <span className="text-text-tertiary">baseline #{a.baseline_rank}</span>
+                <span className="text-text-tertiary">·</span>
+                <span className="text-text-tertiary">A 排名 <span className="tabular-nums text-text-primary">{a.a_rank ?? '—'}</span></span>
+                <span className="text-text-tertiary">·</span>
+                <span className="text-text-tertiary">B 排名 <span className="tabular-nums text-text-primary">{a.b_rank ?? '—'}</span></span>
+              </div>
+              <div className="text-[11px] text-text-secondary leading-relaxed">{a.reason}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </span>
+  )
+}
+
 function ConfirmRestartModal({ runId, onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/30" onClick={onCancel}>
@@ -91,9 +178,17 @@ export default function ABCheckRunPanel({ type }) {
     versionA, setVersionA, versionB, setVersionB,
     preciseRun, broadRun, startRun, cancelRun,
   } = useAppContext()
+  const navigate = useNavigate()
   const run = type === 'precise' ? preciseRun : broadRun
   const [limit, setLimit] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)
+
+  function jumpToKeyword(kw) {
+    if (!kw) return
+    // Polling timers live in AppContext (not unmounted by route change), so
+    // the run keeps progressing even after we leave /batch.
+    navigate(`/?keyword=${encodeURIComponent(kw)}&filter=diff`)
+  }
 
   const rows = useMemo(() => {
     const arr = Array.from(run.rowsMap.values())
@@ -257,14 +352,21 @@ export default function ABCheckRunPanel({ type }) {
                     {rows.map(r => {
                       const isResumePending = showResumePending && r.status === 'pending'
                       const alertCount = Array.isArray(r.alerts) ? r.alerts.length : null
-                      const sev = topSeverity(r.alerts)
                       const rowBg = isResumePending ? 'bg-amber-row' : ''
                       const idxColor = isResumePending ? 'text-text-amber-dk' : 'text-text-tertiary'
                       const queryColor = isResumePending ? 'text-text-secondary' : 'text-text-primary'
                       return (
                         <tr key={r.query_idx} className={rowBg} style={{ borderTop: '0.5px solid rgba(0,0,0,0.08)' }}>
                           <td className={`font-mono text-[12px] ${idxColor}`} style={{ padding: '11px 18px' }}>{r.query_idx}</td>
-                          <td className={`text-[13px] font-medium ${queryColor}`} style={{ padding: '11px 12px' }}>{r.query}</td>
+                          <td className={`text-[13px] font-medium ${queryColor}`} style={{ padding: '11px 12px' }}>
+                            <button
+                              onClick={() => jumpToKeyword(r.query)}
+                              className="hover:underline hover:text-text-blue-dk transition-colors text-left"
+                              title={`點擊跳至「${r.query}」單詞巡檢`}
+                            >
+                              {r.query}
+                            </button>
+                          </td>
                           <td style={{ padding: '11px 12px' }}><StatusDot status={r.status} isResumePending={isResumePending} /></td>
                           <td
                             className={`text-right tabular-nums text-[13px] ${alertCount > 0 ? 'font-medium text-text-primary' : 'text-text-tertiary'}`}
@@ -272,7 +374,7 @@ export default function ABCheckRunPanel({ type }) {
                           >
                             {r.status === 'ok' ? (alertCount === 0 ? '0' : alertCount) : '—'}
                           </td>
-                          <td className="text-right" style={{ padding: '11px 18px' }}><SeverityPill severity={sev} /></td>
+                          <td className="text-right" style={{ padding: '11px 18px' }}><SeverityHoverCell alerts={r.alerts} query={r.query} /></td>
                         </tr>
                       )
                     })}

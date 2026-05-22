@@ -1,15 +1,19 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { startABCheckRun, getABCheckStatus } from '../api'
 import { IconPlay } from './icons/Icons'
 
 const TYPE_LABEL = { precise: '精準詞', broad: '泛詞' }
 
 const STATUS_STYLE = {
-  pending: 'bg-slate-100 text-slate-500 border-slate-200',
-  running: 'bg-indigo-50 text-indigo-700 border-indigo-200 animate-pulse',
-  ok:      'bg-emerald-50 text-emerald-700 border-emerald-200',
-  error:   'bg-rose-100 text-rose-700 border-rose-200',
+  pending:     'bg-slate-100 text-slate-500 border-slate-200',
+  running:     'bg-indigo-50 text-indigo-700 border-indigo-200 animate-pulse',
+  ok:          'bg-emerald-50 text-emerald-700 border-emerald-200',
+  error:       'bg-rose-100 text-rose-700 border-rose-200',
+  starting:    'bg-slate-100 text-slate-500 border-slate-200',
+  done:        'bg-emerald-50 text-emerald-700 border-emerald-200',
+  failed:      'bg-rose-100 text-rose-700 border-rose-200',
+  cancelled:   'bg-amber-100 text-amber-800 border-amber-200',
+  interrupted: 'bg-amber-100 text-amber-800 border-amber-200',
 }
 
 const SEVERITY_RANK = { P0: 4, P1: 3, P2: 2, INFO: 1 }
@@ -21,6 +25,7 @@ const SEVERITY_STYLE = {
 }
 
 function StatusChip({ status }) {
+  if (!status) return <span className="text-slate-300 text-[10px]">—</span>
   return (
     <span className={`inline-block px-1.5 py-px rounded border text-[10px] font-semibold tabular-nums ${STATUS_STYLE[status] || STATUS_STYLE.pending}`}>
       {status}
@@ -45,54 +50,43 @@ function topSeverity(alerts) {
   }, null)
 }
 
+function ProgressBar({ done, total, status }) {
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0
+  const barColor = status === 'failed' ? 'bg-rose-500'
+                : status === 'cancelled' || status === 'interrupted' ? 'bg-amber-500'
+                : status === 'done' ? 'bg-emerald-500'
+                : 'bg-indigo-500'
+  return (
+    <div className="w-full h-1.5 bg-slate-200 rounded overflow-hidden">
+      <div
+        className={`h-full transition-all duration-300 ${barColor}`}
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  )
+}
+
 export default function ABCheckRunPanel({ type }) {
-  const { versionA, versionB, cookie } = useAppContext()
-  const [limit, setLimit] = useState('')        // 空字串 = 全跑
-  const [runId, setRunId] = useState(null)
-  const [runStatus, setRunStatus] = useState(null)
-  const [total, setTotal] = useState(0)
-  const [rows, setRows] = useState([])
-  const [starting, setStarting] = useState(false)
-  const [error, setError] = useState(null)
+  const { versionA, versionB, preciseRun, broadRun, startRun, resetRun } = useAppContext()
+  const run = type === 'precise' ? preciseRun : broadRun
+  const [limit, setLimit] = useState('')
+
+  const rows = useMemo(() => {
+    const arr = Array.from(run.rowsMap.values())
+    arr.sort((a, b) => a.query_idx - b.query_idx)
+    return arr
+  }, [run.rowsMap])
+
+  const isInflight = run.status === 'starting' || run.status === 'running'
+  const isStarting = run.status === 'starting'
 
   async function handleStart() {
-    setError(null)
-    setStarting(true)
-    setRows([])
-    setRunId(null)
-    setTotal(0)
-    setRunStatus(null)
-    try {
-      const limitN = limit.trim() === '' ? null : Math.max(1, parseInt(limit, 10))
-      const startRes = await startABCheckRun(type, versionA, versionB, cookie, limitN, null)
-      if (!startRes?.run_id) {
-        setError(startRes?.detail || '啟動失敗')
-        setStarting(false)
-        return
-      }
-      setRunId(startRes.run_id)
-      setRunStatus(startRes.status)
-      setTotal(startRes.total_queries)
-
-      // 立刻拉一次 status 取得 N rows pending(step 5 會接 polling)
-      const statusRes = await getABCheckStatus(startRes.run_id, 0)
-      if (Array.isArray(statusRes?.rows)) setRows(statusRes.rows)
-      if (statusRes?.run?.status) setRunStatus(statusRes.run.status)
-    } catch (e) {
-      setError(e?.message || '伺服器連線異常')
-    }
-    setStarting(false)
+    await startRun(type, limit, null)
   }
 
   function handleReset() {
-    setRunId(null)
-    setRunStatus(null)
-    setTotal(0)
-    setRows([])
-    setError(null)
+    resetRun(type)
   }
-
-  const doneCount = rows.filter(r => r.status === 'ok' || r.status === 'error').length
 
   return (
     <div className="flex flex-col h-full">
@@ -105,7 +99,7 @@ export default function ABCheckRunPanel({ type }) {
           value={limit}
           onChange={(e) => setLimit(e.target.value)}
           placeholder="空白 = 全跑"
-          disabled={starting || (runId && runStatus === 'running')}
+          disabled={isInflight}
           className="w-32 px-2 py-1 border border-slate-300 rounded text-[11px] tabular-nums disabled:bg-slate-100"
         />
         <div className="text-[11px] text-slate-600 inline-flex items-center gap-1.5">
@@ -116,60 +110,72 @@ export default function ABCheckRunPanel({ type }) {
           <span className="inline-block px-1.5 py-0.5 rounded border border-slate-300 bg-white font-mono tabular-nums text-slate-800 text-[10px]">{versionB}</span>
         </div>
         <div className="flex-1" />
-        {runId && (
+        {run.runId && (
           <button
             onClick={handleReset}
-            disabled={starting}
-            className="px-3 py-1 rounded text-[11px] text-slate-600 hover:bg-slate-100 transition-colors"
+            disabled={isInflight}
+            className="px-3 py-1 rounded text-[11px] text-slate-600 hover:bg-slate-100 transition-colors disabled:text-slate-300 disabled:cursor-not-allowed"
           >
             重設
           </button>
         )}
         <button
           onClick={handleStart}
-          disabled={starting}
+          disabled={isInflight}
           className={`px-4 py-1.5 rounded-md text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors ${
-            starting
+            isInflight
               ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
               : 'bg-slate-900 text-white hover:bg-black'
           }`}
         >
           <IconPlay />
-          {starting ? '啟動中…' : (runId ? '重新啟動' : '啟動')}
+          {isStarting ? '啟動中…' : (run.runId ? '重新啟動' : '啟動')}
         </button>
       </div>
 
       {/* 內容 */}
       <div className="flex-1 overflow-y-auto bg-slate-50 px-4 py-3 custom-scroll">
-        {error && (
+        {run.error && (
           <div className="mb-3 px-3 py-2 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-700">
-            {error}
+            {run.error}
           </div>
         )}
 
-        {!runId && !error && (
+        {!run.runId && !run.error && (
           <div className="py-16 text-center text-[12px] text-slate-400">
             <div className="text-slate-300 text-[36px] mb-3">📊</div>
             <div>輸入 limit(可空)後按「啟動」開始 {TYPE_LABEL[type]} 巡檢</div>
-            <div className="text-[10px] mt-2">啟動後表格立刻 render 所有 query 為 pending,worker 一個個跑</div>
+            <div className="text-[10px] mt-2">啟動後表格立刻 render 所有 query 為 pending,每 2 秒拉一次增量更新</div>
           </div>
         )}
 
-        {runId && (
+        {run.runId && (
           <>
             <div className="mb-2 flex items-center gap-3 text-[11px]">
               <span className="text-slate-500">run_id</span>
-              <span className="font-mono tabular-nums text-slate-700 text-[10px]">{runId.slice(0, 12)}…</span>
+              <span className="font-mono tabular-nums text-slate-700 text-[10px]">{run.runId.slice(0, 12)}…</span>
               <span className="text-slate-300">|</span>
               <span className="text-slate-500">進度</span>
-              <span className="tabular-nums text-slate-800 font-semibold">{doneCount}/{total}</span>
-              <span className="text-slate-300">|</span>
-              <span className="text-slate-500">狀態</span>
-              <StatusChip status={runStatus || 'pending'} />
+              <span className="tabular-nums text-slate-800 font-semibold">{run.doneCount}/{run.total}</span>
+              {run.runningIdx != null && isInflight && (
+                <>
+                  <span className="text-slate-300">|</span>
+                  <span className="text-slate-500">跑到</span>
+                  <span className="font-mono text-indigo-700 text-[10px]">
+                    #{run.runningIdx} {run.rowsMap.get(run.runningIdx)?.query}
+                  </span>
+                </>
+              )}
+              <div className="flex-1" />
+              <StatusChip status={run.status} />
+            </div>
+
+            <div className="mb-3">
+              <ProgressBar done={run.doneCount} total={run.total} status={run.status} />
             </div>
 
             <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-              <div className="max-h-[calc(100vh-220px)] overflow-y-auto">
+              <div className="max-h-[calc(100vh-260px)] overflow-y-auto">
                 {rows.length === 0 ? (
                   <div className="py-6 text-center text-slate-400 text-[11px]">尚無 row…</div>
                 ) : (

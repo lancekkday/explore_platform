@@ -1,12 +1,23 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import {
   fetchGuestCookie,
   fetchKeywords, updateKeywords,
   fetchSchedules, addSchedule, updateSchedule, deleteSchedule,
   fetchBaselineKeywords,
   runABCheck,
+  startABCheckRun, getABCheckStatus, cancelABCheckRun,
 } from '../api'
 import { aggregateAlerts } from '../utils/baselineReport'
+
+const POLL_INTERVAL_MS = 2000
+
+function emptyRun() {
+  // rowsMap: idx → checkpoint row (live state)
+  return { runId: null, status: null, total: 0, doneCount: 0,
+           runningIdx: null, rowsMap: new Map(), sinceIdx: 0, error: null }
+}
+
+const TERMINAL = new Set(['done', 'failed', 'cancelled', 'interrupted'])
 
 const AppContext = createContext(null)
 
@@ -47,6 +58,131 @@ export function AppContextProvider({ children }) {
   const [baselineError, setBaselineError] = useState(null)
   // Toast trigger:running→done 過渡時 set true,Toast 顯示完 set false
   const [batchJustCompleted, setBatchJustCompleted] = useState(false)
+
+  // ── New AB-check runner state (polled, survives tab switch) ───────────────
+  const [preciseRun, setPreciseRun] = useState(emptyRun)
+  const [broadRun, setBroadRun] = useState(emptyRun)
+  const pollTimers = useRef({ precise: null, broad: null })
+
+  const setRunFor = (type) => (type === 'precise' ? setPreciseRun : setBroadRun)
+  const getRunFor = (type, snapshot) => (type === 'precise' ? snapshot.precise : snapshot.broad)
+
+  function clearPollTimer(type) {
+    if (pollTimers.current[type]) {
+      clearInterval(pollTimers.current[type])
+      pollTimers.current[type] = null
+    }
+  }
+
+  function mergeRows(prevMap, freshRows) {
+    if (!Array.isArray(freshRows) || freshRows.length === 0) return prevMap
+    const next = new Map(prevMap)
+    for (const r of freshRows) next.set(r.query_idx, r)
+    return next
+  }
+
+  // Sequential worker means rows below the first non-terminal idx are frozen.
+  // Next sinceIdx = idx of the first row still pending / running (or maxIdx+1 if all done).
+  function computeNextSinceIdx(map) {
+    if (map.size === 0) return 0
+    const indices = Array.from(map.keys()).sort((a, b) => a - b)
+    for (const idx of indices) {
+      const s = map.get(idx)?.status
+      if (s !== 'ok' && s !== 'error') return idx
+    }
+    return indices[indices.length - 1] + 1
+  }
+
+  async function pollRunOnce(type, runId) {
+    let snapshot
+    try {
+      // 用 functional setState 拿到當前 sinceIdx,避免 closure 鎖住舊值
+      snapshot = await new Promise((resolve) => {
+        const setter = setRunFor(type)
+        setter(prev => { resolve(prev); return prev })
+      })
+      if (snapshot.runId !== runId) {
+        // run 被 reset / 換新 run,這次 polling 是 stale
+        return
+      }
+      const res = await getABCheckStatus(runId, snapshot.sinceIdx)
+      if (!res?.run) return
+      const merged = mergeRows(snapshot.rowsMap, res.rows)
+      const newSinceIdx = computeNextSinceIdx(merged)
+      setRunFor(type)(prev => prev.runId === runId ? {
+        ...prev,
+        status: res.run.status,
+        total: res.run.total_queries,
+        doneCount: res.progress?.done ?? prev.doneCount,
+        runningIdx: res.progress?.running_idx ?? null,
+        rowsMap: merged,
+        sinceIdx: newSinceIdx,
+      } : prev)
+      if (TERMINAL.has(res.run.status)) clearPollTimer(type)
+    } catch (e) {
+      // 單次 polling 失敗不殺 interval,讓下一輪重試
+      console.warn(`[AB poll/${type}] tick failed:`, e?.message)
+    }
+  }
+
+  function startPolling(type, runId) {
+    clearPollTimer(type)
+    pollTimers.current[type] = setInterval(() => pollRunOnce(type, runId), POLL_INTERVAL_MS)
+  }
+
+  async function startRun(type, limit, resumeRunId = null) {
+    clearPollTimer(type)
+    const setter = setRunFor(type)
+    setter({ ...emptyRun(), status: 'starting' })
+    try {
+      const limitN = (limit == null || limit === '' || isNaN(limit)) ? null : Math.max(1, parseInt(limit, 10))
+      const startRes = await startABCheckRun(type, versionA, versionB, cookie, limitN, resumeRunId)
+      if (!startRes?.run_id) {
+        setter({ ...emptyRun(), error: startRes?.detail || '啟動失敗' })
+        return null
+      }
+      const runId = startRes.run_id
+      setter({
+        runId,
+        status: startRes.status,
+        total: startRes.total_queries,
+        doneCount: 0,
+        runningIdx: null,
+        rowsMap: new Map(),
+        sinceIdx: 0,
+        error: null,
+      })
+      // 立刻拉一次 status 把 pending rows 渲染出來,再開始 2s polling
+      await pollRunOnce(type, runId)
+      startPolling(type, runId)
+      return runId
+    } catch (e) {
+      setter({ ...emptyRun(), error: e?.message || '伺服器連線異常' })
+      return null
+    }
+  }
+
+  async function cancelRun(type) {
+    const cur = type === 'precise' ? preciseRun : broadRun
+    if (!cur.runId) return
+    try {
+      await cancelABCheckRun(cur.runId)
+      // 不主動停 polling — backend status 變 cancelled 時 pollRunOnce 自己會 clearPollTimer
+    } catch (e) {
+      console.warn('[AB cancel] failed:', e?.message)
+    }
+  }
+
+  function resetRun(type) {
+    clearPollTimer(type)
+    setRunFor(type)(emptyRun())
+  }
+
+  // 卸載時清掉 timer (HMR / page reload)
+  useEffect(() => () => {
+    clearPollTimer('precise')
+    clearPollTimer('broad')
+  }, [])
 
   // ── Drawer / modal state (cross-page) ────────────────────────────────────
   const [settingsVisible, setSettingsVisible] = useState(false)
@@ -160,9 +296,11 @@ export function AppContextProvider({ children }) {
     // Audit
     auditKeywords, fetchAuditData,
     schedules,
-    // Batch run state
+    // Batch run state (legacy sync — kept until step 9 removal)
     baselineReport, baselineRunning, baselineError, runBaselineCheck,
     batchJustCompleted, setBatchJustCompleted,
+    // New async AB-check runs (polled)
+    preciseRun, broadRun, startRun, cancelRun, resetRun,
     // Modal state
     settingsVisible, setSettingsVisible,
     kwEditorVisible, setKwEditorVisible, kwInputText, setKwInputText, saveKeywords, openKeywordEditor,

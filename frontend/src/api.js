@@ -124,9 +124,17 @@ export const startABCheckRun = (type, version_a, version_b, cookie, limit, resum
     body: JSON.stringify({ type, version_a, version_b, cookie, limit, resume_run_id }),
   }).then(jsonOrThrow)
 
-export const getABCheckStatus = (run_id, since_idx = 0) =>
-  fetch(`${API_BASE}/ab-check/status?run_id=${encodeURIComponent(run_id)}&since_idx=${since_idx}`)
-    .then(jsonOrThrow)
+export const getABCheckStatus = (run_id, since_idx = 0, { timeoutMs = 8000 } = {}) => {
+  // Polling tick — bail at 8s so slow backend responses don't pile up behind
+  // the 2s setInterval. Fast-fail surfaces in AppContext as a warning, next
+  // tick retries fresh.
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  return fetch(
+    `${API_BASE}/ab-check/status?run_id=${encodeURIComponent(run_id)}&since_idx=${since_idx}`,
+    { signal: ctrl.signal },
+  ).then(jsonOrThrow).finally(() => clearTimeout(timer))
+}
 
 export const cancelABCheckRun = (run_id) =>
   fetch(`${API_BASE}/ab-check/cancel`, {

@@ -408,11 +408,16 @@ def ab_check_cancel(req: ABCheckCancelRequest):
         raise HTTPException(status_code=404, detail=f"run_id not found: {req.run_id}")
     if run["status"] != "running":
         return {"ok": False, "reason": f"run already {run['status']}"}
-    if not ab_check_runner.request_cancel(req.run_id):
-        # status='running' in DB but no in-memory flag — worker is in another
-        # process (or died). Caller should rely on startup sweep / resume.
-        return {"ok": False, "reason": "worker not in current process"}
-    return {"ok": True}
+    if ab_check_runner.request_cancel(req.run_id):
+        return {"ok": True}
+    # status='running' in DB but no in-memory flag — worker dead or running
+    # in another process. Unstick the DB row so the UI can recover.
+    flipped = ab_check_runner.force_interrupt_run(req.run_id)
+    return {
+        "ok": flipped,
+        "reason": "worker not in current process; flipped to interrupted" if flipped
+                  else "worker not in current process and DB update failed",
+    }
 
 
 @app.get("/api/ab-check/history")

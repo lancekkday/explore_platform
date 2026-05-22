@@ -31,6 +31,13 @@ function IconPlay({ className = '' }) {
     </svg>
   )
 }
+function IconAlert({ className = '' }) {
+  return (
+    <svg className={className} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71 -3L13.71 3.86a2 2 0 0 0 -3.42 0z" />
+    </svg>
+  )
+}
 
 function CopyButton({ runId }) {
   const [copied, setCopied] = useState(false)
@@ -102,42 +109,55 @@ function SummaryInline({ summary }) {
   )
 }
 
-// Spec §5.3 — only renders for cancelled/interrupted/done; null otherwise.
+// Spec §5.3 — only renders for cancelled/interrupted/done/failed; null
+// otherwise (running 不出現, per user Q1).
+const FAILED_PALETTE = {
+  bg:         '#FCEBEB',
+  borderBot:  '#F2BABA',
+  iconBg:     '#E24B4A',
+  textMain:   '#791F1F',
+  textSub:    'rgba(121, 31, 31, 0.75)',
+  progressFill:  '#E24B4A',
+  progressTrack: 'rgba(121, 31, 31, 0.15)',
+}
+const AMBER_PALETTE = {
+  bg:         '#FAEEDA',
+  borderBot:  '#F0D49B',
+  iconBg:     '#EF9F27',
+  textMain:   '#854F0B',
+  textSub:    'rgba(133, 79, 11, 0.75)',
+  progressFill:  '#EF9F27',
+  progressTrack: 'rgba(133, 79, 11, 0.15)',
+}
+const GREEN_PALETTE = {
+  bg:         '#EAF7F1',
+  borderBot:  '#B7E2D2',
+  iconBg:     '#1D9E75',
+  textMain:   '#0F6E56',
+  textSub:    'rgba(15, 110, 86, 0.75)',
+  progressFill:  '#1D9E75',
+  progressTrack: 'rgba(15, 110, 86, 0.15)',
+}
+
 export default function RunStatusBar({ run, onResume }) {
   if (!run?.runId) return null
   const status = run.status
 
   const isInterrupted = status === 'cancelled' || status === 'interrupted'
   const isDone = status === 'done'
-  if (!isInterrupted && !isDone) return null
+  const isFailed = status === 'failed'
+  if (!isInterrupted && !isDone && !isFailed) return null
 
   const remaining = Math.max(0, run.total - run.doneCount)
   const showResumeCTA = isInterrupted && remaining > 0
 
-  // Color set per state
-  const palette = isInterrupted
-    ? {
-        bg:         '#FAEEDA',
-        borderBot:  '#F0D49B',
-        iconBg:     '#EF9F27',
-        textMain:   '#854F0B',
-        textSub:    'rgba(133, 79, 11, 0.75)',
-        progressFill:  '#EF9F27',
-        progressTrack: 'rgba(133, 79, 11, 0.15)',
-      }
-    : {
-        bg:         '#EAF7F1',
-        borderBot:  '#B7E2D2',
-        iconBg:     '#1D9E75',
-        textMain:   '#0F6E56',
-        textSub:    'rgba(15, 110, 86, 0.75)',
-        progressFill:  '#1D9E75',
-        progressTrack: 'rgba(15, 110, 86, 0.15)',
-      }
-
-  const headLabel = isInterrupted
-    ? (status === 'cancelled' ? '已中斷' : '已中斷(處理程序重啟)')
-    : '完成'
+  const palette = isFailed ? FAILED_PALETTE : isInterrupted ? AMBER_PALETTE : GREEN_PALETTE
+  const Icon = isFailed ? IconAlert : isInterrupted ? IconPause : IconCheck
+  const headLabel = isFailed
+    ? '失敗'
+    : isInterrupted
+      ? (status === 'cancelled' ? '已中斷' : '已中斷(處理程序重啟)')
+      : '完成'
 
   return (
     <div
@@ -148,7 +168,7 @@ export default function RunStatusBar({ run, onResume }) {
         className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-full text-white shrink-0"
         style={{ background: palette.iconBg }}
       >
-        {isInterrupted ? <IconPause /> : <IconCheck />}
+        <Icon />
       </span>
 
       <div className="flex flex-col gap-[2px] flex-1 min-w-[200px]">
@@ -163,10 +183,9 @@ export default function RunStatusBar({ run, onResume }) {
           </span>
         </div>
         <div className="text-[11px]" style={{ color: palette.textSub }}>
-          {isInterrupted
-            ? `剩下 ${remaining} 個 query 未跑,可從中斷處繼續`
-            : <SummaryInline summary={run.summary} />
-          }
+          {isInterrupted && `剩下 ${remaining} 個 query 未跑,可從中斷處繼續`}
+          {isDone && <SummaryInline summary={run.summary} />}
+          {isFailed && (run.errorMsg || run.error || '伺服器異常,請檢查 backend log')}
         </div>
       </div>
 

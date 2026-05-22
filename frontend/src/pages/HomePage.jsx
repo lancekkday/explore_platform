@@ -55,6 +55,9 @@ export default function HomePage() {
     if (kw) {
       setKeyword(kw)
       setFilterMode(searchParams.get('filter') || 'all')
+      // Clear previous keyword's results immediately — otherwise the loading
+      // gap (1-3s) shows the *old* products labelled with the *new* keyword.
+      setHomeResults({ versionA: null, versionB: null, baseline: null, abComparison: null })
       handleSearch(kw)
       setSearchParams({}, { replace: true })
     }

@@ -13,10 +13,24 @@ function emptyRun() {
   // rowsMap: idx → checkpoint row (live state)
   return { runId: null, status: null, total: 0, doneCount: 0,
            runningIdx: null, rowsMap: new Map(), sinceIdx: 0,
-           limitN: null, error: null }
+           limitN: null, summary: null, errorMsg: null, error: null }
 }
 
 const TERMINAL = new Set(['done', 'failed', 'cancelled', 'interrupted'])
+
+// Backend `detail` payloads can be string (HTTPException) or Array
+// (FastAPI 422 ValidationError). React crashes if we render an Array, so
+// always coerce to a printable string before setting state.
+function errToStr(detail, fallback) {
+  if (typeof detail === 'string' && detail) return detail
+  if (Array.isArray(detail)) {
+    return detail.map(d => d?.msg || JSON.stringify(d)).join('; ') || fallback
+  }
+  if (detail && typeof detail === 'object') {
+    try { return JSON.stringify(detail) } catch { return fallback }
+  }
+  return fallback
+}
 
 const AppContext = createContext(null)
 
@@ -64,6 +78,11 @@ export function AppContextProvider({ children }) {
   const [preciseRun, setPreciseRun] = useState(emptyRun)
   const [broadRun, setBroadRun] = useState(emptyRun)
   const pollTimers = useRef({ precise: null, broad: null })
+  // Mirror state for polling — avoids the functional-setState snapshot hack
+  // (which doubles up under React StrictMode dev). Refresh on each render so
+  // pollRunOnce reads the latest sinceIdx/rowsMap directly from the ref.
+  const runStateRef = useRef({ precise: preciseRun, broad: broadRun })
+  runStateRef.current = { precise: preciseRun, broad: broadRun }
 
   const setRunFor = (type) => (type === 'precise' ? setPreciseRun : setBroadRun)
 
@@ -94,17 +113,13 @@ export function AppContextProvider({ children }) {
   }
 
   async function pollRunOnce(type, runId) {
-    let snapshot
+    // Read latest snapshot from ref (always current; no StrictMode double-fire risk)
+    const snapshot = runStateRef.current[type]
+    if (snapshot.runId !== runId) {
+      // run 被 reset / 換新 run,這次 polling 是 stale
+      return
+    }
     try {
-      // 用 functional setState 拿到當前 sinceIdx,避免 closure 鎖住舊值
-      snapshot = await new Promise((resolve) => {
-        const setter = setRunFor(type)
-        setter(prev => { resolve(prev); return prev })
-      })
-      if (snapshot.runId !== runId) {
-        // run 被 reset / 換新 run,這次 polling 是 stale
-        return
-      }
       const res = await getABCheckStatus(runId, snapshot.sinceIdx)
       if (!res?.run) return
       const merged = mergeRows(snapshot.rowsMap, res.rows)
@@ -118,6 +133,8 @@ export function AppContextProvider({ children }) {
         rowsMap: merged,
         sinceIdx: newSinceIdx,
         limitN: res.run.limit_n,
+        summary: res.run.summary ?? prev.summary,    // F2: persist summary for done bar
+        errorMsg: res.run.error_msg ?? prev.errorMsg, // F8: surface backend error
       } : prev)
       if (TERMINAL.has(res.run.status)) clearPollTimer(type)
     } catch (e) {
@@ -132,34 +149,39 @@ export function AppContextProvider({ children }) {
   }
 
   async function startRun(type, limit, resumeRunId = null) {
+    // F7: in-flight guard — double-click / racy resume would otherwise spawn
+    // a second backend run that the UI immediately forgets about.
+    const cur = runStateRef.current[type]
+    if (cur.status === 'starting' || cur.status === 'running') {
+      console.warn(`[AB start/${type}] ignored: run already ${cur.status}`)
+      return null
+    }
     clearPollTimer(type)
     const setter = setRunFor(type)
     setter({ ...emptyRun(), status: 'starting' })
     try {
-      const limitN = (limit == null || limit === '' || isNaN(limit)) ? null : Math.max(1, parseInt(limit, 10))
+      // F10: empty / '0' / negative / NaN ⇒ null (全跑); otherwise ≥1
+      const raw = (limit == null) ? null : parseInt(limit, 10)
+      const limitN = (raw == null || isNaN(raw) || raw <= 0) ? null : raw
       const startRes = await startABCheckRun(type, versionA, versionB, cookie, limitN, resumeRunId)
       if (!startRes?.run_id) {
-        setter({ ...emptyRun(), error: startRes?.detail || '啟動失敗' })
+        setter({ ...emptyRun(), error: errToStr(startRes?.detail, '啟動失敗') })
         return null
       }
       const runId = startRes.run_id
       setter({
+        ...emptyRun(),
         runId,
         status: startRes.status,
         total: startRes.total_queries,
-        doneCount: 0,
-        runningIdx: null,
-        rowsMap: new Map(),
-        sinceIdx: 0,
-        limitN: limitN,
-        error: null,
+        limitN,
       })
       // 立刻拉一次 status 把 pending rows 渲染出來,再開始 2s polling
       await pollRunOnce(type, runId)
       startPolling(type, runId)
       return runId
     } catch (e) {
-      setter({ ...emptyRun(), error: e?.message || '伺服器連線異常' })
+      setter({ ...emptyRun(), error: errToStr(e?.message, '伺服器連線異常') })
       return null
     }
   }
@@ -168,10 +190,21 @@ export function AppContextProvider({ children }) {
     const cur = type === 'precise' ? preciseRun : broadRun
     if (!cur.runId) return
     try {
-      await cancelABCheckRun(cur.runId)
-      // 不主動停 polling — backend status 變 cancelled 時 pollRunOnce 自己會 clearPollTimer
+      const res = await cancelABCheckRun(cur.runId)
+      // F4: backend may return 200 with {ok:false, reason:'…'} (phantom run,
+      // worker dead). Surface it so the user isn't stuck staring at a frozen
+      // 'running' state. Polling 自己會在下個 tick 看到 status flip 後停掉 timer。
+      if (res && res.ok === false) {
+        setRunFor(type)(prev => prev.runId === cur.runId ? {
+          ...prev,
+          error: `取消失敗:${errToStr(res.reason, '無法判定 worker 狀態,請重新整理')}`
+        } : prev)
+      }
     } catch (e) {
-      console.warn('[AB cancel] failed:', e?.message)
+      setRunFor(type)(prev => prev.runId === cur.runId ? {
+        ...prev,
+        error: errToStr(e?.message, '取消失敗 — 伺服器連線異常')
+      } : prev)
     }
   }
 

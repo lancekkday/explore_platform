@@ -103,14 +103,47 @@ def init_schema() -> None:
 
 
 def sweep_interrupted_runs() -> int:
-    """Mark any in-flight runs as interrupted. Call once at backend startup."""
+    """
+    Mark any in-flight runs as interrupted. Call at backend startup.
+    Also flips orphan checkpoint rows from 'running' back to 'pending',
+    otherwise history detail view shows a phantom "executing" row forever.
+    """
     init_schema()
     with _connect() as conn:
         cur = conn.execute(
             "UPDATE ab_check_runs SET status=? WHERE status=?",
             (RUN_STATUS_INTERRUPTED, RUN_STATUS_RUNNING),
         )
-        return cur.rowcount
+        n_runs = cur.rowcount
+        # Reset orphan checkpoint rows that were mid-flight when the process died.
+        # Anything in 'running' status now is necessarily orphaned (worker is gone).
+        conn.execute(
+            "UPDATE ab_check_checkpoints SET status='pending' WHERE status=?",
+            (CHECKPOINT_RUNNING_,),
+        )
+        return n_runs
+
+
+def force_interrupt_run(run_id: str) -> bool:
+    """
+    Flip a run that is `running` in DB but has no live worker (e.g. worker
+    crashed silently) to `interrupted`. Returns True if the row was actually
+    updated. Same checkpoint-cleanup as sweep_interrupted_runs.
+    """
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE ab_check_runs SET status=?, finished_at=? "
+            "WHERE run_id=? AND status=?",
+            (RUN_STATUS_INTERRUPTED, _now_iso(), run_id, RUN_STATUS_RUNNING),
+        )
+        if cur.rowcount == 0:
+            return False
+        conn.execute(
+            "UPDATE ab_check_checkpoints SET status='pending' "
+            "WHERE run_id=? AND status=?",
+            (run_id, CHECKPOINT_RUNNING_),
+        )
+        return True
 
 
 # ── Cancellation registry (in-memory) ─────────────────────────────────────────
@@ -402,32 +435,61 @@ def _run_worker(
 
 # ── Public entry point ────────────────────────────────────────────────────────
 
-def _copy_parent_done_rows(new_run_id: str, parent_run_id: str, total_new: int) -> tuple[set[int], dict]:
+def _copy_parent_done_rows(
+    new_run_id: str,
+    parent_run_id: str,
+    total_new: int,
+    type_new: str,
+    version_a_new: int,
+    version_b_new: int,
+    baseline_new: str,
+    queries_new: list[str],
+) -> tuple[set[int], dict]:
     """
     Copy parent run's status='ok' checkpoint rows into the new run (alerts_json
-    preserved). Returns (skip_idx, seed_counts). If parent's total_queries differs,
-    the queue ordering is presumed identical (same baseline + limit) so idx maps 1:1.
-    Returns empty if parent not found or no ok rows.
+    preserved). Returns (skip_idx, seed_counts). Bails (returns empty) if the
+    parent run's "queue identity" doesn't match the new run — i.e. any of:
+      - type differs
+      - total_queries differs
+      - version_a/version_b differs (alerts were computed under different AB)
+      - baseline_version differs (queue ordering / row set may have shifted)
+      - per-idx query text differs (defensive: catches sort-order drift inside
+        the same baseline_version)
     """
     init_schema()
     with _connect() as conn:
         parent = conn.execute(
-            "SELECT total_queries FROM ab_check_runs WHERE run_id=?",
+            """SELECT total_queries, type, version_a, version_b, baseline_version
+               FROM ab_check_runs WHERE run_id=?""",
             (parent_run_id,),
         ).fetchone()
         if not parent:
             logger.warning(f"[ABRunner] resume parent={parent_run_id!r} not found, falling back to full run")
             return set(), {}
-        parent_total = parent[0]
+        parent_total, parent_type, parent_va, parent_vb, parent_baseline = parent
+        if parent_type != type_new:
+            logger.warning(f"[ABRunner] resume parent type={parent_type!r} != {type_new!r}, skipping copy")
+            return set(), {}
         if parent_total != total_new:
+            logger.warning(f"[ABRunner] resume parent total={parent_total} != new total={total_new}, skipping copy")
+            return set(), {}
+        if parent_va != version_a_new or parent_vb != version_b_new:
             logger.warning(
-                f"[ABRunner] resume parent total={parent_total} != current total={total_new}, "
-                f"skipping resume copy"
+                f"[ABRunner] resume parent A/B=({parent_va},{parent_vb}) != "
+                f"new A/B=({version_a_new},{version_b_new}); alerts would be "
+                f"misattributed across versions — skipping copy, running fresh"
+            )
+            return set(), {}
+        if parent_baseline != baseline_new:
+            logger.warning(
+                f"[ABRunner] resume parent baseline={parent_baseline!r} != "
+                f"new baseline={baseline_new!r}; queue ordering may have shifted "
+                f"— skipping copy, running fresh"
             )
             return set(), {}
 
         ok_rows = conn.execute(
-            """SELECT query_idx, alerts_json
+            """SELECT query_idx, query, alerts_json
                FROM ab_check_checkpoints
                WHERE run_id=? AND status='ok'""",
             (parent_run_id,),
@@ -435,12 +497,21 @@ def _copy_parent_done_rows(new_run_id: str, parent_run_id: str, total_new: int) 
         if not ok_rows:
             return set(), {}
 
+        # Defensive per-idx text check — if anything mismatches we bail entirely.
+        for idx, parent_query, _ in ok_rows:
+            if 0 <= idx < len(queries_new) and queries_new[idx] != parent_query:
+                logger.warning(
+                    f"[ABRunner] resume parent idx={idx} query={parent_query!r} != "
+                    f"new query={queries_new[idx]!r}; ordering drift — skipping copy"
+                )
+                return set(), {}
+
         now = _now_iso()
         conn.executemany(
             """UPDATE ab_check_checkpoints
                SET status='ok', alerts_json=?, finished_at=?
                WHERE run_id=? AND query_idx=?""",
-            [(alerts_json, now, new_run_id, idx) for idx, alerts_json in ok_rows],
+            [(alerts_json, now, new_run_id, idx) for idx, _q, alerts_json in ok_rows],
         )
         conn.execute(
             "UPDATE ab_check_runs SET done_count=? WHERE run_id=?",
@@ -449,7 +520,7 @@ def _copy_parent_done_rows(new_run_id: str, parent_run_id: str, total_new: int) 
 
     # Tally alert counts so the resumed run's summary stays consistent.
     seed_counts = {"total": 0, "P0": 0, "P1": 0, "P2": 0, "INFO": 0}
-    for _, alerts_json in ok_rows:
+    for _, _q, alerts_json in ok_rows:
         if not alerts_json:
             continue
         try:
@@ -462,7 +533,7 @@ def _copy_parent_done_rows(new_run_id: str, parent_run_id: str, total_new: int) 
             if sev in seed_counts:
                 seed_counts[sev] += 1
 
-    skip_idx = {idx for idx, _ in ok_rows}
+    skip_idx = {idx for idx, _q, _ in ok_rows}
     logger.info(f"[ABRunner] resume from {parent_run_id} → {new_run_id}: skipping {len(skip_idx)} idx")
     return skip_idx, seed_counts
 
@@ -507,7 +578,14 @@ def start_run(
     skip_idx: set[int] = set()
     seed_counts: dict = {}
     if resume_run_id:
-        skip_idx, seed_counts = _copy_parent_done_rows(run_id, resume_run_id, total)
+        skip_idx, seed_counts = _copy_parent_done_rows(
+            run_id, resume_run_id, total,
+            type_new=type_,
+            version_a_new=version_a,
+            version_b_new=version_b,
+            baseline_new=baseline_ts,
+            queries_new=queries,
+        )
 
     cancel_flag = _new_cancel_flag(run_id)
 

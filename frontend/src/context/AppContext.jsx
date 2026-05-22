@@ -47,6 +47,15 @@ export function AppContextProvider({ children }) {
   const [baselineCounts, setBaselineCounts] = useState({ precise: 0, broad: 0 })
   const [baselineDropMultiplier, setBaselineDropMultiplier] = useState(3)
 
+  // ── HomePage 單詞巡檢 state (survives SPA route changes) ─────────────────
+  // 上次的 keyword、結果四件套、篩選模式;切到 /batch 再切回 / 不會被
+  // HomePage local state default 蓋掉。
+  const [homeKeyword, setHomeKeyword] = useState('esim')
+  const [homeFilterMode, setHomeFilterMode] = useState('all')
+  const [homeResults, setHomeResults] = useState({
+    versionA: null, versionB: null, baseline: null, abComparison: null,
+  })
+
   // ── Audit (batch) keyword list + schedules ───────────────────────────────
   const [auditKeywords, setAuditKeywords] = useState([])
   const [schedules, setSchedules] = useState([])
@@ -274,6 +283,10 @@ export function AppContextProvider({ children }) {
     schedules,
     // AB-check runs (polled)
     preciseRun, broadRun, startRun, cancelRun, resetRun,
+    // HomePage single-keyword inspection (cross-route persistent)
+    homeKeyword, setHomeKeyword,
+    homeFilterMode, setHomeFilterMode,
+    homeResults, setHomeResults,
     // Modal state
     settingsVisible, setSettingsVisible,
     kwEditorVisible, setKwEditorVisible, kwInputText, setKwInputText, saveKeywords, openKeywordEditor,

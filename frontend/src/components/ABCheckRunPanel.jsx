@@ -65,6 +65,7 @@ function topSeverity(alerts) {
 // overflow:hidden/overflow:auto ancestors.
 function SeverityHoverCell({ alerts, query }) {
   const anchorRef = useRef(null)
+  const hideTimerRef = useRef(null)
   const [pos, setPos] = useState(null)  // {top, right} viewport coords
   const sev = topSeverity(alerts)
 
@@ -75,7 +76,20 @@ function SeverityHoverCell({ alerts, query }) {
     (a, b) => (SEVERITY_RANK[b.severity] || 0) - (SEVERITY_RANK[a.severity] || 0)
   )
 
+  function cancelHide() {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = null
+    }
+  }
+  function scheduleHide() {
+    // Short delay gives the cursor time to bridge the 6px gap into the popup.
+    cancelHide()
+    hideTimerRef.current = setTimeout(() => setPos(null), 150)
+  }
+
   function handleEnter() {
+    cancelHide()
     const r = anchorRef.current?.getBoundingClientRect()
     if (!r) return
     const POP_W = 480
@@ -95,20 +109,20 @@ function SeverityHoverCell({ alerts, query }) {
     setPos({ top, right })
   }
 
-  function handleLeave() {
-    setPos(null)
-  }
-
   return (
     <span
       ref={anchorRef}
       className="relative inline-block"
       onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
+      onMouseLeave={scheduleHide}
     >
       <SeverityPill severity={sev} />
       {pos && (
         <div
+          // Popup keeps itself alive while hovered — cursor can move from
+          // chip into popup to scroll long alert lists without dismissing.
+          onMouseEnter={cancelHide}
+          onMouseLeave={scheduleHide}
           className="bg-white rounded-lg p-3 text-left z-[200]"
           style={{
             position: 'fixed',
@@ -118,7 +132,6 @@ function SeverityHoverCell({ alerts, query }) {
             maxHeight: '320px',
             overflowY: 'auto',
             border: '0.5px solid rgba(0,0,0,0.18)',
-            pointerEvents: 'none',  // 不攔截下方游標,離開 chip 就消失
           }}
         >
           <div className="text-[12px] font-medium text-text-primary mb-2 pb-2" style={{ borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>

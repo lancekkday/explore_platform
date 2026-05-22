@@ -58,6 +58,11 @@ CHECKPOINT_ERROR = "error"
 
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, timeout=10)
+    # WAL lets readers (polling /status, /history) proceed concurrently
+    # with the worker thread's checkpoint writes — without WAL, sqlite
+    # serializes everything and the 2s poll interval can pile up behind
+    # a slow UPDATE.
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
@@ -111,8 +116,8 @@ def sweep_interrupted_runs() -> int:
     init_schema()
     with _connect() as conn:
         cur = conn.execute(
-            "UPDATE ab_check_runs SET status=? WHERE status=?",
-            (RUN_STATUS_INTERRUPTED, RUN_STATUS_RUNNING),
+            "UPDATE ab_check_runs SET status=?, finished_at=? WHERE status=?",
+            (RUN_STATUS_INTERRUPTED, _now_iso(), RUN_STATUS_RUNNING),
         )
         n_runs = cur.rowcount
         # Reset orphan checkpoint rows that were mid-flight when the process died.
@@ -293,7 +298,6 @@ def _row_to_run_dict(row) -> dict:
 
 def get_run(run_id: str) -> Optional[dict]:
     """Return run meta as dict, or None if not found."""
-    init_schema()
     with _connect() as conn:
         cur = conn.execute(
             f"SELECT {_RUN_COLS} FROM ab_check_runs WHERE run_id=?",
@@ -305,7 +309,6 @@ def get_run(run_id: str) -> Optional[dict]:
 
 def get_checkpoints(run_id: str, since_idx: int = 0) -> list[dict]:
     """Return checkpoint rows for run_id where query_idx >= since_idx, ordered by idx."""
-    init_schema()
     with _connect() as conn:
         cur = conn.execute(
             """SELECT query_idx, query, status, alerts_json, error_msg, finished_at
@@ -348,7 +351,6 @@ def get_running_idx(run_id: str) -> Optional[int]:
 
 def list_runs(type_: Optional[str] = None, limit: int = 50) -> list[dict]:
     """List recent runs (most-recent first). Filter by type if provided."""
-    init_schema()
     limit = max(1, min(limit, 500))
     sql = f"SELECT {_RUN_COLS} FROM ab_check_runs"
     args: tuple = ()
@@ -456,7 +458,6 @@ def _copy_parent_done_rows(
       - per-idx query text differs (defensive: catches sort-order drift inside
         the same baseline_version)
     """
-    init_schema()
     with _connect() as conn:
         parent = conn.execute(
             """SELECT total_queries, type, version_a, version_b, baseline_version

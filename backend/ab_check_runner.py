@@ -420,7 +420,6 @@ def _run_worker(
                 run_id, idx, CHECKPOINT_OK,
                 alerts_json=json.dumps(alerts_dicts, ensure_ascii=False),
             )
-            _bump_done_count(run_id)
 
             total_alerts += len(alerts)
             for a in alerts:
@@ -429,6 +428,12 @@ def _run_worker(
         except Exception as e:
             logger.error(f"[ABRunner] run={run_id} idx={idx} query={query!r} error: {e}")
             _set_checkpoint(run_id, idx, CHECKPOINT_ERROR, error_msg=str(e))
+
+        # `done_count` tracks rows in a terminal state (ok OR error) — both
+        # count as "processed" so the progress bar reaches total on completion.
+        # Without this, any run with even one errored query stays stuck at
+        # e.g. 4/5 even after status flips to 'done'.
+        _bump_done_count(run_id)
 
     summary = {"total": total_alerts, **severity_counts}
     _finish_run(run_id, RUN_STATUS_DONE, summary_json=json.dumps(summary, ensure_ascii=False))

@@ -1,42 +1,50 @@
 import { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { IconPlay } from './icons/Icons'
+import RunStatusBar from './RunStatusBar'
 
 const TYPE_LABEL = { precise: '精準詞', broad: '泛詞' }
 
-const STATUS_STYLE = {
-  pending:     'bg-slate-100 text-slate-500 border-slate-200',
-  running:     'bg-indigo-50 text-indigo-700 border-indigo-200 animate-pulse',
-  ok:          'bg-emerald-50 text-emerald-700 border-emerald-200',
-  error:       'bg-rose-100 text-rose-700 border-rose-200',
-  starting:    'bg-slate-100 text-slate-500 border-slate-200',
-  done:        'bg-emerald-50 text-emerald-700 border-emerald-200',
-  failed:      'bg-rose-100 text-rose-700 border-rose-200',
-  cancelled:   'bg-amber-100 text-amber-800 border-amber-200',
-  interrupted: 'bg-amber-100 text-amber-800 border-amber-200',
+// Spec §5.5 status cell — inline dot + label
+const STATUS_PRESET = {
+  pending:     { dot: '#C0BFB9', text: '#5f5e5a', label: '等待' },
+  running:     { dot: '#378ADD', text: '#0C447C', label: '執行中', pulse: true },
+  ok:          { dot: '#1D9E75', text: '#0F6E56', label: '完成' },
+  error:       { dot: '#E24B4A', text: '#791F1F', label: '失敗' },
+  // Derived: row is pending AND parent run was cancelled — surface "waiting to resume"
+  pending_resume: { dot: '#EF9F27', text: '#854F0B', label: '待續跑' },
 }
 
-const SEVERITY_RANK = { P0: 4, P1: 3, P2: 2, INFO: 1 }
-const SEVERITY_STYLE = {
-  P0:   'bg-rose-100 text-rose-700 border-rose-200',
-  P1:   'bg-amber-100 text-amber-800 border-amber-200',
-  P2:   'bg-indigo-50 text-indigo-700 border-indigo-200',
-  INFO: 'bg-slate-100 text-slate-600 border-slate-200',
-}
-
-function StatusChip({ status }) {
-  if (!status) return <span className="text-slate-300 text-[10px]">—</span>
+function StatusDot({ status, isResumePending }) {
+  const key = (status === 'pending' && isResumePending) ? 'pending_resume' : status
+  const preset = STATUS_PRESET[key] || STATUS_PRESET.pending
   return (
-    <span className={`inline-block px-1.5 py-px rounded border text-[10px] font-semibold tabular-nums ${STATUS_STYLE[status] || STATUS_STYLE.pending}`}>
-      {status}
+    <span className="inline-flex items-center gap-1.5 text-[11px]" style={{ color: preset.text }}>
+      <span
+        className={`inline-block w-1.5 h-1.5 rounded-full ${preset.pulse ? 'animate-pulse' : ''}`}
+        style={{ background: preset.dot }}
+      />
+      {preset.label}
     </span>
   )
 }
 
-function SeverityChip({ severity }) {
-  if (!severity) return <span className="text-slate-300 text-[10px]">—</span>
+// Spec §5.5 嚴重度 — keep 4 levels (P0/P1/P2/INFO) per user; apply spec dimensions
+const SEVERITY_STYLE = {
+  P0:   { bg: '#FCEBEB', fg: '#791F1F' },
+  P1:   { bg: '#FAEEDA', fg: '#854F0B' },
+  P2:   { bg: '#EEEDFE', fg: '#3C3489' },
+  INFO: { bg: '#F2F1ED', fg: '#5f5e5a' },
+}
+const SEVERITY_RANK = { P0: 4, P1: 3, P2: 2, INFO: 1 }
+
+function SeverityPill({ severity }) {
+  if (!severity) return <span className="text-text-tertiary text-[11px]">—</span>
+  const s = SEVERITY_STYLE[severity] || SEVERITY_STYLE.INFO
   return (
-    <span className={`inline-block px-1.5 py-px rounded border text-[10px] font-semibold tabular-nums ${SEVERITY_STYLE[severity] || SEVERITY_STYLE.INFO}`}>
+    <span
+      className="inline-block text-[10px] font-medium rounded-[8px] tabular-nums"
+      style={{ background: s.bg, color: s.fg, padding: '2px 7px' }}
+    >
       {severity}
     </span>
   )
@@ -50,26 +58,42 @@ function topSeverity(alerts) {
   }, null)
 }
 
-function ProgressBar({ done, total, status }) {
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0
-  const barColor = status === 'failed' ? 'bg-rose-500'
-                : status === 'cancelled' || status === 'interrupted' ? 'bg-amber-500'
-                : status === 'done' ? 'bg-emerald-500'
-                : 'bg-indigo-500'
+function ConfirmRestartModal({ runId, onConfirm, onCancel }) {
   return (
-    <div className="w-full h-1.5 bg-slate-200 rounded overflow-hidden">
-      <div
-        className={`h-full transition-all duration-300 ${barColor}`}
-        style={{ width: `${pct}%` }}
-      />
+    <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/30" onClick={onCancel}>
+      <div className="bg-white rounded-lg w-[420px] max-w-[90vw] overflow-hidden border border-border-hair" onClick={(e) => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-border-hair text-[13px] font-medium text-text-primary">
+          重新啟動新一輪?
+        </div>
+        <div className="px-4 py-3 text-[12px] text-text-secondary leading-relaxed">
+          將開始新一輪巡檢,目前 run(
+          <span className="font-mono text-text-primary">{runId.slice(0, 12)}…</span>
+          )的進度將保留為歷史紀錄。確定繼續?
+        </div>
+        <div className="px-4 py-3 border-t border-border-hair flex items-center justify-end gap-2">
+          <button onClick={onCancel} className="px-3 py-1.5 rounded text-[11px] text-text-secondary hover:bg-slate-100 transition-colors">
+            取消
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-3 py-1.5 rounded text-[11px] font-medium text-white bg-text-primary hover:opacity-90 transition-opacity"
+          >
+            確定開始
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
 
 export default function ABCheckRunPanel({ type }) {
-  const { versionA, versionB, preciseRun, broadRun, startRun, cancelRun, resetRun } = useAppContext()
+  const {
+    versionA, setVersionA, versionB, setVersionB,
+    preciseRun, broadRun, startRun, cancelRun,
+  } = useAppContext()
   const run = type === 'precise' ? preciseRun : broadRun
   const [limit, setLimit] = useState('')
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const rows = useMemo(() => {
     const arr = Array.from(run.rowsMap.values())
@@ -79,10 +103,22 @@ export default function ABCheckRunPanel({ type }) {
 
   const isInflight = run.status === 'starting' || run.status === 'running'
   const isStarting = run.status === 'starting'
-  const canResume = run.runId && (run.status === 'interrupted' || run.status === 'cancelled')
+  const hasRun = !!run.runId
+  // Spec Q3: 上一輪 cancelled → row pending = 待續跑(淡黃底)
+  const showResumePending = run.status === 'cancelled' || run.status === 'interrupted'
 
-  async function handleStart() {
+  async function handleStartFresh() {
     await startRun(type, limit, null)
+  }
+
+  function handleRestartClick() {
+    if (hasRun) setConfirmOpen(true)
+    else handleStartFresh()
+  }
+
+  async function handleConfirmRestart() {
+    setConfirmOpen(false)
+    await handleStartFresh()
   }
 
   async function handleCancel() {
@@ -90,163 +126,171 @@ export default function ABCheckRunPanel({ type }) {
   }
 
   async function handleResume() {
-    // 用 parent run 的 limit_n (而非表單上的 limit) 保證 queue ordering 一致
     await startRun(type, run.limitN ?? '', run.runId)
-  }
-
-  function handleReset() {
-    resetRun(type)
   }
 
   return (
     <div className="flex flex-col h-full">
-      {/* 啟動列 */}
-      <div className="px-4 py-2 bg-white border-b border-slate-200 flex items-center gap-3 shrink-0">
-        <span className="text-[11px] text-slate-500">{TYPE_LABEL[type]} · limit</span>
-        <input
-          type="number"
-          min="1"
-          value={limit}
-          onChange={(e) => setLimit(e.target.value)}
-          placeholder="空白 = 全跑"
-          disabled={isInflight}
-          className="w-32 px-2 py-1 border border-slate-300 rounded text-[11px] tabular-nums disabled:bg-slate-100"
-        />
-        <div className="text-[11px] text-slate-600 inline-flex items-center gap-1.5">
-          <span>A</span>
-          <span className="inline-block px-1.5 py-0.5 rounded border border-slate-300 bg-white font-mono tabular-nums text-slate-800 text-[10px]">{versionA}</span>
-          <span className="text-slate-400">vs</span>
-          <span>B</span>
-          <span className="inline-block px-1.5 py-0.5 rounded border border-slate-300 bg-white font-mono tabular-nums text-slate-800 text-[10px]">{versionB}</span>
+      {/* §5.3 — Status Bar (cancelled/interrupted/done only; running 不出現) */}
+      <RunStatusBar run={run} onResume={handleResume} />
+
+      {/* §5.4 — Configuration Row */}
+      <div className="px-[18px] py-[14px] flex items-center gap-5 flex-wrap border-b border-border-hair bg-white">
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] uppercase tracking-[0.05em] font-medium text-text-tertiary">Limit</label>
+          <input
+            type="number"
+            min="1"
+            value={limit}
+            onChange={(e) => setLimit(e.target.value)}
+            placeholder="全跑"
+            disabled={isInflight}
+            className="w-16 h-[30px] px-2 text-[13px] tabular-nums text-center border border-border-hair rounded text-text-primary placeholder:text-text-tertiary placeholder:text-[11px] disabled:bg-slate-50"
+          />
         </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] uppercase tracking-[0.05em] font-medium text-text-tertiary">演算法比對</label>
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-chip-blue text-text-blue-dk">A</span>
+            <input
+              type="number"
+              value={versionA}
+              onChange={(e) => setVersionA(parseInt(e.target.value, 10) || 0)}
+              disabled={isInflight}
+              className="w-[52px] h-[30px] px-2 text-[13px] tabular-nums text-center border border-border-hair rounded text-text-primary disabled:bg-slate-50"
+            />
+            <span className="text-[11px] text-text-tertiary mx-0.5">vs</span>
+            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-chip-purple text-text-purple-dk">B</span>
+            <input
+              type="number"
+              value={versionB}
+              onChange={(e) => setVersionB(parseInt(e.target.value, 10) || 0)}
+              disabled={isInflight}
+              className="w-[52px] h-[30px] px-2 text-[13px] tabular-nums text-center border border-border-hair rounded text-text-primary disabled:bg-slate-50"
+            />
+          </div>
+        </div>
+
         <div className="flex-1" />
-        {run.runId && !isInflight && (
-          <button
-            onClick={handleReset}
-            className="px-3 py-1 rounded text-[11px] text-slate-600 hover:bg-slate-100 transition-colors"
-          >
-            重設
-          </button>
-        )}
-        {isInflight && (
+
+        {isInflight ? (
           <button
             onClick={handleCancel}
-            className="px-3 py-1.5 rounded-md text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors"
+            className="px-[14px] py-[6px] rounded-md text-[12px] font-medium text-status-red border border-status-red/40 bg-white hover:bg-chip-red transition-colors"
           >
             取消
           </button>
+        ) : (
+          <button
+            onClick={handleRestartClick}
+            className="px-[14px] py-[6px] rounded-md text-[12px] font-medium text-text-primary border border-border-hair bg-white hover:bg-page-bg transition-colors"
+          >
+            {isStarting ? '啟動中…' : (hasRun ? '重新啟動新一輪' : '啟動')}
+          </button>
         )}
-        <button
-          onClick={handleStart}
-          disabled={isInflight}
-          className={`px-4 py-1.5 rounded-md text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors ${
-            isInflight
-              ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-              : 'bg-slate-900 text-white hover:bg-black'
-          }`}
-        >
-          <IconPlay />
-          {isStarting ? '啟動中…' : (run.runId ? '重新啟動' : '啟動')}
-        </button>
       </div>
 
-      {/* 內容 */}
-      <div className="flex-1 overflow-y-auto bg-slate-50 px-4 py-3 custom-scroll">
+      {/* Inline progress line (only while running — no full status bar per Q1) */}
+      {isInflight && hasRun && (
+        <div className="px-[18px] py-2 border-b border-border-hair bg-white flex items-center gap-3 text-[11px]">
+          <span className="text-text-tertiary">進度</span>
+          <span className="tabular-nums font-medium text-text-primary">{run.doneCount}/{run.total}</span>
+          {run.runningIdx != null && (
+            <>
+              <span className="text-text-tertiary">·</span>
+              <span className="text-text-tertiary">跑到</span>
+              <span className="font-mono text-text-blue-dk">
+                #{run.runningIdx} {run.rowsMap.get(run.runningIdx)?.query}
+              </span>
+            </>
+          )}
+          <div className="flex-1 mx-3 h-1 rounded-full bg-slate-200 overflow-hidden max-w-[280px]">
+            <div
+              className="h-full bg-status-blue transition-all duration-300"
+              style={{ width: `${run.total > 0 ? (run.doneCount / run.total) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Content area */}
+      <div className="flex-1 overflow-y-auto bg-page-bg px-[18px] py-3 custom-scroll">
         {run.error && (
-          <div className="mb-3 px-3 py-2 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-700">
+          <div className="mb-3 px-3 py-2 bg-chip-red border border-status-red/40 rounded text-[11px] text-text-red-dk">
             {run.error}
           </div>
         )}
 
-        {canResume && (
-          <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-300 rounded flex items-center gap-3">
-            <span className="text-[11px] text-amber-800">
-              run <span className="font-mono">{run.runId.slice(0, 12)}…</span> 中斷於 {run.doneCount}/{run.total} — 可續跑剩下的 {run.total - run.doneCount} 個 query
-            </span>
-            <div className="flex-1" />
-            <button
-              onClick={handleResume}
-              className="px-3 py-1 rounded text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 transition-colors"
-            >
-              續跑
-            </button>
+        {!hasRun && !run.error && (
+          <div className="py-16 text-center text-[12px] text-text-tertiary">
+            <div className="text-text-tertiary opacity-50 text-[32px] mb-2">📊</div>
+            <div>輸入 Limit(可空)後按「啟動」開始 {TYPE_LABEL[type]} 巡檢</div>
+            <div className="text-[10px] mt-2 opacity-80">啟動後表格立刻 render 所有 query 為「等待」,每 2 秒拉一次增量更新</div>
           </div>
         )}
 
-        {!run.runId && !run.error && (
-          <div className="py-16 text-center text-[12px] text-slate-400">
-            <div className="text-slate-300 text-[36px] mb-3">📊</div>
-            <div>輸入 limit(可空)後按「啟動」開始 {TYPE_LABEL[type]} 巡檢</div>
-            <div className="text-[10px] mt-2">啟動後表格立刻 render 所有 query 為 pending,每 2 秒拉一次增量更新</div>
-          </div>
-        )}
-
-        {run.runId && (
-          <>
-            <div className="mb-2 flex items-center gap-3 text-[11px]">
-              <span className="text-slate-500">run_id</span>
-              <span className="font-mono tabular-nums text-slate-700 text-[10px]">{run.runId.slice(0, 12)}…</span>
-              <span className="text-slate-300">|</span>
-              <span className="text-slate-500">進度</span>
-              <span className="tabular-nums text-slate-800 font-semibold">{run.doneCount}/{run.total}</span>
-              {run.runningIdx != null && isInflight && (
-                <>
-                  <span className="text-slate-300">|</span>
-                  <span className="text-slate-500">跑到</span>
-                  <span className="font-mono text-indigo-700 text-[10px]">
-                    #{run.runningIdx} {run.rowsMap.get(run.runningIdx)?.query}
-                  </span>
-                </>
+        {hasRun && (
+          <div className="bg-white border border-border-hair rounded-lg overflow-hidden">
+            <div className="max-h-[calc(100vh-260px)] overflow-y-auto">
+              {rows.length === 0 ? (
+                <div className="py-6 text-center text-text-tertiary text-[11px]">尚無 row…</div>
+              ) : (
+                <table className="w-full text-left" style={{ tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                  <colgroup>
+                    <col style={{ width: '50px' }} />
+                    <col />
+                    <col style={{ width: '110px' }} />
+                    <col style={{ width: '90px' }} />
+                    <col style={{ width: '90px' }} />
+                  </colgroup>
+                  <thead>
+                    <tr className="bg-page-bg sticky top-0 text-text-tertiary text-[10px] uppercase tracking-[0.05em]" style={{ borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>
+                      <th className="font-medium text-left" style={{ padding: '9px 18px' }}>#</th>
+                      <th className="font-medium text-left" style={{ padding: '9px 12px' }}>Query</th>
+                      <th className="font-medium text-left" style={{ padding: '9px 12px' }}>狀態</th>
+                      <th className="font-medium text-right" style={{ padding: '9px 12px' }}>Alerts</th>
+                      <th className="font-medium text-right" style={{ padding: '9px 18px' }}>嚴重度</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(r => {
+                      const isResumePending = showResumePending && r.status === 'pending'
+                      const alertCount = Array.isArray(r.alerts) ? r.alerts.length : null
+                      const sev = topSeverity(r.alerts)
+                      const rowBg = isResumePending ? 'bg-amber-row' : ''
+                      const idxColor = isResumePending ? 'text-text-amber-dk' : 'text-text-tertiary'
+                      const queryColor = isResumePending ? 'text-text-secondary' : 'text-text-primary'
+                      return (
+                        <tr key={r.query_idx} className={rowBg} style={{ borderTop: '0.5px solid rgba(0,0,0,0.08)' }}>
+                          <td className={`font-mono text-[12px] ${idxColor}`} style={{ padding: '11px 18px' }}>{r.query_idx}</td>
+                          <td className={`text-[13px] font-medium ${queryColor}`} style={{ padding: '11px 12px' }}>{r.query}</td>
+                          <td style={{ padding: '11px 12px' }}><StatusDot status={r.status} isResumePending={isResumePending} /></td>
+                          <td
+                            className={`text-right tabular-nums text-[13px] ${alertCount > 0 ? 'font-medium text-text-primary' : 'text-text-tertiary'}`}
+                            style={{ padding: '11px 12px' }}
+                          >
+                            {r.status === 'ok' ? (alertCount === 0 ? '0' : alertCount) : '—'}
+                          </td>
+                          <td className="text-right" style={{ padding: '11px 18px' }}><SeverityPill severity={sev} /></td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               )}
-              <div className="flex-1" />
-              <StatusChip status={run.status} />
             </div>
-
-            <div className="mb-3">
-              <ProgressBar done={run.doneCount} total={run.total} status={run.status} />
-            </div>
-
-            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-              <div className="max-h-[calc(100vh-260px)] overflow-y-auto">
-                {rows.length === 0 ? (
-                  <div className="py-6 text-center text-slate-400 text-[11px]">尚無 row…</div>
-                ) : (
-                  <table className="w-full text-left text-[11px]">
-                    <thead>
-                      <tr className="bg-slate-50/60 sticky top-0 border-b border-slate-200 text-slate-500 text-[10px] uppercase tracking-wider">
-                        <th className="px-3 py-1.5 font-medium w-[60px]">#</th>
-                        <th className="px-3 py-1.5 font-medium">query</th>
-                        <th className="px-3 py-1.5 font-medium w-[80px]">狀態</th>
-                        <th className="px-3 py-1.5 font-medium w-[70px] text-right">alerts</th>
-                        <th className="px-3 py-1.5 font-medium w-[60px] text-right">嚴重</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map(r => {
-                        const alertCount = Array.isArray(r.alerts) ? r.alerts.length : null
-                        const sev = topSeverity(r.alerts)
-                        return (
-                          <tr key={r.query_idx} className="border-b border-slate-100 hover:bg-indigo-50/40 transition-colors">
-                            <td className="px-3 py-1.5 tabular-nums text-slate-400">{r.query_idx}</td>
-                            <td className="px-3 py-1.5 font-medium text-slate-800">{r.query}</td>
-                            <td className="px-3 py-1.5"><StatusChip status={r.status} /></td>
-                            <td className="px-3 py-1.5 text-right tabular-nums text-slate-700">
-                              {r.status === 'ok' ? alertCount : <span className="text-slate-300">—</span>}
-                            </td>
-                            <td className="px-3 py-1.5 text-right">
-                              <SeverityChip severity={sev} />
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-          </>
+          </div>
         )}
       </div>
+
+      {confirmOpen && hasRun && (
+        <ConfirmRestartModal
+          runId={run.runId}
+          onConfirm={handleConfirmRestart}
+          onCancel={() => setConfirmOpen(false)}
+        />
+      )}
     </div>
   )
 }

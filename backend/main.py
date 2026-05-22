@@ -20,6 +20,7 @@ from skills.intent_judger import judger
 from skills.calibration_manager import calibration_manager
 from skills.synonym_service import synonym_service
 from ab_check import run_ab_check, find_rank as ab_find_rank
+import ab_check_runner
 from baseline_service import baseline_service, BASELINE_DROP_MULTIPLIER
 from baseline_version_manager import baseline_version_manager
 import baseline_scheduler
@@ -87,6 +88,17 @@ class ABCheckRequest(BaseModel):
     cookie: str = ""
     skip_precise: bool = False
     skip_broad: bool = False
+
+class ABCheckStartRequest(BaseModel):
+    type: str  # 'precise' | 'broad'
+    version_a: int
+    version_b: int
+    cookie: str = ""
+    limit: Optional[int] = None
+    resume_run_id: Optional[str] = None
+
+class ABCheckCancelRequest(BaseModel):
+    run_id: str
 
 class UnifiedSearchRequest(BaseModel):
     keyword: str
@@ -245,6 +257,11 @@ def startup_event():
     scheduler.start()
     _reload_scheduler_jobs()
     baseline_scheduler.register_job(scheduler)
+    # Mark any ab-check runs that were in-flight when the process died
+    # as `interrupted`, so the UI can offer a resume button.
+    n = ab_check_runner.sweep_interrupted_runs()
+    if n:
+        logger.warning(f"[ABRunner] startup swept {n} interrupted run(s)")
 
 
 @app.on_event("shutdown")
@@ -323,6 +340,12 @@ def compare_envs(req: CompareRequest):
 
 @app.post("/api/ab-check")
 def ab_check(req: ABCheckRequest):
+    # Deprecated: prefer POST /api/ab-check/start (async + checkpointed).
+    # Kept temporarily for un-migrated callers; will be removed when UI flips.
+    logger.warning(
+        "[Deprecation] POST /api/ab-check is deprecated; "
+        "migrate to /api/ab-check/start (async + checkpointed)"
+    )
     cookie = req.cookie or os.getenv("KKDAY_SEARCH_COOKIE", "")
     result = run_ab_check(
         version_a=req.version_a,
@@ -332,6 +355,78 @@ def ab_check(req: ABCheckRequest):
         skip_broad=req.skip_broad,
     )
     return {"success": True, **result}
+
+
+# ── AB-check runner (new, async + checkpointed) ───────────────────────────────
+
+@app.post("/api/ab-check/start")
+def ab_check_start(req: ABCheckStartRequest):
+    if req.type not in ("precise", "broad"):
+        raise HTTPException(status_code=400, detail="type must be 'precise' or 'broad'")
+    cookie = req.cookie or os.getenv("KKDAY_SEARCH_COOKIE", "")
+    try:
+        run_id = ab_check_runner.start_run(
+            type_=req.type,
+            version_a=req.version_a,
+            version_b=req.version_b,
+            cookie=cookie,
+            limit=req.limit,
+            resume_run_id=req.resume_run_id,
+            sync=False,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    run = ab_check_runner.get_run(run_id)
+    return {
+        "run_id": run_id,
+        "status": run["status"],
+        "total_queries": run["total_queries"],
+    }
+
+
+@app.get("/api/ab-check/status")
+def ab_check_status(run_id: str, since_idx: int = 0):
+    run = ab_check_runner.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"run_id not found: {run_id}")
+    rows = ab_check_runner.get_checkpoints(run_id, since_idx=since_idx)
+    return {
+        "run": run,
+        "progress": {
+            "done": run["done_count"],
+            "total": run["total_queries"],
+            "running_idx": ab_check_runner.get_running_idx(run_id),
+        },
+        "rows": rows,
+    }
+
+
+@app.post("/api/ab-check/cancel")
+def ab_check_cancel(req: ABCheckCancelRequest):
+    run = ab_check_runner.get_run(req.run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"run_id not found: {req.run_id}")
+    if run["status"] != "running":
+        return {"ok": False, "reason": f"run already {run['status']}"}
+    if not ab_check_runner.request_cancel(req.run_id):
+        # status='running' in DB but no in-memory flag — worker is in another
+        # process (or died). Caller should rely on startup sweep / resume.
+        return {"ok": False, "reason": "worker not in current process"}
+    return {"ok": True}
+
+
+@app.get("/api/ab-check/history")
+def ab_check_history(type: Optional[str] = None, limit: int = 50):
+    return ab_check_runner.list_runs(type_=type, limit=limit)
+
+
+@app.get("/api/ab-check/history/{run_id}")
+def ab_check_history_detail(run_id: str):
+    run = ab_check_runner.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"run_id not found: {run_id}")
+    rows = ab_check_runner.get_checkpoints(run_id, since_idx=0)
+    return {"run": run, "rows": rows}
 
 @app.get("/api/baseline/keywords")
 def get_baseline_keywords():

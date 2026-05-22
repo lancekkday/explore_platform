@@ -235,6 +235,101 @@ def _finish_run(run_id, status, summary_json=None, error_msg=None) -> None:
         )
 
 
+# ── Read helpers (consumed by API endpoints) ──────────────────────────────────
+
+_RUN_COLS = (
+    "run_id, type, status, version_a, version_b, limit_n, total_queries, "
+    "done_count, baseline_version, error_msg, started_at, finished_at, "
+    "summary_json, parent_run_id"
+)
+
+
+def _row_to_run_dict(row) -> dict:
+    keys = [c.strip() for c in _RUN_COLS.split(",")]
+    d = dict(zip(keys, row))
+    # Parse summary_json for convenience
+    if d.get("summary_json"):
+        try:
+            d["summary"] = json.loads(d["summary_json"])
+        except json.JSONDecodeError:
+            d["summary"] = None
+    else:
+        d["summary"] = None
+    return d
+
+
+def get_run(run_id: str) -> Optional[dict]:
+    """Return run meta as dict, or None if not found."""
+    init_schema()
+    with _connect() as conn:
+        cur = conn.execute(
+            f"SELECT {_RUN_COLS} FROM ab_check_runs WHERE run_id=?",
+            (run_id,),
+        )
+        row = cur.fetchone()
+    return _row_to_run_dict(row) if row else None
+
+
+def get_checkpoints(run_id: str, since_idx: int = 0) -> list[dict]:
+    """Return checkpoint rows for run_id where query_idx >= since_idx, ordered by idx."""
+    init_schema()
+    with _connect() as conn:
+        cur = conn.execute(
+            """SELECT query_idx, query, status, alerts_json, error_msg, finished_at
+               FROM ab_check_checkpoints
+               WHERE run_id=? AND query_idx >= ?
+               ORDER BY query_idx""",
+            (run_id, since_idx),
+        )
+        rows = cur.fetchall()
+    out: list[dict] = []
+    for idx, q, status, alerts_json, err, fin in rows:
+        alerts = None
+        if alerts_json:
+            try:
+                alerts = json.loads(alerts_json)
+            except json.JSONDecodeError:
+                alerts = None
+        out.append({
+            "query_idx": idx,
+            "query": q,
+            "status": status,
+            "alerts": alerts,
+            "error_msg": err,
+            "finished_at": fin,
+        })
+    return out
+
+
+def get_running_idx(run_id: str) -> Optional[int]:
+    """Return the query_idx currently `running` (at most one), or None."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "SELECT query_idx FROM ab_check_checkpoints "
+            "WHERE run_id=? AND status=? LIMIT 1",
+            (run_id, CHECKPOINT_RUNNING_),
+        )
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def list_runs(type_: Optional[str] = None, limit: int = 50) -> list[dict]:
+    """List recent runs (most-recent first). Filter by type if provided."""
+    init_schema()
+    limit = max(1, min(limit, 500))
+    sql = f"SELECT {_RUN_COLS} FROM ab_check_runs"
+    args: tuple = ()
+    if type_:
+        sql += " WHERE type=?"
+        args = (type_,)
+    sql += " ORDER BY started_at DESC LIMIT ?"
+    args = args + (limit,)
+    with _connect() as conn:
+        cur = conn.execute(sql, args)
+        rows = cur.fetchall()
+    return [_row_to_run_dict(r) for r in rows]
+
+
 # ── Worker loop ────────────────────────────────────────────────────────────────
 
 def _run_worker(

@@ -3,7 +3,10 @@ import { IconRefresh } from './icons/Icons'
 import { useAppContext } from '../context/AppContext'
 
 export default function AppHeader() {
-  const { cookieInfo, cookieError, autoFetchCookie, baselineRunning } = useAppContext()
+  const { cookieInfo, cookieError, autoFetchCookie, preciseRun, broadRun } = useAppContext()
+  const anyRunInflight =
+    preciseRun.status === 'running' || preciseRun.status === 'starting' ||
+    broadRun.status === 'running' || broadRun.status === 'starting'
 
   const tabClass = ({ isActive }) =>
     `relative px-3 py-2 text-[11px] font-semibold uppercase tracking-widest transition-colors ${
@@ -33,7 +36,7 @@ export default function AppHeader() {
             {({ isActive }) => (
               <>
                 批次
-                {baselineRunning && (
+                {anyRunInflight && (
                   <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
                 )}
                 {isActive && <span className="absolute inset-x-2 -bottom-px h-[2px] bg-indigo-600 rounded-full" />}

@@ -4,10 +4,8 @@ import {
   fetchKeywords, updateKeywords,
   fetchSchedules, addSchedule, updateSchedule, deleteSchedule,
   fetchBaselineKeywords,
-  runABCheck,
   startABCheckRun, getABCheckStatus, cancelABCheckRun,
 } from '../api'
-import { aggregateAlerts } from '../utils/baselineReport'
 
 const POLL_INTERVAL_MS = 2000
 
@@ -53,20 +51,12 @@ export function AppContextProvider({ children }) {
   const [auditKeywords, setAuditKeywords] = useState([])
   const [schedules, setSchedules] = useState([])
 
-  // ── Batch baseline run (lives in context so promise survives page navigation) ─
-  const [baselineReport, setBaselineReport] = useState(null)
-  const [baselineRunning, setBaselineRunning] = useState(false)
-  const [baselineError, setBaselineError] = useState(null)
-  // Toast trigger:running→done 過渡時 set true,Toast 顯示完 set false
-  const [batchJustCompleted, setBatchJustCompleted] = useState(false)
-
-  // ── New AB-check runner state (polled, survives tab switch) ───────────────
+  // ── AB-check runner state (polled, survives tab switch) ──────────────────
   const [preciseRun, setPreciseRun] = useState(emptyRun)
   const [broadRun, setBroadRun] = useState(emptyRun)
   const pollTimers = useRef({ precise: null, broad: null })
 
   const setRunFor = (type) => (type === 'precise' ? setPreciseRun : setBroadRun)
-  const getRunFor = (type, snapshot) => (type === 'precise' ? snapshot.precise : snapshot.broad)
 
   function clearPollTimer(type) {
     if (pollTimers.current[type]) {
@@ -220,23 +210,6 @@ export function AppContextProvider({ children }) {
     } catch (e) { console.error('Failed to fetch audit data:', e) }
   }
 
-  async function runBaselineCheck() {
-    setBaselineRunning(true)
-    setBaselineError(null)
-    try {
-      const res = await runABCheck(versionA, versionB, cookie, false, false)
-      if (res?.success) {
-        setBaselineReport(aggregateAlerts(res.alerts || []))
-        setBatchJustCompleted(true)
-      } else {
-        setBaselineError(res?.detail || '巡檢失敗')
-      }
-    } catch (e) {
-      setBaselineError(e?.message || '伺服器連線異常')
-    }
-    setBaselineRunning(false)
-  }
-
   async function saveKeywords() {
     const kws = kwInputText.split(/\n|,/).map(s => s.trim()).filter(s => s)
     await updateKeywords(kws)
@@ -299,10 +272,7 @@ export function AppContextProvider({ children }) {
     // Audit
     auditKeywords, fetchAuditData,
     schedules,
-    // Batch run state (legacy sync — kept until step 9 removal)
-    baselineReport, baselineRunning, baselineError, runBaselineCheck,
-    batchJustCompleted, setBatchJustCompleted,
-    // New async AB-check runs (polled)
+    // AB-check runs (polled)
     preciseRun, broadRun, startRun, cancelRun, resetRun,
     // Modal state
     settingsVisible, setSettingsVisible,

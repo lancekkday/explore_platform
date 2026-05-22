@@ -89,6 +89,37 @@ export const explainProduct = (keyword, product) =>
     }),
   }).then(r => r.json())
 
+// ── AB-check runner (async + checkpointed, replaces legacy runABCheck) ────
+
+export const startABCheckRun = (type, version_a, version_b, cookie, limit, resume_run_id) =>
+  fetch(`${API_BASE}/ab-check/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, version_a, version_b, cookie, limit, resume_run_id }),
+  }).then(r => r.json())
+
+export const getABCheckStatus = (run_id, since_idx = 0) =>
+  fetch(`${API_BASE}/ab-check/status?run_id=${encodeURIComponent(run_id)}&since_idx=${since_idx}`)
+    .then(r => r.json())
+
+export const cancelABCheckRun = (run_id) =>
+  fetch(`${API_BASE}/ab-check/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ run_id }),
+  }).then(r => r.json())
+
+export const fetchABCheckHistory = (type, limit = 50) => {
+  const params = new URLSearchParams()
+  if (type) params.set('type', type)
+  params.set('limit', String(limit))
+  return fetch(`${API_BASE}/ab-check/history?${params}`).then(r => r.json())
+}
+
+export const fetchABCheckHistoryDetail = (run_id) =>
+  fetch(`${API_BASE}/ab-check/history/${encodeURIComponent(run_id)}`).then(r => r.json())
+
+// Legacy synchronous endpoint — kept until step 9 removal.
 export const runABCheck = (version_a, version_b, cookie, skip_precise, skip_broad) =>
   fetch(`${API_BASE}/ab-check`, {
     method: 'POST',

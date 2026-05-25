@@ -14,7 +14,12 @@ from typing import Optional
 from loguru import logger
 
 from baseline_service import baseline_service
-from kkday_api import fetch_kkday_products_v3
+from kkday_api import (
+    fetch_kkday_products_v3,
+    DEFAULT_LANG,
+    DEFAULT_LOCALE,
+    DEFAULT_CHANNEL,
+)
 from stage_product_check import stage_checker
 
 # ── 閾值 ──────────────────────────────────────────────────────────────────────
@@ -57,15 +62,20 @@ def _stage_label_zh(stage_status: Optional[str]) -> str:
 # ── API 呼叫 ─────────────────────────────────────────────────────────────────
 
 
-def _fetch_results(query: str, version: int, cookie: str, cache: dict = None) -> tuple[int, ...]:
-    """呼叫 v3 search API，回傳 prod_mid tuple（有 cache）"""
-    key = (query, version)
+def _fetch_results(
+    query: str, version: int, cookie: str, cache: dict = None,
+    lang: str = DEFAULT_LANG, locale: str = DEFAULT_LOCALE, channel: str = DEFAULT_CHANNEL,
+) -> tuple[int, ...]:
+    """呼叫 v3 search API，回傳 prod_mid tuple（有 cache）。
+    cache key 包含 (query, version, lang, locale, channel) 以免不同語系/locale 共用結果。"""
+    key = (query, version, lang, locale, channel)
     if cache is not None and key in cache:
         return cache[key]
     try:
         prods, _, _ = fetch_kkday_products_v3(
             keyword=query, env="stage", cookie=cookie,
             row_count=API_MAX_RESULTS, test_exp=version,
+            lang=lang, locale=locale, channel=channel,
         )
         mids = tuple(
             p.get("prod_mid") or p.get("prod_oid") or 0
@@ -139,10 +149,13 @@ def check_ab_precise(query, mid, baseline_rank, a_rank, b_rank) -> Optional[Aler
     return None
 
 
-def process_one_precise_query(row, version_a, version_b, cookie, cache=None) -> list[Alert]:
+def process_one_precise_query(
+    row, version_a, version_b, cookie, cache=None,
+    lang: str = DEFAULT_LANG, locale: str = DEFAULT_LOCALE, channel: str = DEFAULT_CHANNEL,
+) -> list[Alert]:
     query = row["query"]
-    a_results = _fetch_results(query, version_a, cookie, cache)
-    b_results = _fetch_results(query, version_b, cookie, cache)
+    a_results = _fetch_results(query, version_a, cookie, cache, lang, locale, channel)
+    b_results = _fetch_results(query, version_b, cookie, cache, lang, locale, channel)
 
     alerts = []
     for rank_n, mid_col in [(1, "top1_prod_mid"), (2, "top2_prod_mid")]:
@@ -216,10 +229,13 @@ def check_ab_broad(query, mid, baseline_rank, a_rank, b_rank) -> Optional[Alert]
     return None
 
 
-def process_one_broad_query(query, group, version_a, version_b, cookie, cache=None) -> list[Alert]:
+def process_one_broad_query(
+    query, group, version_a, version_b, cookie, cache=None,
+    lang: str = DEFAULT_LANG, locale: str = DEFAULT_LOCALE, channel: str = DEFAULT_CHANNEL,
+) -> list[Alert]:
     """group: list of broad baseline row dicts (prod_mid, profit_rank, ...) for this query."""
-    a_results = _fetch_results(query, version_a, cookie, cache)
-    b_results = _fetch_results(query, version_b, cookie, cache)
+    a_results = _fetch_results(query, version_a, cookie, cache, lang, locale, channel)
+    b_results = _fetch_results(query, version_b, cookie, cache, lang, locale, channel)
 
     alerts = []
     for row in group:
@@ -243,12 +259,15 @@ def process_one_broad_query(query, group, version_a, version_b, cookie, cache=No
 
 # ── 並行調度 ─────────────────────────────────────────────────────────────────
 
-def _run_precise(precise_rows, va, vb, cookie, cache=None) -> list[Alert]:
+def _run_precise(
+    precise_rows, va, vb, cookie, cache=None,
+    lang: str = DEFAULT_LANG, locale: str = DEFAULT_LOCALE, channel: str = DEFAULT_CHANNEL,
+) -> list[Alert]:
     """precise_rows: iterable of baseline_service._precise.values()"""
     alerts = []
     with ThreadPoolExecutor(max_workers=API_PARALLEL_WORKERS) as ex:
         futures = {
-            ex.submit(process_one_precise_query, r, va, vb, cookie, cache): r["query"]
+            ex.submit(process_one_precise_query, r, va, vb, cookie, cache, lang, locale, channel): r["query"]
             for r in precise_rows
         }
         for f in as_completed(futures):
@@ -259,12 +278,15 @@ def _run_precise(precise_rows, va, vb, cookie, cache=None) -> list[Alert]:
     return alerts
 
 
-def _run_broad(broad_groups, va, vb, cookie, cache=None) -> list[Alert]:
+def _run_broad(
+    broad_groups, va, vb, cookie, cache=None,
+    lang: str = DEFAULT_LANG, locale: str = DEFAULT_LOCALE, channel: str = DEFAULT_CHANNEL,
+) -> list[Alert]:
     """broad_groups: iterable of (query, [row dict, ...])"""
     alerts = []
     with ThreadPoolExecutor(max_workers=API_PARALLEL_WORKERS) as ex:
         futures = {
-            ex.submit(process_one_broad_query, q, g, va, vb, cookie, cache): q
+            ex.submit(process_one_broad_query, q, g, va, vb, cookie, cache, lang, locale, channel): q
             for q, g in broad_groups
         }
         for f in as_completed(futures):
@@ -283,26 +305,36 @@ def run_ab_check(
     cookie: str,
     skip_precise: bool = False,
     skip_broad: bool = False,
+    lang: str = DEFAULT_LANG,
+    locale: str = DEFAULT_LOCALE,
+    channel: str = DEFAULT_CHANNEL,
 ) -> dict:
     """
     執行 AB 巡檢，回傳 { summary, alerts }。
     cache 為 request-local，避免 concurrency 問題。
     """
-    cache: dict[tuple[str, int], tuple[int, ...]] = {}
+    # cache key shape: (query, version, lang, locale, channel) — 5-tuple after PR #28
+    cache: dict[tuple[str, int, str, str, str], tuple[int, ...]] = {}
     all_alerts: list[Alert] = []
 
     # Use baseline_service singleton (already loaded in memory) instead of re-reading CSVs
     if not skip_precise:
         precise_rows = list(baseline_service._precise.values())
         if precise_rows:
-            logger.info(f"[AB] Running precise check: {len(precise_rows)} queries, A={version_a} B={version_b}")
-            all_alerts += _run_precise(precise_rows, version_a, version_b, cookie, cache)
+            logger.info(
+                f"[AB] Running precise check: {len(precise_rows)} queries, "
+                f"A={version_a} B={version_b} lang={lang} locale={locale} channel={channel}"
+            )
+            all_alerts += _run_precise(precise_rows, version_a, version_b, cookie, cache, lang, locale, channel)
 
     if not skip_broad:
         broad_groups = list(baseline_service._broad.items())
         if broad_groups:
-            logger.info(f"[AB] Running broad check: {len(broad_groups)} queries, A={version_a} B={version_b}")
-            all_alerts += _run_broad(broad_groups, version_a, version_b, cookie, cache)
+            logger.info(
+                f"[AB] Running broad check: {len(broad_groups)} queries, "
+                f"A={version_a} B={version_b} lang={lang} locale={locale} channel={channel}"
+            )
+            all_alerts += _run_broad(broad_groups, version_a, version_b, cookie, cache, lang, locale, channel)
 
     severity_counts = {"P0": 0, "P1": 0, "P2": 0, "INFO": 0}
     for a in all_alerts:

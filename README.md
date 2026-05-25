@@ -17,6 +17,7 @@ cp .env.example .env   # 填入必要的環境變數 (含 GOOGLE_APPLICATION_CRE
 ## 主要功能
 
 - **統一巡檢** — 輸入關鍵字，同時取得 A/B 兩版搜尋結果，自動判定每個商品的意圖匹配度 (T1/T2/T3/MISS)
+- **多語系 / 多 channel 巡檢** — `lang` / `locale` / `channel` 三個 v3 search API 欄位可由前端動態切換,巡檢頁切過去後批次也跟著吃同一份設定(預設 `zh-tw` / `tw` / `ios`)
 - **Baseline 標註** — 自動標記精準詞 Top1/Top2 與泛詞利潤排名前 10 的守門商品
 - **A/B 對比** — 比較兩個演算法版本間 baseline 商品的排名變化，產生嚴重度分級告警
 - **批次巡檢** — 拆出獨立 `/batch` 頁面，一鍵跑完所有 baseline 守門關鍵字

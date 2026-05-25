@@ -60,6 +60,7 @@ function Layout() {
         enableAB={ctx.enableAB} setEnableAB={ctx.setEnableAB}
         searchApi={ctx.searchApi} setSearchApi={ctx.setSearchApi}
         aiEnabled={ctx.aiEnabled} setAiEnabled={ctx.setAiEnabled}
+        channel={ctx.channel} setChannel={ctx.setChannel}
         cookieInfo={ctx.cookieInfo}
         onRefreshCookie={ctx.autoFetchCookie}
         onOpenKeywordEditor={ctx.openKeywordEditor}

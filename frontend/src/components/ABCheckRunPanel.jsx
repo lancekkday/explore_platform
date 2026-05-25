@@ -319,6 +319,13 @@ export default function ABCheckRunPanel({ type }) {
               style={{ width: `${run.total > 0 ? (run.doneCount / run.total) * 100 : 0}%` }}
             />
           </div>
+          {/* PR #28:running 中也顯示這個 run 的 locale。Resume 時這裡會跟
+              ctx 全域選的不同 — 因為 backend 沿用了 parent 的。 */}
+          {(run.lang || run.locale || run.channel) && (
+            <span className="font-mono text-[10px] text-text-tertiary ml-auto">
+              {run.lang} · {run.locale} · {run.channel}
+            </span>
+          )}
         </div>
       )}
 

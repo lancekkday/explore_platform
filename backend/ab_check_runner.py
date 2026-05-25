@@ -33,6 +33,7 @@ from ab_check import (
 )
 from baseline_service import baseline_service
 from baseline_version_manager import baseline_version_manager
+from kkday_api import DEFAULT_LANG, DEFAULT_LOCALE, DEFAULT_CHANNEL
 
 # 與 batch_engine 共用 history.db,但 table 隔離(ab_check_runs / ab_check_checkpoints)。
 # 不從 batch_engine import 是為了避免 CLI 拉進 kkday_api / skills 一整串相依。
@@ -68,7 +69,11 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_schema() -> None:
-    """Create ab_check_runs / ab_check_checkpoints tables if missing. Idempotent."""
+    """Create ab_check_runs / ab_check_checkpoints tables if missing. Idempotent.
+
+    Also migrates older DBs lacking lang / locale / channel columns by ADD COLUMN
+    (sqlite raises OperationalError 'duplicate column' if已 exists,直接 swallow)。
+    """
     with _connect() as conn:
         conn.executescript(
             """
@@ -86,7 +91,10 @@ def init_schema() -> None:
               started_at          TEXT NOT NULL,
               finished_at         TEXT,
               summary_json        TEXT,
-              parent_run_id       TEXT
+              parent_run_id       TEXT,
+              lang                TEXT NOT NULL DEFAULT 'zh-tw',
+              locale              TEXT NOT NULL DEFAULT 'tw',
+              channel             TEXT NOT NULL DEFAULT 'ios'
             );
             CREATE INDEX IF NOT EXISTS idx_runs_type_started
               ON ab_check_runs(type, started_at DESC);
@@ -105,6 +113,15 @@ def init_schema() -> None:
               ON ab_check_checkpoints(run_id);
             """
         )
+        # Migration:在 PR #28 之前建好的 DB 沒有 lang/locale/channel 欄位。
+        # ALTER TABLE ADD COLUMN 是 in-place 操作,既有 rows 自動填 DEFAULT。
+        for col, default in (("lang", "zh-tw"), ("locale", "tw"), ("channel", "ios")):
+            try:
+                conn.execute(
+                    f"ALTER TABLE ab_check_runs ADD COLUMN {col} TEXT NOT NULL DEFAULT '{default}'"
+                )
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
 
 def sweep_interrupted_runs() -> int:
@@ -216,15 +233,18 @@ def _get_active_baseline_ts() -> str:
 
 
 def _insert_run(run_id, type_, version_a, version_b, limit_n, total,
-                baseline_version, parent_run_id) -> None:
+                baseline_version, parent_run_id,
+                lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL) -> None:
     with _connect() as conn:
         conn.execute(
             """INSERT INTO ab_check_runs
                  (run_id, type, status, version_a, version_b, limit_n,
-                  total_queries, baseline_version, started_at, parent_run_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                  total_queries, baseline_version, started_at, parent_run_id,
+                  lang, locale, channel)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (run_id, type_, RUN_STATUS_RUNNING, version_a, version_b, limit_n,
-             total, baseline_version, _now_iso(), parent_run_id),
+             total, baseline_version, _now_iso(), parent_run_id,
+             lang, locale, channel),
         )
 
 
@@ -278,7 +298,7 @@ def _finish_run(run_id, status, summary_json=None, error_msg=None) -> None:
 _RUN_COLS = (
     "run_id, type, status, version_a, version_b, limit_n, total_queries, "
     "done_count, baseline_version, error_msg, started_at, finished_at, "
-    "summary_json, parent_run_id"
+    "summary_json, parent_run_id, lang, locale, channel"
 )
 
 
@@ -377,6 +397,9 @@ def _run_worker(
     cancel_flag: threading.Event,
     skip_idx: Optional[set[int]] = None,
     seed_counts: Optional[dict] = None,
+    lang: str = DEFAULT_LANG,
+    locale: str = DEFAULT_LOCALE,
+    channel: str = DEFAULT_CHANNEL,
 ) -> None:
     """同步單緒跑 queue。每跑完一個 query 就 commit 一次 checkpoint。
 
@@ -384,7 +407,8 @@ def _run_worker(
     seed_counts: parent run 的累積 alert tally,合到本 run 的 summary。
     """
     skip_idx = skip_idx or set()
-    cache: dict[tuple[str, int], tuple[int, ...]] = {}
+    # cache key shape: (query, version, lang, locale, channel) — 5-tuple after PR #28
+    cache: dict[tuple[str, int, str, str, str], tuple[int, ...]] = {}
     severity_counts = {"P0": 0, "P1": 0, "P2": 0, "INFO": 0}
     total_alerts = 0
     if seed_counts:
@@ -411,9 +435,13 @@ def _run_worker(
 
         try:
             if type_ == "precise":
-                alerts = process_one_precise_query(row, version_a, version_b, cookie, cache)
+                alerts = process_one_precise_query(
+                    row, version_a, version_b, cookie, cache, lang, locale, channel,
+                )
             else:
-                alerts = process_one_broad_query(query, group, version_a, version_b, cookie, cache)
+                alerts = process_one_broad_query(
+                    query, group, version_a, version_b, cookie, cache, lang, locale, channel,
+                )
 
             alerts_dicts = [asdict(a) for a in alerts]
             _set_checkpoint(
@@ -552,6 +580,9 @@ def start_run(
     limit: Optional[int] = None,
     resume_run_id: Optional[str] = None,
     sync: bool = False,
+    lang: str = DEFAULT_LANG,
+    locale: str = DEFAULT_LOCALE,
+    channel: str = DEFAULT_CHANNEL,
 ) -> str:
     """啟動一個 run,回傳 run_id。
 
@@ -561,11 +592,31 @@ def start_run(
     resume_run_id: 帶入時,parent run 已 status='ok' 的 idx 會被複製進新 run
     的 checkpoint(含 alerts_json),worker 跳過那些 idx 只跑剩下的。Queue 順序
     必須跟 parent 一致(同 baseline + 同 limit)否則 fallback 全跑。
+
+    Resume 時 lang / locale / channel **沿用 parent**(忽略 caller 傳入的值)—
+    一條 run 的 locale 屬於它的身份,續跑不該換 locale 否則 parent 的 ok rows
+    跟新跑的 rows 會跨 locale 混合。
     """
     if type_ not in ("precise", "broad"):
         raise ValueError(f"unknown run type: {type_}")
 
     init_schema()
+
+    # Resume:strip 掉 caller 傳的 locale,改用 parent 的 — 一條 run 的 locale
+    # 在第一次起跑時就釘住,續跑是「繼續同一個 run」不是「開新的」。
+    if resume_run_id:
+        parent = get_run(resume_run_id)
+        if parent:
+            inherited = (parent.get("lang") or DEFAULT_LANG,
+                         parent.get("locale") or DEFAULT_LOCALE,
+                         parent.get("channel") or DEFAULT_CHANNEL)
+            requested = (lang, locale, channel)
+            if inherited != requested:
+                logger.info(
+                    f"[ABRunner] resume from {resume_run_id}: inheriting parent locale "
+                    f"{inherited}, overriding caller-supplied {requested}"
+                )
+            lang, locale, channel = inherited
 
     if type_ == "precise":
         queue = _select_precise_queue(limit)
@@ -578,7 +629,8 @@ def start_run(
     total = len(queue)
     baseline_ts = _get_active_baseline_ts()
 
-    _insert_run(run_id, type_, version_a, version_b, limit, total, baseline_ts, resume_run_id)
+    _insert_run(run_id, type_, version_a, version_b, limit, total, baseline_ts, resume_run_id,
+                lang=lang, locale=locale, channel=channel)
     _insert_initial_checkpoints(run_id, queries)
 
     skip_idx: set[int] = set()
@@ -600,6 +652,7 @@ def start_run(
             _run_worker(
                 run_id, type_, queue, version_a, version_b, cookie, cancel_flag,
                 skip_idx=skip_idx, seed_counts=seed_counts,
+                lang=lang, locale=locale, channel=channel,
             )
         except Exception as e:
             logger.exception(f"[ABRunner] run={run_id} fatal: {e}")

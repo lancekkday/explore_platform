@@ -5,6 +5,9 @@ import {
   refreshBaselineFromBQ, fetchBaselineSourceStatus, updateBaselineCronSchedule,
 } from '../api'
 
+// v3 search API channel 欄位只認這三種
+const CHANNEL_OPTIONS = ['ios', 'android', 'web']
+
 export default function SettingsPanel({
   visible, onClose,
   versionA, setVersionA,
@@ -12,6 +15,7 @@ export default function SettingsPanel({
   enableAB, setEnableAB,
   searchApi, setSearchApi,
   aiEnabled, setAiEnabled,
+  channel, setChannel,
   cookieInfo, onRefreshCookie,
   onOpenKeywordEditor,
   onOpenScheduleModal,
@@ -183,6 +187,19 @@ export default function SettingsPanel({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <label className="text-[12px] font-bold text-slate-700">Channel</label>
+                <select
+                  value={channel}
+                  onChange={e => setChannel(e.target.value)}
+                  title="API channel/source 欄位 (例:ios / android / web)"
+                  className="px-2 py-1 text-[12px] font-black border-2 border-slate-200 rounded-lg bg-white text-slate-800 outline-none focus:border-indigo-500"
+                >
+                  {CHANNEL_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  {!CHANNEL_OPTIONS.includes(channel) && <option value={channel}>{channel}</option>}
+                </select>
               </div>
 
               <div className="flex items-center justify-between">

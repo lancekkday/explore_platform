@@ -1,6 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { IconSearch } from './icons/Icons'
 
+// dropdown 預設選項;後端不限制 enum,純前端候選清單。其他值 → 走「自訂」輸入。
+const LANG_OPTIONS = ['zh-tw', 'zh-hk', 'zh-cn', 'en', 'ja', 'ko', 'th']
+const LOCALE_OPTIONS = ['tw', 'hk', 'cn', 'jp', 'kr', 'th', 'us', 'global']
+
 export default function UnifiedSearchBar({
   keyword, setKeyword,
   loading, cookieInfo,
@@ -9,6 +13,8 @@ export default function UnifiedSearchBar({
   onOpenSettings,
   hasResults,
   onExportCSV,
+  lang, setLang,
+  locale, setLocale,
 }) {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const inputRef = useRef(null)
@@ -74,6 +80,28 @@ export default function UnifiedSearchBar({
           </div>
         )}
       </div>
+
+      {/* lang dropdown */}
+      <select
+        value={lang}
+        onChange={e => setLang(e.target.value)}
+        title="API lang 欄位"
+        className="h-[25px] px-1.5 text-[11px] rounded-[5px] border border-slate-200 bg-white text-slate-700 hover:border-slate-400 outline-none transition-colors"
+      >
+        {LANG_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+        {!LANG_OPTIONS.includes(lang) && <option value={lang}>{lang}</option>}
+      </select>
+
+      {/* locale dropdown */}
+      <select
+        value={locale}
+        onChange={e => setLocale(e.target.value)}
+        title="API locale 欄位"
+        className="h-[25px] px-1.5 text-[11px] rounded-[5px] border border-slate-200 bg-white text-slate-700 hover:border-slate-400 outline-none transition-colors"
+      >
+        {LOCALE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+        {!LOCALE_OPTIONS.includes(locale) && <option value={locale}>{locale}</option>}
+      </select>
 
       {/* 巡檢 button (dark) */}
       <button

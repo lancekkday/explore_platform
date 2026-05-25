@@ -126,6 +126,7 @@ function HistoryList({ rows, filterType, setFilterType, onPick, loading, error, 
                 <th className="px-3 py-1.5 font-medium w-[60px] text-right">進度</th>
                 <th className="px-3 py-1.5 font-medium">summary</th>
                 <th className="px-3 py-1.5 font-medium w-[120px]">baseline</th>
+                <th className="px-3 py-1.5 font-medium w-[110px]" title="v3 search API:lang / locale / channel">locale</th>
                 <th className="px-3 py-1.5 font-medium w-[80px]" title="parent_run_id (resume chain)">續跑自</th>
               </tr>
             </thead>
@@ -148,6 +149,11 @@ function HistoryList({ rows, filterType, setFilterType, onPick, loading, error, 
                   <td className="px-3 py-1.5"><SummaryPills summary={r.summary} /></td>
                   <td className="px-3 py-1.5 font-mono text-slate-500 text-[10px]">
                     {r.baseline_version ? r.baseline_version.slice(0, 15) : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="px-3 py-1.5 font-mono text-slate-500 text-[10px]" title={`lang=${r.lang} locale=${r.locale} channel=${r.channel}`}>
+                    {r.lang || r.locale || r.channel
+                      ? `${r.lang}·${r.locale}·${r.channel}`
+                      : <span className="text-slate-300">—</span>}
                   </td>
                   <td className="px-3 py-1.5 font-mono text-slate-500 text-[10px]">
                     {r.parent_run_id ? <span title={r.parent_run_id}>{r.parent_run_id.slice(0, 8)}…</span> : <span className="text-slate-300">—</span>}

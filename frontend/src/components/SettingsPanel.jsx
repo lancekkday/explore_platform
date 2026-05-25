@@ -5,8 +5,8 @@ import {
   refreshBaselineFromBQ, fetchBaselineSourceStatus, updateBaselineCronSchedule,
 } from '../api'
 
-// channel dropdown 預設選項;後端不限制 enum,純前端候選清單。
-const CHANNEL_OPTIONS = ['ios', 'android', 'web', 'desktop']
+// v3 search API channel 欄位只認這三種
+const CHANNEL_OPTIONS = ['ios', 'android', 'web']
 
 export default function SettingsPanel({
   visible, onClose,

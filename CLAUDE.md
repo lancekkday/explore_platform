@@ -99,7 +99,7 @@ Backend (FastAPI + APScheduler, :19426)
 
 ### Unified Search Pipeline (per keyword)
 
-1. `kkday_api.py` fetches products via v3 search API with `test_exp=version_a` (and optionally `test_exp=version_b`)
+1. `kkday_api.py` fetches products via v3 search API with `test_exp=version_a` (and optionally `test_exp=version_b`); `lang` / `locale` / `channel` are also pass-through fields (defaults `zh-tw` / `tw` / `ios`)
 2. Optionally, `ai_agent.py` parses the keyword into `{location, category, product}` via GPT-4o-mini
 3. `intent_matcher.py` assigns each product a tier (1=exact, 2=related, 3=loose, 0=miss) based on destination/category rules and `unified_destinations.json`; POI keywords (e.g. 環球影城) use a dedicated Route E that skips destination matching
 4. `baseline_service.py` annotates products with baseline tags (⭐ precise / 📊 broad) and profit ranks
@@ -263,11 +263,11 @@ src/
     ├── AppHeader.jsx               — sticky top bar (title + 巡檢/批次 nav + cookie status)
     ├── BaselineStatusBanner.jsx    — red/amber banner under header, polls /api/baseline/source-status every 60s; dismissible per last_run.ts
     ├── BatchToast.jsx              — toast for batch-finished notification
-    ├── UnifiedSearchBar.jsx        — search bar with version inputs + filter + export
+    ├── UnifiedSearchBar.jsx        — search bar + lang/locale dropdowns + 巡檢 / 下載 / 設定 buttons
     ├── AnnotatedResultList.jsx     — product row (h locked to min-h-[42px]; hover surfaces AI/校正 inline in meta row)
     ├── ABComparisonSummary.jsx
     ├── BaselineAlertBar.jsx
-    ├── SettingsPanel.jsx           — search settings + Baseline 管理 (BQ auto-fetch section + CSV upload fallback + version list)
+    ├── SettingsPanel.jsx           — search settings (含 Channel dropdown:ios / android / web) + Baseline 管理 (BQ auto-fetch section + CSV upload fallback + version list)
     ├── CalibrationModal.jsx        — compact tier correction modal
     ├── KeywordEditorModal.jsx      — kept for compat with `batch_engine` keywords.json
     └── ScheduleModal.jsx           — kept for compat with `batch_engine` schedules
@@ -313,6 +313,7 @@ AI parsing is optional and falls back gracefully if the key is missing or the ca
 
 - **AB mode default on** — `enableAB=true` by default (Version A=0, B=1); can be toggled off in SettingsPanel
 - **`test_exp` parameter** — KKDay search API v3 uses `test_exp` to select algorithm version (0=control, 1+=experimental)
+- **`lang` / `locale` / `channel` 由前端帶入** — v3 search API 的這三個欄位由 `AppContext` 集中管理 (預設 `zh-tw` / `tw` / `ios`,與舊行為一致)。HomePage 的 `UnifiedSearchBar` 給 lang + locale 下拉,`SettingsPanel` 給 channel(ios / android / web)。三個欄位透過 `/api/unified-search`、`/api/ab-check/start`、`/api/compare`、`/api/batch/run` 的 Pydantic model 流到 `kkday_api.fetch_kkday_products_v3` 的 base_body 與 `source` 欄位。`ab_check._fetch_results` 的 cache key 包含 `(query, version, lang, locale, channel)` 避免不同 locale 共用 stale 結果。**HomePage 設的值 BatchPage 也會吃到**(共用同個 context state)。後端常數定義在 `backend/kkday_api.py:DEFAULT_LANG / DEFAULT_LOCALE / DEFAULT_CHANNEL`。
 - **Baseline service singleton** — `baseline_service.py` loads CSVs once into memory; avoids re-reading on every request
 - **Request-local cache** — `ab_check.py` creates a new cache dict per `run_ab_check()` call (not module-level) for thread safety
 - **Batch runs are single-threaded** (sequential per keyword), not async — simplifies state management

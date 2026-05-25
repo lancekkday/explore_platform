@@ -411,6 +411,12 @@ def ab_check_start(req: ABCheckStartRequest):
         "run_id": run_id,
         "status": run["status"],
         "total_queries": run["total_queries"],
+        # PR #28: 立即回 run-level locale,讓前端在 polling 第一輪之前就能顯示。
+        # Resume 時這裡會回 parent 的值(start_run 內已 inherit),前端因此能立刻
+        # 看到「沿用了哪個 locale」,不會等 2s 才更新。
+        "lang": run.get("lang"),
+        "locale": run.get("locale"),
+        "channel": run.get("channel"),
     }
 
 

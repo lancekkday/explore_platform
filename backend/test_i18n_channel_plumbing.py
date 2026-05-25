@@ -235,3 +235,47 @@ def test_ab_check_run_default_locale_when_omitted(tmp_path, monkeypatch):
     assert run["lang"] == "zh-tw"
     assert run["locale"] == "tw"
     assert run["channel"] == "ios"
+
+
+def test_resume_inherits_parent_locale(tmp_path, monkeypatch):
+    """續跑時 start_run 必須無視 caller 傳入的 lang/locale/channel,改用 parent 的。
+    這條 run 的 locale 在第一次起跑就釘住,換 locale 等於開新 run。"""
+    import ab_check_runner
+    import baseline_service
+
+    tmp_db = tmp_path / "history-test-resume.db"
+    monkeypatch.setattr(ab_check_runner, "DB_PATH", str(tmp_db))
+    monkeypatch.setattr(
+        baseline_service.baseline_service, "_precise",
+        {"ramen": {"query": "ramen", "top1_prod_mid": 12345, "top2_prod_mid": None}},
+    )
+    monkeypatch.setattr(
+        baseline_service.baseline_service, "_broad", {}
+    )
+    monkeypatch.setattr(
+        "ab_check.process_one_precise_query",
+        lambda *a, **kw: [],
+    )
+
+    # Parent run with lang=zh-tw
+    parent_id = ab_check_runner.start_run(
+        type_="precise", version_a=0, version_b=1, cookie="c",
+        limit=1, sync=True,
+        lang="zh-tw", locale="tw", channel="ios",
+    )
+    parent = ab_check_runner.get_run(parent_id)
+    assert parent["lang"] == "zh-tw"
+
+    # 使用者下拉切到 ja/jp/android 後點「續跑」— caller 帶 ja,但 parent 是 zh-tw
+    resume_id = ab_check_runner.start_run(
+        type_="precise", version_a=0, version_b=1, cookie="c",
+        limit=1, sync=True,
+        resume_run_id=parent_id,
+        lang="ja", locale="jp", channel="android",
+    )
+
+    resumed = ab_check_runner.get_run(resume_id)
+    assert resumed["lang"] == "zh-tw", "resume 必須無視 caller 的 ja,沿用 parent 的 zh-tw"
+    assert resumed["locale"] == "tw"
+    assert resumed["channel"] == "ios"
+    assert resumed["parent_run_id"] == parent_id

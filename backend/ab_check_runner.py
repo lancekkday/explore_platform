@@ -592,11 +592,31 @@ def start_run(
     resume_run_id: 帶入時,parent run 已 status='ok' 的 idx 會被複製進新 run
     的 checkpoint(含 alerts_json),worker 跳過那些 idx 只跑剩下的。Queue 順序
     必須跟 parent 一致(同 baseline + 同 limit)否則 fallback 全跑。
+
+    Resume 時 lang / locale / channel **沿用 parent**(忽略 caller 傳入的值)—
+    一條 run 的 locale 屬於它的身份,續跑不該換 locale 否則 parent 的 ok rows
+    跟新跑的 rows 會跨 locale 混合。
     """
     if type_ not in ("precise", "broad"):
         raise ValueError(f"unknown run type: {type_}")
 
     init_schema()
+
+    # Resume:strip 掉 caller 傳的 locale,改用 parent 的 — 一條 run 的 locale
+    # 在第一次起跑時就釘住,續跑是「繼續同一個 run」不是「開新的」。
+    if resume_run_id:
+        parent = get_run(resume_run_id)
+        if parent:
+            inherited = (parent.get("lang") or DEFAULT_LANG,
+                         parent.get("locale") or DEFAULT_LOCALE,
+                         parent.get("channel") or DEFAULT_CHANNEL)
+            requested = (lang, locale, channel)
+            if inherited != requested:
+                logger.info(
+                    f"[ABRunner] resume from {resume_run_id}: inheriting parent locale "
+                    f"{inherited}, overriding caller-supplied {requested}"
+                )
+            lang, locale, channel = inherited
 
     if type_ == "precise":
         queue = _select_precise_queue(limit)

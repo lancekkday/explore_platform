@@ -11,9 +11,13 @@ const POLL_INTERVAL_MS = 2000
 
 function emptyRun() {
   // rowsMap: idx → checkpoint row (live state)
+  // lang/locale/channel:由 backend _row_to_run_dict 給,resume 時 backend 自動沿用
+  // parent 的值 → 跟 ctx 全域 lang/locale/channel 不一定一致。RunStatusBar / 配置
+  // 列顯示用,提醒使用者「這個 run 是用哪個 locale 跑的」。
   return { runId: null, status: null, total: 0, doneCount: 0,
            runningIdx: null, rowsMap: new Map(), sinceIdx: 0,
-           limitN: null, summary: null, errorMsg: null, error: null }
+           limitN: null, summary: null, errorMsg: null, error: null,
+           lang: null, locale: null, channel: null }
 }
 
 const TERMINAL = new Set(['done', 'failed', 'cancelled', 'interrupted'])
@@ -142,6 +146,11 @@ export function AppContextProvider({ children }) {
         limitN: res.run.limit_n,
         summary: res.run.summary ?? prev.summary,    // F2: persist summary for done bar
         errorMsg: res.run.error_msg ?? prev.errorMsg, // F8: surface backend error
+        // PR #28: run-level locale 從 DB 讀回,resume 時 backend 沿用 parent 的,
+        // 因此可能與 ctx 全域 lang/locale/channel 不同。
+        lang: res.run.lang ?? prev.lang,
+        locale: res.run.locale ?? prev.locale,
+        channel: res.run.channel ?? prev.channel,
       } : prev)
       if (TERMINAL.has(res.run.status)) clearPollTimer(type)
     } catch (e) {
@@ -182,6 +191,11 @@ export function AppContextProvider({ children }) {
         status: startRes.status,
         total: startRes.total_queries,
         limitN,
+        // Resume 時 backend 會回 parent 的 locale(start_run 已 inherit) — 即時填入,
+        // 不用等 2s polling 才看到「沿用了哪個 locale」。
+        lang: startRes.lang ?? lang,
+        locale: startRes.locale ?? locale,
+        channel: startRes.channel ?? channel,
       })
       // 立刻拉一次 status 把 pending rows 渲染出來,再開始 2s polling
       await pollRunOnce(type, runId)

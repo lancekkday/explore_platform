@@ -12,7 +12,13 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from loguru import logger
 
-from kkday_api import fetch_kkday_products, fetch_kkday_products_v3
+from kkday_api import (
+    fetch_kkday_products,
+    fetch_kkday_products_v3,
+    DEFAULT_LANG,
+    DEFAULT_LOCALE,
+    DEFAULT_CHANNEL,
+)
 from skills.metrics import compute_ndcg, compute_recall_stats
 from skills.data_sanitizer import sanitizer
 from batch_engine import engine as batch_engine
@@ -64,6 +70,9 @@ class CompareRequest(BaseModel):
     count: int = 300
     ai_enabled: Optional[bool] = None
     search_api: Optional[str] = "ajax"   # "ajax" or "v3"
+    lang: str = DEFAULT_LANG
+    locale: str = DEFAULT_LOCALE
+    channel: str = DEFAULT_CHANNEL
 
 class FeedbackRequest(BaseModel):
     keyword: str
@@ -78,6 +87,9 @@ class BatchRunRequest(BaseModel):
     search_api: Optional[str] = "ajax"   # "ajax" or "v3"
     version_a: Optional[int] = 0
     version_b: Optional[int] = None      # None = 不跑 B 版
+    lang: str = DEFAULT_LANG
+    locale: str = DEFAULT_LOCALE
+    channel: str = DEFAULT_CHANNEL
 
 class KeywordListRequest(BaseModel):
     keywords: list[Any]
@@ -88,6 +100,9 @@ class ABCheckRequest(BaseModel):
     cookie: str = ""
     skip_precise: bool = False
     skip_broad: bool = False
+    lang: str = DEFAULT_LANG
+    locale: str = DEFAULT_LOCALE
+    channel: str = DEFAULT_CHANNEL
 
 class ABCheckStartRequest(BaseModel):
     type: str  # 'precise' | 'broad'
@@ -96,6 +111,9 @@ class ABCheckStartRequest(BaseModel):
     cookie: str = ""
     limit: Optional[int] = None
     resume_run_id: Optional[str] = None
+    lang: str = DEFAULT_LANG
+    locale: str = DEFAULT_LOCALE
+    channel: str = DEFAULT_CHANNEL
 
 class ABCheckCancelRequest(BaseModel):
     run_id: str
@@ -108,6 +126,9 @@ class UnifiedSearchRequest(BaseModel):
     search_api: str = "v3"
     version_a: int = 3
     version_b: Optional[int] = None
+    lang: str = DEFAULT_LANG
+    locale: str = DEFAULT_LOCALE
+    channel: str = DEFAULT_CHANNEL
 
 class ExplainRequest(BaseModel):
     keyword: str
@@ -314,7 +335,10 @@ def _slim_product(p, rank, result, keyword):
 def compare_envs(req: CompareRequest):
     ai_metadata = judger.get_ai_metadata(req.keyword, ai_enabled=(req.ai_enabled or False))
     fetch_fn = fetch_kkday_products_v3 if req.search_api == "v3" else fetch_kkday_products
-    stage_prods, stage_total, _ = fetch_fn(req.keyword, "stage", req.cookie, req.count)
+    fetch_kwargs = {"keyword": req.keyword, "env": "stage", "cookie": req.cookie, "row_count": req.count}
+    if req.search_api == "v3":
+        fetch_kwargs.update(lang=req.lang, locale=req.locale, channel=req.channel)
+    stage_prods, stage_total, _ = fetch_fn(**fetch_kwargs)
     # Production disabled (Datadome blocks prod API)
     prod_res = []
 
@@ -353,6 +377,9 @@ def ab_check(req: ABCheckRequest):
         cookie=cookie,
         skip_precise=req.skip_precise,
         skip_broad=req.skip_broad,
+        lang=req.lang,
+        locale=req.locale,
+        channel=req.channel,
     )
     return {"success": True, **result}
 
@@ -373,6 +400,9 @@ def ab_check_start(req: ABCheckStartRequest):
             limit=req.limit,
             resume_run_id=req.resume_run_id,
             sync=False,
+            lang=req.lang,
+            locale=req.locale,
+            channel=req.channel,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -548,13 +578,17 @@ def patch_baseline_cron_schedule(req: CronScheduleRequest):
     return {"success": True, "schedule": {k: cfg[k] for k in ("enabled", "hour", "minute")}}
 
 
-def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp):
+def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp,
+                     lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL):
     """Fetch + judge + annotate a single version. Returns (results, total, metrics)."""
     ai_metadata = judger.get_ai_metadata(keyword, ai_enabled=ai_enabled)
     fetch_fn = fetch_kkday_products_v3 if search_api == "v3" else fetch_kkday_products
     kwargs = {"keyword": keyword, "env": "stage", "cookie": cookie, "row_count": count}
     if search_api == "v3":
         kwargs["test_exp"] = test_exp
+        kwargs["lang"] = lang
+        kwargs["locale"] = locale
+        kwargs["channel"] = channel
     prods, total, _ = fetch_fn(**kwargs)
 
     results = []
@@ -663,11 +697,13 @@ async def unified_search(req: UnifiedSearchRequest):
 
     # A/B versions in parallel using threads (requests is sync)
     a_future = loop.run_in_executor(
-        None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_a
+        None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_a,
+        req.lang, req.locale, req.channel,
     )
     if req.version_b is not None:
         b_future = loop.run_in_executor(
-            None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_b
+            None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_b,
+            req.lang, req.locale, req.channel,
         )
         (a_results, a_total, a_metrics, a_alerts), (b_results, b_total, b_metrics, b_alerts) = await asyncio.gather(a_future, b_future)
     else:
@@ -721,7 +757,8 @@ def update_keywords(req: KeywordListRequest):
 @app.post("/api/batch/run")
 def run_batch(req: BatchRunRequest):
     batch_engine.run_batch(req.cookie, ai_enabled_override=req.ai_enabled, search_api=req.search_api,
-                          version_a=req.version_a, version_b=req.version_b)
+                          version_a=req.version_a, version_b=req.version_b,
+                          lang=req.lang, locale=req.locale, channel=req.channel)
     return {"success": True}
 
 @app.post("/api/batch/stop")

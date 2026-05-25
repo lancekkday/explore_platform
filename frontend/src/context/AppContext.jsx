@@ -51,6 +51,13 @@ export function AppContextProvider({ children }) {
   const [searchApi, setSearchApi] = useState('v3')
   const [aiEnabled, setAiEnabled] = useState(false)
 
+  // ── Locale / channel (per-request API fields, shared by Home & Batch) ────
+  // 預設值對齊後端 kkday_api.py 的 DEFAULT_*。lang + locale 給 HomePage 切,
+  // channel 給 SettingsPanel 切。
+  const [lang, setLang] = useState('zh-tw')
+  const [locale, setLocale] = useState('tw')
+  const [channel, setChannel] = useState('ios')
+
   // ── Cookie / connection ──────────────────────────────────────────────────
   const [cookie, setCookie] = useState('')
   const [cookieInfo, setCookieInfo] = useState(null)
@@ -163,7 +170,7 @@ export function AppContextProvider({ children }) {
       // F10: empty / '0' / negative / NaN ⇒ null (全跑); otherwise ≥1
       const raw = (limit == null) ? null : parseInt(limit, 10)
       const limitN = (raw == null || isNaN(raw) || raw <= 0) ? null : raw
-      const startRes = await startABCheckRun(type, versionA, versionB, cookie, limitN, resumeRunId)
+      const startRes = await startABCheckRun(type, versionA, versionB, cookie, limitN, resumeRunId, lang, locale, channel)
       if (!startRes?.run_id) {
         setter({ ...emptyRun(), error: errToStr(startRes?.detail, '啟動失敗') })
         return null
@@ -307,6 +314,8 @@ export function AppContextProvider({ children }) {
     // Search/AB
     versionA, setVersionA, versionB, setVersionB, enableAB, setEnableAB,
     searchApi, setSearchApi, aiEnabled, setAiEnabled,
+    // Locale / channel (lang+locale on HomePage, channel in SettingsPanel)
+    lang, setLang, locale, setLocale, channel, setChannel,
     // Cookie
     cookie, cookieInfo, cookieError, autoFetchCookie,
     // Baseline metadata

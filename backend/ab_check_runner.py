@@ -33,6 +33,7 @@ from ab_check import (
 )
 from baseline_service import baseline_service
 from baseline_version_manager import baseline_version_manager
+from kkday_api import DEFAULT_LANG, DEFAULT_LOCALE, DEFAULT_CHANNEL
 
 # 與 batch_engine 共用 history.db,但 table 隔離(ab_check_runs / ab_check_checkpoints)。
 # 不從 batch_engine import 是為了避免 CLI 拉進 kkday_api / skills 一整串相依。
@@ -377,6 +378,9 @@ def _run_worker(
     cancel_flag: threading.Event,
     skip_idx: Optional[set[int]] = None,
     seed_counts: Optional[dict] = None,
+    lang: str = DEFAULT_LANG,
+    locale: str = DEFAULT_LOCALE,
+    channel: str = DEFAULT_CHANNEL,
 ) -> None:
     """同步單緒跑 queue。每跑完一個 query 就 commit 一次 checkpoint。
 
@@ -384,7 +388,8 @@ def _run_worker(
     seed_counts: parent run 的累積 alert tally,合到本 run 的 summary。
     """
     skip_idx = skip_idx or set()
-    cache: dict[tuple[str, int], tuple[int, ...]] = {}
+    # cache key shape lives in ab_check._fetch_results — (query, version, lang, locale, channel)
+    cache: dict = {}
     severity_counts = {"P0": 0, "P1": 0, "P2": 0, "INFO": 0}
     total_alerts = 0
     if seed_counts:
@@ -411,9 +416,13 @@ def _run_worker(
 
         try:
             if type_ == "precise":
-                alerts = process_one_precise_query(row, version_a, version_b, cookie, cache)
+                alerts = process_one_precise_query(
+                    row, version_a, version_b, cookie, cache, lang, locale, channel,
+                )
             else:
-                alerts = process_one_broad_query(query, group, version_a, version_b, cookie, cache)
+                alerts = process_one_broad_query(
+                    query, group, version_a, version_b, cookie, cache, lang, locale, channel,
+                )
 
             alerts_dicts = [asdict(a) for a in alerts]
             _set_checkpoint(
@@ -552,6 +561,9 @@ def start_run(
     limit: Optional[int] = None,
     resume_run_id: Optional[str] = None,
     sync: bool = False,
+    lang: str = DEFAULT_LANG,
+    locale: str = DEFAULT_LOCALE,
+    channel: str = DEFAULT_CHANNEL,
 ) -> str:
     """啟動一個 run,回傳 run_id。
 
@@ -600,6 +612,7 @@ def start_run(
             _run_worker(
                 run_id, type_, queue, version_a, version_b, cookie, cancel_flag,
                 skip_idx=skip_idx, seed_counts=seed_counts,
+                lang=lang, locale=locale, channel=channel,
             )
         except Exception as e:
             logger.exception(f"[ABRunner] run={run_id} fatal: {e}")

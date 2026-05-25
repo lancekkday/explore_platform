@@ -18,6 +18,8 @@ export default function HomePage() {
     baselineKeywords,
     baselineDropMultiplier, setBaselineDropMultiplier,
     setSettingsVisible,
+    // i18n / channel (lang+locale picked on this page; channel from settings)
+    lang, setLang, locale, setLocale, channel,
     // Cross-route persistent search state (so coming back from /batch
     // restores the last keyword + results instead of resetting to 'esim').
     homeKeyword, setHomeKeyword,
@@ -70,7 +72,7 @@ export default function HomePage() {
     setError('')
     try {
       const vb = enableAB ? versionB : null
-      const res = await fetchUnifiedSearch(kw, cookie, 300, aiEnabled, searchApi, versionA, vb)
+      const res = await fetchUnifiedSearch(kw, cookie, 300, aiEnabled, searchApi, versionA, vb, lang, locale, channel)
       if (res?.success) {
         setHomeResults({
           versionA: res.version_a,
@@ -238,6 +240,8 @@ export default function HomePage() {
           onOpenSettings={() => setSettingsVisible(true)}
           hasResults={hasResults}
           onExportCSV={handleExportCSV}
+          lang={lang} setLang={setLang}
+          locale={locale} setLocale={setLocale}
         />
       </div>
 

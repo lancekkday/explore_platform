@@ -69,7 +69,11 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_schema() -> None:
-    """Create ab_check_runs / ab_check_checkpoints tables if missing. Idempotent."""
+    """Create ab_check_runs / ab_check_checkpoints tables if missing. Idempotent.
+
+    Also migrates older DBs lacking lang / locale / channel columns by ADD COLUMN
+    (sqlite raises OperationalError 'duplicate column' if已 exists,直接 swallow)。
+    """
     with _connect() as conn:
         conn.executescript(
             """
@@ -87,7 +91,10 @@ def init_schema() -> None:
               started_at          TEXT NOT NULL,
               finished_at         TEXT,
               summary_json        TEXT,
-              parent_run_id       TEXT
+              parent_run_id       TEXT,
+              lang                TEXT NOT NULL DEFAULT 'zh-tw',
+              locale              TEXT NOT NULL DEFAULT 'tw',
+              channel             TEXT NOT NULL DEFAULT 'ios'
             );
             CREATE INDEX IF NOT EXISTS idx_runs_type_started
               ON ab_check_runs(type, started_at DESC);
@@ -106,6 +113,15 @@ def init_schema() -> None:
               ON ab_check_checkpoints(run_id);
             """
         )
+        # Migration:在 PR #28 之前建好的 DB 沒有 lang/locale/channel 欄位。
+        # ALTER TABLE ADD COLUMN 是 in-place 操作,既有 rows 自動填 DEFAULT。
+        for col, default in (("lang", "zh-tw"), ("locale", "tw"), ("channel", "ios")):
+            try:
+                conn.execute(
+                    f"ALTER TABLE ab_check_runs ADD COLUMN {col} TEXT NOT NULL DEFAULT '{default}'"
+                )
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
 
 def sweep_interrupted_runs() -> int:
@@ -217,15 +233,18 @@ def _get_active_baseline_ts() -> str:
 
 
 def _insert_run(run_id, type_, version_a, version_b, limit_n, total,
-                baseline_version, parent_run_id) -> None:
+                baseline_version, parent_run_id,
+                lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL) -> None:
     with _connect() as conn:
         conn.execute(
             """INSERT INTO ab_check_runs
                  (run_id, type, status, version_a, version_b, limit_n,
-                  total_queries, baseline_version, started_at, parent_run_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                  total_queries, baseline_version, started_at, parent_run_id,
+                  lang, locale, channel)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (run_id, type_, RUN_STATUS_RUNNING, version_a, version_b, limit_n,
-             total, baseline_version, _now_iso(), parent_run_id),
+             total, baseline_version, _now_iso(), parent_run_id,
+             lang, locale, channel),
         )
 
 
@@ -279,7 +298,7 @@ def _finish_run(run_id, status, summary_json=None, error_msg=None) -> None:
 _RUN_COLS = (
     "run_id, type, status, version_a, version_b, limit_n, total_queries, "
     "done_count, baseline_version, error_msg, started_at, finished_at, "
-    "summary_json, parent_run_id"
+    "summary_json, parent_run_id, lang, locale, channel"
 )
 
 
@@ -388,8 +407,8 @@ def _run_worker(
     seed_counts: parent run 的累積 alert tally,合到本 run 的 summary。
     """
     skip_idx = skip_idx or set()
-    # cache key shape lives in ab_check._fetch_results — (query, version, lang, locale, channel)
-    cache: dict = {}
+    # cache key shape: (query, version, lang, locale, channel) — 5-tuple after PR #28
+    cache: dict[tuple[str, int, str, str, str], tuple[int, ...]] = {}
     severity_counts = {"P0": 0, "P1": 0, "P2": 0, "INFO": 0}
     total_alerts = 0
     if seed_counts:
@@ -590,7 +609,8 @@ def start_run(
     total = len(queue)
     baseline_ts = _get_active_baseline_ts()
 
-    _insert_run(run_id, type_, version_a, version_b, limit, total, baseline_ts, resume_run_id)
+    _insert_run(run_id, type_, version_a, version_b, limit, total, baseline_ts, resume_run_id,
+                lang=lang, locale=locale, channel=channel)
     _insert_initial_checkpoints(run_id, queries)
 
     skip_idx: set[int] = set()

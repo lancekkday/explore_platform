@@ -313,7 +313,8 @@ def run_ab_check(
     執行 AB 巡檢，回傳 { summary, alerts }。
     cache 為 request-local，避免 concurrency 問題。
     """
-    cache: dict = {}
+    # cache key shape: (query, version, lang, locale, channel) — 5-tuple after PR #28
+    cache: dict[tuple[str, int, str, str, str], tuple[int, ...]] = {}
     all_alerts: list[Alert] = []
 
     # Use baseline_service singleton (already loaded in memory) instead of re-reading CSVs

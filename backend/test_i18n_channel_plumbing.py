@@ -166,3 +166,72 @@ def test_ab_check_start_accepts_new_fields(client, monkeypatch):
     assert captured[0]["lang"] == "en"
     assert captured[0]["locale"] == "us"
     assert captured[0]["channel"] == "web"
+
+
+# ── 4. ab_check_runs DB schema persists lang/locale/channel ─────────────────
+
+def test_ab_check_run_persists_locale_metadata(tmp_path, monkeypatch):
+    """start_run 寫進 ab_check_runs 的 row 必須含 lang/locale/channel,
+    讓歷史紀錄看得到、未來 resume 守門邏輯有資料可比對。"""
+    import ab_check_runner
+    import baseline_service
+
+    # 切到隔離的 sqlite 檔案,不污染真實 history.db
+    tmp_db = tmp_path / "history-test.db"
+    monkeypatch.setattr(ab_check_runner, "DB_PATH", str(tmp_db))
+    # 假 baseline:一個精準詞,避免 queue 為空導致沒 row 可看
+    monkeypatch.setattr(
+        baseline_service.baseline_service, "_precise",
+        {"ramen": {"query": "ramen", "top1_prod_mid": 12345, "top2_prod_mid": None}},
+    )
+    monkeypatch.setattr(
+        baseline_service.baseline_service, "_broad", {}
+    )
+    # 阻止 daemon thread 真的去打 API:start_run(sync=False) 仍會起 thread,
+    # 但 process_one_precise_query 會被 patch 掉。
+    monkeypatch.setattr(
+        "ab_check.process_one_precise_query",
+        lambda *a, **kw: [],
+    )
+
+    run_id = ab_check_runner.start_run(
+        type_="precise", version_a=0, version_b=1, cookie="c",
+        limit=1, sync=True,
+        lang="ja", locale="jp", channel="android",
+    )
+
+    run = ab_check_runner.get_run(run_id)
+    assert run is not None, "start_run 應寫進 DB"
+    assert run["lang"] == "ja", f"lang 沒存進 DB (got {run.get('lang')!r})"
+    assert run["locale"] == "jp", f"locale 沒存進 DB (got {run.get('locale')!r})"
+    assert run["channel"] == "android", f"channel 沒存進 DB (got {run.get('channel')!r})"
+
+
+def test_ab_check_run_default_locale_when_omitted(tmp_path, monkeypatch):
+    """沒帶 lang/locale/channel 時,DB row 寫入預設值 zh-tw / tw / ios。"""
+    import ab_check_runner
+    import baseline_service
+
+    tmp_db = tmp_path / "history-test-default.db"
+    monkeypatch.setattr(ab_check_runner, "DB_PATH", str(tmp_db))
+    monkeypatch.setattr(
+        baseline_service.baseline_service, "_precise",
+        {"ramen": {"query": "ramen", "top1_prod_mid": 12345, "top2_prod_mid": None}},
+    )
+    monkeypatch.setattr(
+        baseline_service.baseline_service, "_broad", {}
+    )
+    monkeypatch.setattr(
+        "ab_check.process_one_precise_query",
+        lambda *a, **kw: [],
+    )
+
+    run_id = ab_check_runner.start_run(
+        type_="precise", version_a=0, version_b=1, cookie="c",
+        limit=1, sync=True,
+    )
+
+    run = ab_check_runner.get_run(run_id)
+    assert run["lang"] == "zh-tw"
+    assert run["locale"] == "tw"
+    assert run["channel"] == "ios"

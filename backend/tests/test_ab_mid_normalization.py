@@ -70,6 +70,18 @@ def test_raw_mixed_types_match_nothing():
     assert raw_matched == 0  # int 137689 != str "137689"
 
 
+def test_malformed_product_resolves_to_zero_sentinel():
+    """A present product whose id fields are unusable must resolve to the 0 sentinel —
+    this is the exact condition _process_version uses to emit an error log + surface a
+    mid_warning, since real prod_mids are always non-zero positive integers."""
+    # Neither prod_mid nor prod_oid usable -> 0 (flagged as anomaly).
+    assert (_normalize_mid("N/A") or _normalize_mid(None)) == 0
+    assert (_normalize_mid(None) or _normalize_mid("")) == 0
+    # prod_mid missing/zero but prod_oid valid -> falls back, NOT an anomaly.
+    assert (_normalize_mid(None) or _normalize_mid(243815)) == 243815
+    assert (_normalize_mid("0") or _normalize_mid("243815")) == 243815
+
+
 def test_same_version_comparison_masks_the_bug():
     """Why this went unnoticed: comparing a version against itself (A == B, e.g. the
     prod-vs-prod calibration round in SKILL.md) matches fine even with raw values,

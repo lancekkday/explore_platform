@@ -610,6 +610,7 @@ def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp,
     prods, total, _ = fetch_fn(**kwargs)
 
     results = []
+    mid_warnings = []
     for i, p in enumerate(prods):
         res = judger.process_and_calibrate(p, i + 1, keyword, ai_metadata, _slim_product)
         res["rank_delta"] = None
@@ -618,8 +619,27 @@ def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp,
         # versions (int for some experiments, str for others). Normalize to int so the
         # AB cross-rank match (frontend Map + _compute_ab_comparison) and baseline
         # lookups compare equal — otherwise 137689 != "137689" yields 100% "未出現".
-        res["prod_mid"] = _normalize_mid(p.get("prod_mid")) or _normalize_mid(p.get("prod_oid"))
+        raw_mid, raw_oid = p.get("prod_mid"), p.get("prod_oid")
+        mid = _normalize_mid(raw_mid) or _normalize_mid(raw_oid)
+        res["prod_mid"] = mid
+        # Every real product must carry a non-zero positive integer id. Resolving to
+        # <= 0 means the API changed shape or sent a malformed id — surface it loudly
+        # instead of silently keying the row on 0 (which would read as "未出現").
+        if mid <= 0:
+            mid_warnings.append({
+                "rank": i + 1,
+                "prod_mid": raw_mid,
+                "prod_oid": raw_oid,
+                "name": res.get("name", ""),
+            })
         results.append(res)
+
+    if mid_warnings:
+        logger.error(
+            f"[unified-search][{keyword}][test_exp={test_exp}] "
+            f"{len(mid_warnings)} product(s) with unresolvable prod_mid "
+            f"(expected non-zero positive int); first 5={mid_warnings[:5]}"
+        )
 
     baseline_service.annotate_products(keyword, results)
     baseline_alerts = baseline_service.find_baseline_alerts(keyword, results)
@@ -631,7 +651,7 @@ def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp,
         **compute_recall_stats(results),
     }
 
-    return results, total, metrics, baseline_alerts
+    return results, total, metrics, baseline_alerts, mid_warnings
 
 
 def _compute_ab_comparison(keyword, a_results, b_results):
@@ -727,10 +747,10 @@ async def unified_search(req: UnifiedSearchRequest):
             None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_b,
             req.lang, req.locale, req.channel,
         )
-        (a_results, a_total, a_metrics, a_alerts), (b_results, b_total, b_metrics, b_alerts) = await asyncio.gather(a_future, b_future)
+        (a_results, a_total, a_metrics, a_alerts, a_mid_warnings), (b_results, b_total, b_metrics, b_alerts, b_mid_warnings) = await asyncio.gather(a_future, b_future)
     else:
-        a_results, a_total, a_metrics, a_alerts = await a_future
-        b_results = b_total = b_metrics = b_alerts = None
+        a_results, a_total, a_metrics, a_alerts, a_mid_warnings = await a_future
+        b_results = b_total = b_metrics = b_alerts = b_mid_warnings = None
 
     response = {
         "success": True,
@@ -743,6 +763,7 @@ async def unified_search(req: UnifiedSearchRequest):
             "results": a_results,
             "metrics": a_metrics,
             "baseline_alerts": a_alerts,
+            "mid_warnings": a_mid_warnings,
         },
         "version_b": {
             "test_exp": req.version_b,
@@ -750,6 +771,7 @@ async def unified_search(req: UnifiedSearchRequest):
             "results": b_results,
             "metrics": b_metrics,
             "baseline_alerts": b_alerts,
+            "mid_warnings": b_mid_warnings,
         } if b_results is not None else None,
         "ab_comparison": None,
     }

@@ -42,6 +42,14 @@ def test_normalize_mid_handles_missing_and_garbage():
     assert _normalize_mid(0) == 0
 
 
+def test_normalize_mid_handles_float_like_strings():
+    """CSV / some API responses surface ids as float-like strings; coerce them
+    instead of dropping to 0 (consistent with baseline_service._safe_int)."""
+    assert _normalize_mid("12345.0") == 12345
+    assert _normalize_mid(12345.0) == 12345
+    assert _normalize_mid("137689") == 137689
+
+
 def test_cross_version_match_succeeds_after_normalization():
     """A#4 (137689, int) must be found in B, where it is the str '137689'."""
     a_mids = tuple(_normalize_mid(m) for m in A_RAW)

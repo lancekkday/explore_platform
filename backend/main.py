@@ -434,10 +434,10 @@ def _normalize_mid(mid):
     """Coerce a prod_mid to int for consistent cross-version matching.
     The v3 API returns prod_mid as int or str depending on test_exp; both forms
     must collapse to the same key. Returns 0 for missing/non-numeric values."""
-    if mid is None:
+    if mid is None or mid == "":
         return 0
     try:
-        return int(mid)
+        return int(float(mid))
     except (TypeError, ValueError):
         return 0
 
@@ -460,7 +460,7 @@ def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp):
         # versions (int for some experiments, str for others). Normalize to int so the
         # AB cross-rank match (frontend Map + _compute_ab_comparison) and baseline
         # lookups compare equal — otherwise 137689 != "137689" yields 100% "未出現".
-        res["prod_mid"] = _normalize_mid(p.get("prod_mid") or p.get("prod_oid"))
+        res["prod_mid"] = _normalize_mid(p.get("prod_mid")) or _normalize_mid(p.get("prod_oid"))
         results.append(res)
 
     baseline_service.annotate_products(keyword, results)

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { safeString } from '../utils/safeString'
 import TierBadge from './ui/TierBadge'
 import { IconTag } from './icons/Icons'
@@ -126,7 +126,7 @@ function ResultRow({
   return (
     <div
       ref={rowRef}
-      className={`group relative flex flex-col px-2.5 py-1.5 border-b border-slate-100 transition-colors ${
+      className={`group relative flex flex-col justify-center px-2.5 py-1 min-h-[42px] border-b border-slate-100 transition-colors ${
         highlight ? 'bg-amber-100' : 'hover:bg-slate-50'
       }`}
     >
@@ -167,26 +167,6 @@ function ResultRow({
         {showCrossRank && (
           <CrossRankTag column={column} otherRank={otherRank} currentRank={item.rank} />
         )}
-        {/* hover actions */}
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/95 backdrop-blur px-1 rounded-md shadow-sm border border-slate-200">
-          <button
-            onClick={() => onExplain?.(item)}
-            className={`px-1.5 py-px rounded text-[10px] font-medium transition-colors ${
-              explanation
-                ? 'bg-indigo-600 text-white'
-                : 'text-indigo-600 hover:bg-indigo-50'
-            }`}
-            title={`AI 解釋（關鍵字：${keyword}）`}
-          >
-            {explanation === 'loading' ? '…' : 'AI'}
-          </button>
-          <button
-            onClick={() => onCalibrate?.(item)}
-            className="px-1.5 py-px rounded text-[10px] font-medium text-slate-700 hover:bg-slate-100"
-          >
-            校正
-          </button>
-        </div>
       </div>
       {/* metadata (left) + mismatch reasons (right) in one row */}
       <div className="ml-[28px] mt-0.5 flex items-center gap-2 text-[9px] text-slate-500 leading-none">
@@ -207,13 +187,34 @@ function ResultRow({
         )}
         {item.mismatch_reasons?.length > 0 && (
           <span
-            className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 bg-rose-50 border border-rose-100 rounded italic text-rose-600/90 max-w-[420px]"
+            className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] bg-rose-50 border border-rose-100 rounded italic text-rose-600/90 max-w-[420px]"
             title={item.mismatch_reasons.join(' | ')}
           >
             <span className="w-1 h-1 bg-rose-400 rounded-full shrink-0" />
             <span className="truncate">{item.mismatch_reasons.join(' | ')}</span>
           </span>
         )}
+        {/* Hover actions — sits inline in meta row so baselines align with mismatch chip;
+            always takes space (invisible until hover) to avoid layout jump. */}
+        <div className={`${item.mismatch_reasons?.length > 0 ? '' : 'ml-auto'} flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto`}>
+          <button
+            onClick={() => onExplain?.(item)}
+            className={`inline-flex items-center px-1.5 py-0.5 text-[9px] font-medium rounded border leading-none transition-colors ${
+              explanation
+                ? 'bg-indigo-600 text-white border-indigo-700'
+                : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'
+            }`}
+            title={`AI 解釋（關鍵字：${keyword}）`}
+          >
+            {explanation === 'loading' ? '…' : 'AI'}
+          </button>
+          <button
+            onClick={() => onCalibrate?.(item)}
+            className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-medium rounded border leading-none bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+          >
+            校正
+          </button>
+        </div>
       </div>
       {/* AI explanation (when active) */}
       {explanation && explanation !== 'loading' && explanation !== 'error' && (
@@ -231,17 +232,30 @@ function ResultRow({
 }
 
 // "Missing" row shown when a baseline product exists in the other column but not in this one (diff mode only)
-function MissingRow({ column, baselineInfo, item }) {
+// status: 'removed' | 'out_of_window' | 'check_failed' | undefined (legacy / not yet checked)
+function MissingRow({ column, baselineInfo, item, status }) {
   const thisLabel = column === 'A' ? 'A' : 'B'
+  const config = (() => {
+    if (status === 'removed') {
+      return { bg: 'bg-rose-100/50', tagBg: 'text-rose-700 bg-rose-200/70 px-1.5 rounded', tag: '商品下架', dashColor: 'text-rose-400' }
+    }
+    if (status === 'out_of_window') {
+      return { bg: 'bg-orange-50/40', tagBg: 'text-orange-700 bg-orange-100 px-1.5 rounded', tag: '排名 >300', dashColor: 'text-orange-300' }
+    }
+    if (status === 'check_failed') {
+      return { bg: 'bg-slate-50/60', tagBg: 'text-slate-600 bg-slate-200 px-1.5 rounded', tag: 'Stage 未確認', dashColor: 'text-slate-400' }
+    }
+    return { bg: 'bg-rose-50/30', tagBg: 'text-rose-600 font-medium', tag: '未出現', dashColor: 'text-rose-300' }
+  })()
   return (
-    <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-slate-100 bg-rose-50/30">
-      <span className="text-[10px] text-rose-300 w-[20px] text-right tabular-nums">—</span>
+    <div className={`flex items-center gap-1.5 px-2.5 py-1.5 border-b border-slate-100 ${config.bg}`}>
+      <span className={`text-[10px] w-[20px] text-right tabular-nums ${config.dashColor}`}>—</span>
       <span className="w-[5px] shrink-0" />
       <BaselineBadge info={baselineInfo} />
       <span className="flex-1 min-w-0 text-[11px] leading-[1.4] italic text-slate-400 truncate" title={item?.prod_nm}>
         {safeString(item?.prod_nm || `#${item?.prod_mid}`)}
       </span>
-      <span className="text-[10px] text-rose-600 font-medium whitespace-nowrap">{thisLabel} 未出現</span>
+      <span className={`text-[10px] whitespace-nowrap ${config.tagBg}`}>{thisLabel} {config.tag}</span>
     </div>
   )
 }
@@ -256,11 +270,20 @@ export default function AnnotatedResultList({
   focusIds,
   baselineMap,                  // Map<prod_mid, { label, kind, original }>
   otherResults,
+  baselineAlerts,               // [{ prod_mid, status, stage_status, ... }] — for THIS column
   onCalibrate,
   keyword,
   rowRefs,
   highlightId,
 }) {
+  const alertStatusByMid = useMemo(() => {
+    const m = new Map()
+    for (const a of baselineAlerts || []) {
+      if (a?.prod_mid != null) m.set(a.prod_mid, a.status)
+    }
+    return m
+  }, [baselineAlerts])
+
   const [explanations, setExplanations] = useState({})
 
   const items = data?.results || []
@@ -312,7 +335,9 @@ export default function AnnotatedResultList({
     }
   }
 
-  const showCrossRank = filterMode === 'diff'
+  // 只要有另一版資料就顯示 cross-rank 箭頭 (▲ 上升 / ▼ 下降);
+  // 原本只在 baseline diff filter 才顯示,被使用者反映砍掉了
+  const showCrossRank = Array.isArray(otherResults) && otherResults.length > 0
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-white border border-slate-200 rounded-md overflow-hidden">
@@ -337,6 +362,7 @@ export default function AnnotatedResultList({
                   column={column}
                   baselineInfo={r.baselineInfo}
                   item={r.original}
+                  status={alertStatusByMid.get(r.mid)}
                 />
               )
             }

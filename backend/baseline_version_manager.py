@@ -16,7 +16,7 @@ from loguru import logger
 
 TZ_TAIPEI = timezone(timedelta(hours=8))
 
-MAX_VERSIONS = 5
+MAX_VERSIONS = 14  # ~2 weeks of daily cron snapshots
 
 # Support both local (backend/../handoff/data) and Docker (/app/handoff/data)
 _app_dir = Path(__file__).resolve().parent

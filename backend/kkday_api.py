@@ -172,11 +172,26 @@ def _fetch_page_v3(url, headers, body, env, keyword):
         return [], 0
 
 
-def fetch_kkday_products_v3(keyword: str, env: str, cookie: str, row_count: int = 300, test_exp: int = 3):
+DEFAULT_LANG = "zh-tw"
+DEFAULT_LOCALE = "tw"
+DEFAULT_CHANNEL = "ios"
+
+
+def fetch_kkday_products_v3(
+    keyword: str,
+    env: str,
+    cookie: str,
+    row_count: int = 300,
+    test_exp: int = 3,
+    lang: str = DEFAULT_LANG,
+    locale: str = DEFAULT_LOCALE,
+    channel: str = DEFAULT_CHANNEL,
+):
     """
     使用 v3 search API 抓取商品，最多回傳 row_count 筆。
     介面與 fetch_kkday_products 相同：回傳 (products, total, total_page)。
     test_exp: 搜尋演算法版本（AB 巡檢用）。
+    lang / locale / channel: 由呼叫端帶入,預設值與舊行為一致 (zh-tw / tw / ios)。
     """
     url = _V3_BASE_URLS.get(env)
     if not url:
@@ -193,11 +208,11 @@ def fetch_kkday_products_v3(keyword: str, env: str, cookie: str, row_count: int 
 
     base_body = {
         "q": keyword,
-        "lang": "zh-tw",
-        "locale": "tw",
+        "lang": lang or DEFAULT_LANG,
+        "locale": locale or DEFAULT_LOCALE,
         "currency": "TWD",
-        "channel": "ios",
-        "source": "ios",
+        "channel": channel or DEFAULT_CHANNEL,
+        "source": channel or DEFAULT_CHANNEL,
         "translate_status": 1,
         "page_name": "product_list_mobile",
         "device_id": device_id,

@@ -1,0 +1,6 @@
+source,query,prod_mid,slot,status,http_code,error
+precise,Ktx,536336,top1,missing,404,
+precise,KTX,536336,top1,missing,404,
+precise,ktx,536336,top1,missing,404,
+broad,石垣島,551664,profit_rank=6,missing,404,
+broad,龜山島,144834,profit_rank=4,missing,404,

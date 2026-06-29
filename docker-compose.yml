@@ -10,6 +10,14 @@ services:
     volumes:
       - sip_data:/app/data
       - ./handoff:/app/handoff
+      # Mount BQ baseline SQL files so backend can read them at runtime
+      # (backend's Dockerfile only COPYs ./backend/, scripts/sql/ lives at repo root)
+      - ./scripts/sql:/app/scripts/sql:ro
+      # Mount the GCP service account JSON at the same host path inside the
+      # container so GOOGLE_APPLICATION_CREDENTIALS (read from .env) resolves
+      # identically in both environments. Fallback to /dev/null when unset
+      # (BQ features disabled but container still boots).
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:ro
     ports:
       - "${BACKEND_PORT:-19426}:8000"
 

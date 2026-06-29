@@ -12,7 +12,13 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from loguru import logger
 
-from kkday_api import fetch_kkday_products, fetch_kkday_products_v3
+from kkday_api import (
+    fetch_kkday_products,
+    fetch_kkday_products_v3,
+    DEFAULT_LANG,
+    DEFAULT_LOCALE,
+    DEFAULT_CHANNEL,
+)
 from skills.metrics import compute_ndcg, compute_recall_stats
 from skills.data_sanitizer import sanitizer
 from batch_engine import engine as batch_engine
@@ -20,8 +26,10 @@ from skills.intent_judger import judger
 from skills.calibration_manager import calibration_manager
 from skills.synonym_service import synonym_service
 from ab_check import run_ab_check, find_rank as ab_find_rank
+import ab_check_runner
 from baseline_service import baseline_service, BASELINE_DROP_MULTIPLIER
 from baseline_version_manager import baseline_version_manager
+import baseline_scheduler
 
 import sys as _sys
 from pathlib import Path as _Path
@@ -62,6 +70,9 @@ class CompareRequest(BaseModel):
     count: int = 300
     ai_enabled: Optional[bool] = None
     search_api: Optional[str] = "ajax"   # "ajax" or "v3"
+    lang: str = DEFAULT_LANG
+    locale: str = DEFAULT_LOCALE
+    channel: str = DEFAULT_CHANNEL
 
 class FeedbackRequest(BaseModel):
     keyword: str
@@ -76,6 +87,9 @@ class BatchRunRequest(BaseModel):
     search_api: Optional[str] = "ajax"   # "ajax" or "v3"
     version_a: Optional[int] = 0
     version_b: Optional[int] = None      # None = 不跑 B 版
+    lang: str = DEFAULT_LANG
+    locale: str = DEFAULT_LOCALE
+    channel: str = DEFAULT_CHANNEL
 
 class KeywordListRequest(BaseModel):
     keywords: list[Any]
@@ -86,6 +100,23 @@ class ABCheckRequest(BaseModel):
     cookie: str = ""
     skip_precise: bool = False
     skip_broad: bool = False
+    lang: str = DEFAULT_LANG
+    locale: str = DEFAULT_LOCALE
+    channel: str = DEFAULT_CHANNEL
+
+class ABCheckStartRequest(BaseModel):
+    type: str  # 'precise' | 'broad'
+    version_a: int
+    version_b: int
+    cookie: str = ""
+    limit: Optional[int] = None
+    resume_run_id: Optional[str] = None
+    lang: str = DEFAULT_LANG
+    locale: str = DEFAULT_LOCALE
+    channel: str = DEFAULT_CHANNEL
+
+class ABCheckCancelRequest(BaseModel):
+    run_id: str
 
 class UnifiedSearchRequest(BaseModel):
     keyword: str
@@ -95,6 +126,9 @@ class UnifiedSearchRequest(BaseModel):
     search_api: str = "v3"
     version_a: int = 3
     version_b: Optional[int] = None
+    lang: str = DEFAULT_LANG
+    locale: str = DEFAULT_LOCALE
+    channel: str = DEFAULT_CHANNEL
 
 class ExplainRequest(BaseModel):
     keyword: str
@@ -243,6 +277,12 @@ def _reload_scheduler_jobs():
 def startup_event():
     scheduler.start()
     _reload_scheduler_jobs()
+    baseline_scheduler.register_job(scheduler)
+    # Mark any ab-check runs that were in-flight when the process died
+    # as `interrupted`, so the UI can offer a resume button.
+    n = ab_check_runner.sweep_interrupted_runs()
+    if n:
+        logger.warning(f"[ABRunner] startup swept {n} interrupted run(s)")
 
 
 @app.on_event("shutdown")
@@ -295,7 +335,10 @@ def _slim_product(p, rank, result, keyword):
 def compare_envs(req: CompareRequest):
     ai_metadata = judger.get_ai_metadata(req.keyword, ai_enabled=(req.ai_enabled or False))
     fetch_fn = fetch_kkday_products_v3 if req.search_api == "v3" else fetch_kkday_products
-    stage_prods, stage_total, _ = fetch_fn(req.keyword, "stage", req.cookie, req.count)
+    fetch_kwargs = {"keyword": req.keyword, "env": "stage", "cookie": req.cookie, "row_count": req.count}
+    if req.search_api == "v3":
+        fetch_kwargs.update(lang=req.lang, locale=req.locale, channel=req.channel)
+    stage_prods, stage_total, _ = fetch_fn(**fetch_kwargs)
     # Production disabled (Datadome blocks prod API)
     prod_res = []
 
@@ -321,6 +364,12 @@ def compare_envs(req: CompareRequest):
 
 @app.post("/api/ab-check")
 def ab_check(req: ABCheckRequest):
+    # Deprecated: prefer POST /api/ab-check/start (async + checkpointed).
+    # Kept temporarily for un-migrated callers; will be removed when UI flips.
+    logger.warning(
+        "[Deprecation] POST /api/ab-check is deprecated; "
+        "migrate to /api/ab-check/start (async + checkpointed)"
+    )
     cookie = req.cookie or os.getenv("KKDAY_SEARCH_COOKIE", "")
     result = run_ab_check(
         version_a=req.version_a,
@@ -328,8 +377,97 @@ def ab_check(req: ABCheckRequest):
         cookie=cookie,
         skip_precise=req.skip_precise,
         skip_broad=req.skip_broad,
+        lang=req.lang,
+        locale=req.locale,
+        channel=req.channel,
     )
     return {"success": True, **result}
+
+
+# ── AB-check runner (new, async + checkpointed) ───────────────────────────────
+
+@app.post("/api/ab-check/start")
+def ab_check_start(req: ABCheckStartRequest):
+    if req.type not in ("precise", "broad"):
+        raise HTTPException(status_code=400, detail="type must be 'precise' or 'broad'")
+    cookie = req.cookie or os.getenv("KKDAY_SEARCH_COOKIE", "")
+    try:
+        run_id = ab_check_runner.start_run(
+            type_=req.type,
+            version_a=req.version_a,
+            version_b=req.version_b,
+            cookie=cookie,
+            limit=req.limit,
+            resume_run_id=req.resume_run_id,
+            sync=False,
+            lang=req.lang,
+            locale=req.locale,
+            channel=req.channel,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    run = ab_check_runner.get_run(run_id)
+    return {
+        "run_id": run_id,
+        "status": run["status"],
+        "total_queries": run["total_queries"],
+        # PR #28: 立即回 run-level locale,讓前端在 polling 第一輪之前就能顯示。
+        # Resume 時這裡會回 parent 的值(start_run 內已 inherit),前端因此能立刻
+        # 看到「沿用了哪個 locale」,不會等 2s 才更新。
+        "lang": run.get("lang"),
+        "locale": run.get("locale"),
+        "channel": run.get("channel"),
+    }
+
+
+@app.get("/api/ab-check/status")
+def ab_check_status(run_id: str, since_idx: int = 0):
+    run = ab_check_runner.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"run_id not found: {run_id}")
+    rows = ab_check_runner.get_checkpoints(run_id, since_idx=since_idx)
+    return {
+        "run": run,
+        "progress": {
+            "done": run["done_count"],
+            "total": run["total_queries"],
+            "running_idx": ab_check_runner.get_running_idx(run_id),
+        },
+        "rows": rows,
+    }
+
+
+@app.post("/api/ab-check/cancel")
+def ab_check_cancel(req: ABCheckCancelRequest):
+    run = ab_check_runner.get_run(req.run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"run_id not found: {req.run_id}")
+    if run["status"] != "running":
+        return {"ok": False, "reason": f"run already {run['status']}"}
+    if ab_check_runner.request_cancel(req.run_id):
+        return {"ok": True}
+    # status='running' in DB but no in-memory flag — worker dead or running
+    # in another process. Unstick the DB row so the UI can recover.
+    flipped = ab_check_runner.force_interrupt_run(req.run_id)
+    return {
+        "ok": flipped,
+        "reason": "worker not in current process; flipped to interrupted" if flipped
+                  else "worker not in current process and DB update failed",
+    }
+
+
+@app.get("/api/ab-check/history")
+def ab_check_history(type: Optional[str] = None, limit: int = 50):
+    return ab_check_runner.list_runs(type_=type, limit=limit)
+
+
+@app.get("/api/ab-check/history/{run_id}")
+def ab_check_history_detail(run_id: str):
+    run = ab_check_runner.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"run_id not found: {run_id}")
+    rows = ab_check_runner.get_checkpoints(run_id, since_idx=0)
+    return {"run": run, "rows": rows}
 
 @app.get("/api/baseline/keywords")
 def get_baseline_keywords():
@@ -345,54 +483,29 @@ def get_baseline_keywords():
 
 @app.post("/api/baseline/upload")
 async def upload_baseline(file: UploadFile = File(...), type: Optional[str] = Form(None)):
-    """Upload a baseline CSV or HTML report. CSV requires type=precise|broad."""
+    """Upload a baseline CSV (Plan B for when BQ fetch is unavailable).
+    HTML upload deprecated — use BQ fetch or manually-exported CSV instead."""
     content = await file.read()
     filename = file.filename or ""
+
+    if not filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="只支援 .csv 檔案（HTML 上傳已停用，請改用 BQ 自動 fetch 或手動匯出 CSV）")
+
+    if type not in ("precise", "broad"):
+        raise HTTPException(status_code=400, detail="CSV 上傳需指定 type=precise 或 type=broad")
+
     text = content.decode("utf-8")
+    first_line = text.split("\n", 1)[0].lower()
+    if type == "precise" and not all(k in first_line for k in ("query", "top1_prod_mid", "top2_prod_mid")):
+        raise HTTPException(status_code=400, detail="精準詞 CSV header 必須包含 query, top1_prod_mid, top2_prod_mid")
+    if type == "broad" and not all(k in first_line for k in ("query", "prod_mid", "profit_rank")):
+        raise HTTPException(status_code=400, detail="泛詞 CSV header 必須包含 query, prod_mid, profit_rank")
 
-    is_html = filename.lower().endswith(".html") or filename.lower().endswith(".htm")
-
-    if is_html:
-        # Parse HTML report into two CSVs
-        import tempfile
-        from pathlib import Path as P
-        from parse_html import parse_report
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".html", mode="w", encoding="utf-8", delete=False) as tmp:
-                tmp.write(text)
-                tmp_path = tmp.name
-            pdf, bdf = parse_report(P(tmp_path))
-            precise_csv = pdf.to_csv(index=False)
-            broad_csv = bdf.to_csv(index=False)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"HTML 解析失敗: {str(e)}")
-        finally:
-            if tmp_path:
-                P(tmp_path).unlink(missing_ok=True)
-
-        meta = baseline_version_manager.create_version(precise_csv, broad_csv, source_filename=filename)
-        baseline_service.reload()
-        return {"success": True, "mode": "html", "version": meta}
-
-    elif filename.lower().endswith(".csv"):
-        if type not in ("precise", "broad"):
-            raise HTTPException(status_code=400, detail="CSV 上傳需指定 type=precise 或 type=broad")
-        # Validate CSV header
-        first_line = text.split("\n", 1)[0].lower()
-        if type == "precise" and not all(k in first_line for k in ("query", "top1_prod_mid", "top2_prod_mid")):
-            raise HTTPException(status_code=400, detail="精準詞 CSV header 必須包含 query, top1_prod_mid, top2_prod_mid")
-        if type == "broad" and not all(k in first_line for k in ("query", "prod_mid", "profit_rank")):
-            raise HTTPException(status_code=400, detail="泛詞 CSV header 必須包含 query, prod_mid, profit_rank")
-
-        precise_csv = text if type == "precise" else None
-        broad_csv = text if type == "broad" else None
-        meta = baseline_version_manager.create_version(precise_csv, broad_csv, source_filename=filename)
-        baseline_service.reload()
-        return {"success": True, "mode": "csv", "type": type, "version": meta}
-
-    else:
-        raise HTTPException(status_code=400, detail="只支援 .csv 或 .html 檔案")
+    precise_csv = text if type == "precise" else None
+    broad_csv = text if type == "broad" else None
+    meta = baseline_version_manager.create_version(precise_csv, broad_csv, source_filename=filename)
+    baseline_service.reload()
+    return {"success": True, "mode": "csv", "type": type, "version": meta}
 
 
 @app.get("/api/baseline/versions")
@@ -430,6 +543,47 @@ def reload_baseline():
     return {"success": True, "total_keywords": len(kws)}
 
 
+@app.post("/api/baseline/refresh-from-bq")
+def refresh_baseline_from_bq():
+    """Manually trigger BQ fetch + activate, bypassing the daily cron."""
+    last_run = baseline_scheduler.run_now()
+    if last_run.get("success"):
+        baseline_service.reload()
+    return {"success": last_run["success"], "last_run": last_run}
+
+
+@app.get("/api/baseline/source-status")
+def baseline_source_status():
+    """Last fetch outcome (for UI banner) + active version meta."""
+    cfg = baseline_scheduler.get_config()
+    active = baseline_version_manager.get_active_version()
+    return {
+        "success": True,
+        "cron": {"enabled": cfg["enabled"], "hour": cfg["hour"], "minute": cfg["minute"]},
+        "last_run": cfg.get("last_run"),
+        "active_version": active,
+    }
+
+
+class CronScheduleRequest(BaseModel):
+    hour: int
+    minute: int
+    enabled: bool = True
+
+@app.get("/api/baseline/cron-schedule")
+def get_baseline_cron_schedule():
+    cfg = baseline_scheduler.get_config()
+    return {"success": True, "schedule": {k: cfg[k] for k in ("enabled", "hour", "minute")}}
+
+@app.patch("/api/baseline/cron-schedule")
+def patch_baseline_cron_schedule(req: CronScheduleRequest):
+    try:
+        cfg = baseline_scheduler.update_schedule(scheduler, req.hour, req.minute, req.enabled)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"success": True, "schedule": {k: cfg[k] for k in ("enabled", "hour", "minute")}}
+
+
 def _normalize_mid(mid):
     """Coerce a prod_mid to int for consistent cross-version matching.
     The v3 API returns prod_mid as int or str depending on test_exp; both forms
@@ -442,13 +596,17 @@ def _normalize_mid(mid):
         return 0
 
 
-def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp):
+def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp,
+                     lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL):
     """Fetch + judge + annotate a single version. Returns (results, total, metrics)."""
     ai_metadata = judger.get_ai_metadata(keyword, ai_enabled=ai_enabled)
     fetch_fn = fetch_kkday_products_v3 if search_api == "v3" else fetch_kkday_products
     kwargs = {"keyword": keyword, "env": "stage", "cookie": cookie, "row_count": count}
     if search_api == "v3":
         kwargs["test_exp"] = test_exp
+        kwargs["lang"] = lang
+        kwargs["locale"] = locale
+        kwargs["channel"] = channel
     prods, total, _ = fetch_fn(**kwargs)
 
     results = []
@@ -509,6 +667,7 @@ def _compute_ab_comparison(keyword, a_results, b_results):
                     "delta": (b_rank - a_rank) if (a_rank and b_rank) else None,
                     "baseline_tag": f"precise_top{rank_n}",
                     "severity": alert.severity if alert else "OK",
+                    "stage_status": alert.stage_status if alert else None,
                 })
 
     # Check broad baseline
@@ -531,6 +690,7 @@ def _compute_ab_comparison(keyword, a_results, b_results):
                 "delta": (b_rank - a_rank) if (a_rank and b_rank) else None,
                 "baseline_tag": f"broad_rank_{bl_rank}",
                 "severity": alert.severity if alert else "OK",
+                "stage_status": alert.stage_status if alert else None,
             })
 
     sev_counts = {"P0": 0, "P1": 0, "P2": 0, "INFO": 0}
@@ -559,11 +719,13 @@ async def unified_search(req: UnifiedSearchRequest):
 
     # A/B versions in parallel using threads (requests is sync)
     a_future = loop.run_in_executor(
-        None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_a
+        None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_a,
+        req.lang, req.locale, req.channel,
     )
     if req.version_b is not None:
         b_future = loop.run_in_executor(
-            None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_b
+            None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_b,
+            req.lang, req.locale, req.channel,
         )
         (a_results, a_total, a_metrics, a_alerts), (b_results, b_total, b_metrics, b_alerts) = await asyncio.gather(a_future, b_future)
     else:
@@ -617,7 +779,8 @@ def update_keywords(req: KeywordListRequest):
 @app.post("/api/batch/run")
 def run_batch(req: BatchRunRequest):
     batch_engine.run_batch(req.cookie, ai_enabled_override=req.ai_enabled, search_api=req.search_api,
-                          version_a=req.version_a, version_b=req.version_b)
+                          version_a=req.version_a, version_b=req.version_b,
+                          lang=req.lang, locale=req.locale, channel=req.channel)
     return {"success": True}
 
 @app.post("/api/batch/stop")

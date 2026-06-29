@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCopyToClipboard } from '../utils/useCopyToClipboard'
 
 // Inline tabler-style SVG icons (avoid @tabler/icons-react dep)
 function IconPause({ className = '' }) {
@@ -40,22 +40,11 @@ function IconAlert({ className = '' }) {
 }
 
 function CopyButton({ runId }) {
-  const [copied, setCopied] = useState(false)
+  const [copied, copy] = useCopyToClipboard()
 
-  useEffect(() => {
-    if (!copied) return
-    const t = setTimeout(() => setCopied(false), 1500)
-    return () => clearTimeout(t)
-  }, [copied])
-
-  async function handleCopy(e) {
+  function handleCopy(e) {
     e.stopPropagation()
-    try {
-      await navigator.clipboard.writeText(runId)
-      setCopied(true)
-    } catch (err) {
-      console.warn('clipboard write failed:', err)
-    }
+    copy(runId)
   }
 
   return (

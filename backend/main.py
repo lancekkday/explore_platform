@@ -29,7 +29,7 @@ from skills.calibration_manager import calibration_manager
 from skills.synonym_service import synonym_service
 from ab_check import run_ab_check, find_rank as ab_find_rank
 import ab_check_runner
-from baseline_service import baseline_service, BASELINE_DROP_MULTIPLIER
+from baseline_service import baseline_service, BASELINE_DROP_MULTIPLIER, _safe_int
 from baseline_version_manager import baseline_version_manager
 import baseline_scheduler
 
@@ -609,15 +609,11 @@ def patch_baseline_cron_schedule(req: CronScheduleRequest):
 
 
 def _normalize_mid(mid):
-    """Coerce a prod_mid to int for consistent cross-version matching.
-    The v3 API returns prod_mid as int or str depending on test_exp; both forms
-    must collapse to the same key. Returns 0 for missing/non-numeric values."""
-    if mid is None or mid == "":
-        return 0
-    try:
-        return int(float(mid))
-    except (TypeError, ValueError):
-        return 0
+    """Coerce a prod_mid to int, returning 0 for missing/non-numeric values.
+    Thin 0-sentinel adapter over baseline_service._safe_int (the single int(float())
+    parser) — 0 is the 'no valid id' marker the cross-version match + mid_warnings
+    detection rely on (real prod_mids are non-zero positive ints)."""
+    return _safe_int(mid) or 0
 
 
 def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp,
@@ -694,8 +690,10 @@ def _compute_ab_comparison(keyword, a_results, b_results):
     Reuses baseline_service singleton instead of re-reading CSVs."""
     from ab_check import check_ab_precise, check_ab_broad
 
-    a_mids = tuple(_normalize_mid(r.get("prod_mid")) for r in a_results)
-    b_mids = tuple(_normalize_mid(r.get("prod_mid")) for r in b_results)
+    # prod_mid is already a normalized int here: _process_version sets it via
+    # _normalize_mid, and the v3 boundary (_coerce_product_id) coerces upstream.
+    a_mids = tuple(r.get("prod_mid", 0) for r in a_results)
+    b_mids = tuple(r.get("prod_mid", 0) for r in b_results)
 
     bl = baseline_service.get_baseline(keyword)
     if not bl["has_data"]:
@@ -707,7 +705,7 @@ def _compute_ab_comparison(keyword, a_results, b_results):
     precise = bl.get("precise")
     if precise:
         for rank_n, prefix in [(1, "top1"), (2, "top2")]:
-            mid = _normalize_mid(precise.get(f"{prefix}_prod_mid"))
+            mid = precise.get(f"{prefix}_prod_mid")  # already int|None via _safe_int at load
             if not mid:
                 continue
             a_rank = ab_find_rank(mid, a_mids)
@@ -727,7 +725,7 @@ def _compute_ab_comparison(keyword, a_results, b_results):
 
     # Check broad baseline
     for entry in bl.get("broad_products", []):
-        mid = _normalize_mid(entry.get("prod_mid"))
+        mid = entry.get("prod_mid")  # already int|None via _safe_int at load
         if not mid:
             continue
         bl_rank = entry.get("profit_rank", 0)

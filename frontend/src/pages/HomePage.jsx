@@ -36,6 +36,7 @@ export default function HomePage() {
   const versionBData = homeResults.versionB
   const baselineData = homeResults.baseline
   const abComparison = homeResults.abComparison
+  const requestId = homeResults.requestId
 
   // ── Local state (transient — UI-only, no cross-route survival) ───────────
   const [loading, setLoading] = useState(false)
@@ -60,7 +61,7 @@ export default function HomePage() {
       setFilterMode(searchParams.get('filter') || 'all')
       // Clear previous keyword's results immediately — otherwise the loading
       // gap (1-3s) shows the *old* products labelled with the *new* keyword.
-      setHomeResults({ versionA: null, versionB: null, baseline: null, abComparison: null })
+      setHomeResults({ versionA: null, versionB: null, baseline: null, abComparison: null, requestId: null })
       handleSearch(kw)
       setSearchParams({}, { replace: true })
     }
@@ -80,6 +81,7 @@ export default function HomePage() {
           versionB: res.version_b || null,
           baseline: res.baseline,
           abComparison: res.ab_comparison || null,
+          requestId: res.request_id || null,
         })
         if (res.baseline_drop_multiplier != null) setBaselineDropMultiplier(res.baseline_drop_multiplier)
       } else {
@@ -269,6 +271,7 @@ export default function HomePage() {
           totalCount={totalCount}
           diffCount={diffCount}
           focusCount={focusCount}
+          requestId={requestId}
         />
       )}
 

@@ -657,6 +657,7 @@ def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp,
     if mid_warnings:
         logger.bind(
             event="mid_warning",
+            ts=datetime.now(TZ_TAIPEI).isoformat(),
             request_id=request_id,
             keyword=keyword,
             test_exp=test_exp,
@@ -820,8 +821,10 @@ async def unified_search(req: UnifiedSearchRequest):
     ab_enabled = b_results is not None
     a_keys = {r.get("prod_mid") for r in a_results if r.get("prod_mid")}
     b_keys = {r.get("prod_mid") for r in (b_results or []) if r.get("prod_mid")}
+    intersection = len(a_keys & b_keys) if ab_enabled else None
     logger.bind(
         event="unified_search",
+        ts=datetime.now(TZ_TAIPEI).isoformat(),
         request_id=request_id,
         keyword=kw,
         search_api=req.search_api,
@@ -837,14 +840,14 @@ async def unified_search(req: UnifiedSearchRequest):
         b_returned=(len(b_results) if ab_enabled else None),
         mid_warnings_a=len(a_mid_warnings or []),
         mid_warnings_b=(len(b_mid_warnings or []) if ab_enabled else None),
-        match_intersection=(len(a_keys & b_keys) if ab_enabled else None),
+        match_intersection=intersection,
         match_a_only=(len(a_keys - b_keys) if ab_enabled else None),
         match_b_only=(len(b_keys - a_keys) if ab_enabled else None),
         ab_summary=(response["ab_comparison"]["summary"] if response["ab_comparison"] else None),
         duration_ms=round((time.monotonic() - t0) * 1000),
     ).info(
         f"unified-search keyword={kw!r} vA={req.version_a} vB={req.version_b} "
-        f"intersection={(len(a_keys & b_keys) if ab_enabled else 'n/a')} "
+        f"intersection={intersection if ab_enabled else 'n/a'} "
         f"mid_warn_a={len(a_mid_warnings or [])} request_id={request_id}"
     )
 

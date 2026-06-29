@@ -151,6 +151,19 @@ def fetch_kkday_products(keyword: str, env: str, cookie: str, row_count: int = 3
 
 V3_PAGE_SIZE = 50
 
+
+def _coerce_product_id(v):
+    """Coerce a numeric product id (prod_mid/prod_oid) to int for type-stable keys.
+    Numeric strings ("137689", "137689.0") and floats become int; None/'' and
+    genuinely non-numeric values are returned unchanged so they stay visible to
+    downstream anomaly detection instead of being silently zeroed."""
+    if v is None or v == "" or isinstance(v, bool):
+        return v
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return v
+
 _V3_BASE_URLS = {
     "stage": "https://api-search.stage.kkday.com/v3/product/search/product-list",
     "production": "https://api-search.kkday.com/v3/product/search/product-list",
@@ -226,6 +239,16 @@ def fetch_kkday_products_v3(
 
     def add_unique(prods):
         for p in prods:
+            # Normalize product ids at the API boundary. The v3 API serializes
+            # prod_mid/prod_oid as int for some test_exp versions and as str for
+            # others; coercing here means every downstream consumer (unified-search,
+            # ab_check._fetch_results, the cron AB runner) keys on a consistent type,
+            # so 137689 (int) and "137689" (str) can never miss-match into a false
+            # "未出現". Genuinely non-numeric ids are left untouched so anomaly
+            # detection (mid_warnings) can still see the original bad value.
+            for _f in ("prod_mid", "prod_oid"):
+                if _f in p:
+                    p[_f] = _coerce_product_id(p[_f])
             pid = p.get("prod_oid") or p.get("prod_mid") or p.get("oid") or p.get("product_id")
             if pid is None:
                 all_products.append(p)

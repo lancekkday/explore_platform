@@ -52,17 +52,21 @@ for _candidate in [
 # any log call tagged with an `event` bind field is mirrored as one JSON object per
 # line to logs/api_events.jsonl, so Filebeat/Kibana can index every bound field
 # (keyword, version_a/b, intersection, mid_warnings, request_id, …) under `extra`.
-_LOG_DIR = _base_dir / "logs"
-_LOG_DIR.mkdir(exist_ok=True)
-logger.add(
-    _LOG_DIR / "api_events.jsonl",
-    level="INFO",
-    serialize=True,          # emit JSON; bound fields land under record["extra"]
-    rotation="20 MB",
-    retention="14 days",
-    enqueue=True,            # non-blocking, safe across the thread-pool executors
-    filter=lambda r: "event" in r["extra"],
-)
+# Registered from the FastAPI startup event (NOT at import) so merely importing this
+# module — e.g. `from main import _normalize_mid` in unit tests — does not create a
+# logs dir or spin up a background sink thread.
+def _setup_kibana_sink():
+    log_dir = _base_dir / "logs"
+    log_dir.mkdir(exist_ok=True)
+    logger.add(
+        log_dir / "api_events.jsonl",
+        level="INFO",
+        serialize=True,          # emit JSON; bound fields land under record["extra"]
+        rotation="20 MB",
+        retention="14 days",
+        enqueue=True,            # non-blocking, safe across the thread-pool executors
+        filter=lambda r: "event" in r["extra"],
+    )
 
 TZ_TAIPEI = timezone(timedelta(hours=8))  # UTC+8, no system tzdata needed
 scheduler = BackgroundScheduler(timezone=TZ_TAIPEI)
@@ -294,6 +298,7 @@ def _reload_scheduler_jobs():
 
 @app.on_event("startup")
 def startup_event():
+    _setup_kibana_sink()
     scheduler.start()
     _reload_scheduler_jobs()
     baseline_scheduler.register_job(scheduler)

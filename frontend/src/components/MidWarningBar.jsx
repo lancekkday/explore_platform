@@ -7,13 +7,17 @@ import { safeString } from '../utils/safeString'
  * so any entry here means the search API changed shape / returned a malformed id —
  * which would otherwise silently key the row on 0 and read as a false "未出現".
  */
+const MAX_ROWS = 20  // cap rendered rows: a wholesale API shape change can flag every product
+
 function WarningGroup({ column, warnings }) {
   if (!warnings?.length) return null
+  const shown = warnings.slice(0, MAX_ROWS)
+  const hidden = warnings.length - shown.length
   return (
     <div className="text-[11px]">
       <span className="font-semibold text-rose-700">{column} 版 {warnings.length} 筆</span>
       <ul className="mt-1 space-y-0.5">
-        {warnings.map((w, i) => (
+        {shown.map((w, i) => (
           <li key={`${column}-${i}`} className="text-rose-600/90 tabular-nums">
             #{w.rank}
             <span className="ml-1 text-slate-600">{safeString(w.name) || '(無名稱)'}</span>
@@ -23,6 +27,9 @@ function WarningGroup({ column, warnings }) {
           </li>
         ))}
       </ul>
+      {hidden > 0 && (
+        <div className="mt-0.5 text-slate-400 italic">…還有 {hidden} 筆（詳見後端 log / API 回應）</div>
+      )}
     </div>
   )
 }

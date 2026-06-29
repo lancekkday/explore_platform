@@ -430,6 +430,18 @@ def reload_baseline():
     return {"success": True, "total_keywords": len(kws)}
 
 
+def _normalize_mid(mid):
+    """Coerce a prod_mid to int for consistent cross-version matching.
+    The v3 API returns prod_mid as int or str depending on test_exp; both forms
+    must collapse to the same key. Returns 0 for missing/non-numeric values."""
+    if mid is None:
+        return 0
+    try:
+        return int(mid)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp):
     """Fetch + judge + annotate a single version. Returns (results, total, metrics)."""
     ai_metadata = judger.get_ai_metadata(keyword, ai_enabled=ai_enabled)
@@ -443,8 +455,12 @@ def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp):
     for i, p in enumerate(prods):
         res = judger.process_and_calibrate(p, i + 1, keyword, ai_metadata, _slim_product)
         res["rank_delta"] = None
-        # Carry prod_mid for baseline annotation
-        res["prod_mid"] = p.get("prod_mid") or p.get("prod_oid") or 0
+        # Carry prod_mid for baseline annotation.
+        # NOTE: the v3 API is inconsistent about prod_mid's JSON type across test_exp
+        # versions (int for some experiments, str for others). Normalize to int so the
+        # AB cross-rank match (frontend Map + _compute_ab_comparison) and baseline
+        # lookups compare equal — otherwise 137689 != "137689" yields 100% "未出現".
+        res["prod_mid"] = _normalize_mid(p.get("prod_mid") or p.get("prod_oid"))
         results.append(res)
 
     baseline_service.annotate_products(keyword, results)
@@ -465,8 +481,8 @@ def _compute_ab_comparison(keyword, a_results, b_results):
     Reuses baseline_service singleton instead of re-reading CSVs."""
     from ab_check import check_ab_precise, check_ab_broad
 
-    a_mids = tuple(r.get("prod_mid", 0) for r in a_results)
-    b_mids = tuple(r.get("prod_mid", 0) for r in b_results)
+    a_mids = tuple(_normalize_mid(r.get("prod_mid")) for r in a_results)
+    b_mids = tuple(_normalize_mid(r.get("prod_mid")) for r in b_results)
 
     bl = baseline_service.get_baseline(keyword)
     if not bl["has_data"]:
@@ -478,7 +494,7 @@ def _compute_ab_comparison(keyword, a_results, b_results):
     precise = bl.get("precise")
     if precise:
         for rank_n, prefix in [(1, "top1"), (2, "top2")]:
-            mid = precise.get(f"{prefix}_prod_mid")
+            mid = _normalize_mid(precise.get(f"{prefix}_prod_mid"))
             if not mid:
                 continue
             a_rank = ab_find_rank(mid, a_mids)
@@ -497,7 +513,7 @@ def _compute_ab_comparison(keyword, a_results, b_results):
 
     # Check broad baseline
     for entry in bl.get("broad_products", []):
-        mid = entry.get("prod_mid")
+        mid = _normalize_mid(entry.get("prod_mid"))
         if not mid:
             continue
         bl_rank = entry.get("profit_rank", 0)

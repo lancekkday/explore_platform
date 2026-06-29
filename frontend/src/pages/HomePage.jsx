@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AnnotatedResultList from '../components/AnnotatedResultList'
 import BaselineAlertBar from '../components/BaselineAlertBar'
+import MidWarningBar from '../components/MidWarningBar'
 import UnifiedSearchBar from '../components/UnifiedSearchBar'
 import FilterBar from '../components/FilterBar'
 import Drawer from '../components/Drawer'
@@ -247,6 +248,10 @@ export default function HomePage() {
 
       {hasResults && (
         <div className="px-2">
+          <MidWarningBar
+            aWarnings={versionAData?.mid_warnings}
+            bWarnings={versionBData?.mid_warnings}
+          />
           <BaselineAlertBar
             aAlerts={versionAData?.baseline_alerts}
             bAlerts={versionBData?.baseline_alerts}

@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AnnotatedResultList from '../components/AnnotatedResultList'
 import BaselineAlertBar from '../components/BaselineAlertBar'
+import MidWarningBar from '../components/MidWarningBar'
 import UnifiedSearchBar from '../components/UnifiedSearchBar'
 import FilterBar from '../components/FilterBar'
 import Drawer from '../components/Drawer'
 import LegendBar from '../components/LegendBar'
 import CalibrationModal from '../components/CalibrationModal'
 import { fetchUnifiedSearch, saveFeedback } from '../api'
+import { prodMatchKey } from '../utils/prodMid'
 import { useAppContext } from '../context/AppContext'
 
 export default function HomePage() {
@@ -35,6 +37,7 @@ export default function HomePage() {
   const versionBData = homeResults.versionB
   const baselineData = homeResults.baseline
   const abComparison = homeResults.abComparison
+  const requestId = homeResults.requestId
 
   // ── Local state (transient — UI-only, no cross-route survival) ───────────
   const [loading, setLoading] = useState(false)
@@ -59,7 +62,7 @@ export default function HomePage() {
       setFilterMode(searchParams.get('filter') || 'all')
       // Clear previous keyword's results immediately — otherwise the loading
       // gap (1-3s) shows the *old* products labelled with the *new* keyword.
-      setHomeResults({ versionA: null, versionB: null, baseline: null, abComparison: null })
+      setHomeResults({ versionA: null, versionB: null, baseline: null, abComparison: null, requestId: null })
       handleSearch(kw)
       setSearchParams({}, { replace: true })
     }
@@ -79,6 +82,7 @@ export default function HomePage() {
           versionB: res.version_b || null,
           baseline: res.baseline,
           abComparison: res.ab_comparison || null,
+          requestId: res.request_id || null,
         })
         if (res.baseline_drop_multiplier != null) setBaselineDropMultiplier(res.baseline_drop_multiplier)
       } else {
@@ -195,9 +199,14 @@ export default function HomePage() {
       if (it.baseline_tag && it.baseline_profit_rank && it.rank > it.baseline_profit_rank * baselineDropMultiplier) {
         focus.add(mid); continue
       }
-      const aMatch = aItems.find(r => (r.prod_mid || r.id) === mid)
-      const bMatch = bItems.find(r => (r.prod_mid || r.id) === mid)
-      if (aMatch && bMatch && Math.abs(aMatch.rank - bMatch.rank) >= 5) focus.add(mid)
+      // Cross-version rank-delta match keys on a valid prod_mid only (same backend
+      // 0-sentinel contract as the result columns) — never fall back to `id`.
+      const matchKey = prodMatchKey(it)
+      if (matchKey != null) {
+        const aMatch = aItems.find(r => prodMatchKey(r) === matchKey)
+        const bMatch = bItems.find(r => prodMatchKey(r) === matchKey)
+        if (aMatch && bMatch && Math.abs(aMatch.rank - bMatch.rank) >= 5) focus.add(mid)
+      }
     }
     return {
       totalCount: Math.max(aItems.length, bItems.length),
@@ -247,6 +256,10 @@ export default function HomePage() {
 
       {hasResults && (
         <div className="px-2">
+          <MidWarningBar
+            aWarnings={versionAData?.mid_warnings}
+            bWarnings={versionBData?.mid_warnings}
+          />
           <BaselineAlertBar
             aAlerts={versionAData?.baseline_alerts}
             bAlerts={versionBData?.baseline_alerts}
@@ -264,6 +277,7 @@ export default function HomePage() {
           totalCount={totalCount}
           diffCount={diffCount}
           focusCount={focusCount}
+          requestId={requestId}
         />
       )}
 

@@ -1,3 +1,5 @@
+import { useCopyToClipboard } from '../utils/useCopyToClipboard'
+
 function SegButton({ active, onClick, label, count }) {
   return (
     <button
@@ -29,7 +31,9 @@ export default function FilterBar({
   focusCount = 0,
   totalCount = 0,
   baseLabel = '以 A 為基準',
+  requestId = null,
 }) {
+  const [copied, copy] = useCopyToClipboard()
   const toggle = (mode) => {
     setFilterMode?.(filterMode === mode ? 'all' : mode)
   }
@@ -57,7 +61,17 @@ export default function FilterBar({
           count={focusCount}
         />
       </div>
-      <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+      {requestId && (
+        <button
+          onClick={() => copy(requestId)}
+          title="點擊複製 request_id（可貼到 Kibana 查這次搜尋的後端 log）"
+          className="ml-auto inline-flex items-center gap-1 text-[10px] font-mono text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 px-2 py-0.5 rounded border border-slate-200 transition-colors"
+        >
+          <span className="text-slate-300">#</span>
+          <span>{copied ? '已複製' : requestId}</span>
+        </button>
+      )}
+      <span className={`${requestId ? '' : 'ml-auto'} inline-flex items-center gap-1 text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded`}>
         <span>📌</span>
         <span>{baseLabel}</span>
       </span>

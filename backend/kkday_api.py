@@ -10,6 +10,12 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env
 
 PAGE_SIZE = 50   # KKDay API 每頁上限
 
+# Source tag sent on every outbound search call so this platform's traffic is
+# identifiable in the API gateway / Kibana logs (verified accepted by the v3 search
+# API — returns 200 with identical results). Lets us separate 巡檢 traffic from real
+# users and correlate against our own request_id.
+KKDAY_FORWARDED_ID = "explore_platform"
+
 def _csrf_token_from_cookie(cookie: str) -> str:
     m = re.search(r"csrf_cookie_name=([^;\s]+)", cookie or "")
     return m.group(1) if m else ""
@@ -110,6 +116,7 @@ def fetch_kkday_products(keyword: str, env: str, cookie: str, row_count: int = 3
         ),
         "X-Requested-With": "XMLHttpRequest",
         "Cookie": cookie,
+        "kkday-forwarded-id": KKDAY_FORWARDED_ID,
     }
 
     all_products = []
@@ -150,6 +157,19 @@ def fetch_kkday_products(keyword: str, env: str, cookie: str, row_count: int = 3
 # ── v3 Search API ────────────────────────────────────────────────────────────
 
 V3_PAGE_SIZE = 50
+
+
+def _coerce_product_id(v):
+    """Coerce a numeric product id (prod_mid/prod_oid) to int for type-stable keys.
+    Numeric strings ("137689", "137689.0") and floats become int; None/'' and
+    genuinely non-numeric values are returned unchanged so they stay visible to
+    downstream anomaly detection instead of being silently zeroed."""
+    if v is None or v == "" or isinstance(v, bool):
+        return v
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return v
 
 _V3_BASE_URLS = {
     "stage": "https://api-search.stage.kkday.com/v3/product/search/product-list",
@@ -204,6 +224,7 @@ def fetch_kkday_products_v3(
         "x-auth-key": auth_key,
         "Content-Type": "application/json",
         "Cookie": cookie,
+        "kkday-forwarded-id": KKDAY_FORWARDED_ID,
     }
 
     base_body = {
@@ -226,6 +247,16 @@ def fetch_kkday_products_v3(
 
     def add_unique(prods):
         for p in prods:
+            # Normalize product ids at the API boundary. The v3 API serializes
+            # prod_mid/prod_oid as int for some test_exp versions and as str for
+            # others; coercing here means every downstream consumer (unified-search,
+            # ab_check._fetch_results, the cron AB runner) keys on a consistent type,
+            # so 137689 (int) and "137689" (str) can never miss-match into a false
+            # "未出現". Genuinely non-numeric ids are left untouched so anomaly
+            # detection (mid_warnings) can still see the original bad value.
+            for _f in ("prod_mid", "prod_oid"):
+                if _f in p:
+                    p[_f] = _coerce_product_id(p[_f])
             pid = p.get("prod_oid") or p.get("prod_mid") or p.get("oid") or p.get("product_id")
             if pid is None:
                 all_products.append(p)

@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
 import os
+import time
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -27,7 +29,7 @@ from skills.calibration_manager import calibration_manager
 from skills.synonym_service import synonym_service
 from ab_check import run_ab_check, find_rank as ab_find_rank
 import ab_check_runner
-from baseline_service import baseline_service, BASELINE_DROP_MULTIPLIER
+from baseline_service import baseline_service, BASELINE_DROP_MULTIPLIER, _safe_int
 from baseline_version_manager import baseline_version_manager
 import baseline_scheduler
 
@@ -44,6 +46,37 @@ for _candidate in [
         if _path_str not in _sys.path:
             _sys.path.insert(0, _path_str)
         break
+
+# ── Structured JSON logging for Kibana ────────────────────────────────────────
+# Human-readable logs keep going to stderr (captured in backend.log). In addition,
+# any log call tagged with an `event` bind field is mirrored as one JSON object per
+# line to logs/api_events.jsonl, so Filebeat/Kibana can index every bound field
+# (keyword, version_a/b, intersection, mid_warnings, request_id, …) under `extra`.
+# Registered from the FastAPI startup event (NOT at import) so merely importing this
+# module — e.g. `from main import _normalize_mid` in unit tests — does not create a
+# logs dir or spin up a background sink thread.
+_kibana_sink_added = False
+
+
+def _setup_kibana_sink():
+    # Idempotent: the startup event can fire more than once in a process (e.g. a
+    # TestClient(app) context manager, or a future lifespan re-init); without this
+    # guard each re-entry adds another sink and every event is written N times.
+    global _kibana_sink_added
+    if _kibana_sink_added:
+        return
+    _kibana_sink_added = True
+    log_dir = _base_dir / "logs"
+    log_dir.mkdir(exist_ok=True)
+    logger.add(
+        log_dir / "api_events.jsonl",
+        level="INFO",
+        serialize=True,          # emit JSON; bound fields land under record["extra"]
+        rotation="20 MB",
+        retention="14 days",
+        enqueue=True,            # non-blocking, safe across the thread-pool executors
+        filter=lambda r: "event" in r["extra"],
+    )
 
 TZ_TAIPEI = timezone(timedelta(hours=8))  # UTC+8, no system tzdata needed
 scheduler = BackgroundScheduler(timezone=TZ_TAIPEI)
@@ -275,6 +308,7 @@ def _reload_scheduler_jobs():
 
 @app.on_event("startup")
 def startup_event():
+    _setup_kibana_sink()
     scheduler.start()
     _reload_scheduler_jobs()
     baseline_scheduler.register_job(scheduler)
@@ -584,8 +618,17 @@ def patch_baseline_cron_schedule(req: CronScheduleRequest):
     return {"success": True, "schedule": {k: cfg[k] for k in ("enabled", "hour", "minute")}}
 
 
+def _normalize_mid(mid):
+    """Coerce a prod_mid to int, returning 0 for missing/non-numeric values.
+    Thin 0-sentinel adapter over baseline_service._safe_int (the single int(float())
+    parser) — 0 is the 'no valid id' marker the cross-version match + mid_warnings
+    detection rely on (real prod_mids are non-zero positive ints)."""
+    return _safe_int(mid) or 0
+
+
 def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp,
-                     lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL):
+                     lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL,
+                     request_id=None):
     """Fetch + judge + annotate a single version. Returns (results, total, metrics)."""
     ai_metadata = judger.get_ai_metadata(keyword, ai_enabled=ai_enabled)
     fetch_fn = fetch_kkday_products_v3 if search_api == "v3" else fetch_kkday_products
@@ -598,12 +641,49 @@ def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp,
     prods, total, _ = fetch_fn(**kwargs)
 
     results = []
+    mid_warnings = []
     for i, p in enumerate(prods):
         res = judger.process_and_calibrate(p, i + 1, keyword, ai_metadata, _slim_product)
         res["rank_delta"] = None
-        # Carry prod_mid for baseline annotation
-        res["prod_mid"] = p.get("prod_mid") or p.get("prod_oid") or 0
+        # Carry prod_mid for baseline annotation + cross-version matching.
+        # NOTE: the v3 API is inconsistent about prod_mid's JSON type across test_exp
+        # versions (int for some experiments, str for others). It is int-coerced at the
+        # v3 boundary (kkday_api._coerce_product_id); _normalize_mid collapses anything
+        # left to int so 137689 == "137689" instead of 100% "未出現".
+        # Match on prod_mid ONLY — prod_oid is a different id namespace (can differ from
+        # prod_mid), so it must NOT be a fallback key or it mis-matches across versions.
+        raw_mid, raw_oid = p.get("prod_mid"), p.get("prod_oid")
+        mid = _normalize_mid(raw_mid)
+        res["prod_mid"] = mid
+        # Every real v3 product carries a non-zero positive integer prod_mid. Resolving
+        # to <= 0 means the API changed shape / sent a malformed id — surface it instead
+        # of silently keying the row on 0 (which reads as "未出現"). Only flag for v3:
+        # the legacy (ajax) API legitimately lacks prod_mid, so warning there is noise.
+        if mid <= 0 and search_api == "v3":
+            mid_warnings.append({
+                "rank": i + 1,
+                "prod_mid": raw_mid,
+                "prod_oid": raw_oid,
+                "name": res.get("name", ""),
+            })
         results.append(res)
+
+    if mid_warnings:
+        logger.bind(
+            event="mid_warning",
+            ts=datetime.now(TZ_TAIPEI).isoformat(),
+            request_id=request_id,
+            keyword=keyword,
+            test_exp=test_exp,
+            search_api=search_api,
+            lang=lang, locale=locale, channel=channel,
+            count=len(mid_warnings),
+            returned=len(results),
+            samples=mid_warnings[:5],
+        ).error(
+            f"unresolvable prod_mid keyword={keyword!r} test_exp={test_exp} "
+            f"count={len(mid_warnings)} (expected non-zero positive int)"
+        )
 
     baseline_service.annotate_products(keyword, results)
     baseline_alerts = baseline_service.find_baseline_alerts(keyword, results)
@@ -615,7 +695,7 @@ def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp,
         **compute_recall_stats(results),
     }
 
-    return results, total, metrics, baseline_alerts
+    return results, total, metrics, baseline_alerts, mid_warnings
 
 
 def _compute_ab_comparison(keyword, a_results, b_results):
@@ -623,6 +703,8 @@ def _compute_ab_comparison(keyword, a_results, b_results):
     Reuses baseline_service singleton instead of re-reading CSVs."""
     from ab_check import check_ab_precise, check_ab_broad
 
+    # prod_mid is already a normalized int here: _process_version sets it via
+    # _normalize_mid, and the v3 boundary (_coerce_product_id) coerces upstream.
     a_mids = tuple(r.get("prod_mid", 0) for r in a_results)
     b_mids = tuple(r.get("prod_mid", 0) for r in b_results)
 
@@ -636,7 +718,7 @@ def _compute_ab_comparison(keyword, a_results, b_results):
     precise = bl.get("precise")
     if precise:
         for rank_n, prefix in [(1, "top1"), (2, "top2")]:
-            mid = precise.get(f"{prefix}_prod_mid")
+            mid = precise.get(f"{prefix}_prod_mid")  # already int|None via _safe_int at load
             if not mid:
                 continue
             a_rank = ab_find_rank(mid, a_mids)
@@ -656,7 +738,7 @@ def _compute_ab_comparison(keyword, a_results, b_results):
 
     # Check broad baseline
     for entry in bl.get("broad_products", []):
-        mid = entry.get("prod_mid")
+        mid = entry.get("prod_mid")  # already int|None via _safe_int at load
         if not mid:
             continue
         bl_rank = entry.get("profit_rank", 0)
@@ -693,6 +775,8 @@ def _compute_ab_comparison(keyword, a_results, b_results):
 async def unified_search(req: UnifiedSearchRequest):
     import asyncio
 
+    request_id = uuid.uuid4().hex[:12]
+    t0 = time.monotonic()
     cookie = req.cookie or os.getenv("KKDAY_SEARCH_COOKIE", "")
     kw = req.keyword.strip()
     if not kw:
@@ -704,17 +788,17 @@ async def unified_search(req: UnifiedSearchRequest):
     # A/B versions in parallel using threads (requests is sync)
     a_future = loop.run_in_executor(
         None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_a,
-        req.lang, req.locale, req.channel,
+        req.lang, req.locale, req.channel, request_id,
     )
     if req.version_b is not None:
         b_future = loop.run_in_executor(
             None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_b,
-            req.lang, req.locale, req.channel,
+            req.lang, req.locale, req.channel, request_id,
         )
-        (a_results, a_total, a_metrics, a_alerts), (b_results, b_total, b_metrics, b_alerts) = await asyncio.gather(a_future, b_future)
+        (a_results, a_total, a_metrics, a_alerts, a_mid_warnings), (b_results, b_total, b_metrics, b_alerts, b_mid_warnings) = await asyncio.gather(a_future, b_future)
     else:
-        a_results, a_total, a_metrics, a_alerts = await a_future
-        b_results = b_total = b_metrics = b_alerts = None
+        a_results, a_total, a_metrics, a_alerts, a_mid_warnings = await a_future
+        b_results = b_total = b_metrics = b_alerts = b_mid_warnings = None
 
     response = {
         "success": True,
@@ -727,6 +811,7 @@ async def unified_search(req: UnifiedSearchRequest):
             "results": a_results,
             "metrics": a_metrics,
             "baseline_alerts": a_alerts,
+            "mid_warnings": a_mid_warnings,
         },
         "version_b": {
             "test_exp": req.version_b,
@@ -734,12 +819,53 @@ async def unified_search(req: UnifiedSearchRequest):
             "results": b_results,
             "metrics": b_metrics,
             "baseline_alerts": b_alerts,
+            "mid_warnings": b_mid_warnings,
         } if b_results is not None else None,
         "ab_comparison": None,
     }
 
     if b_results is not None:
         response["ab_comparison"] = _compute_ab_comparison(kw, a_results, b_results)
+
+    response["request_id"] = request_id
+
+    # ── Structured event for Kibana ──────────────────────────────────────────
+    # One JSON line per search. The A/B *match stats* (intersection / a_only /
+    # b_only) are the canary for prod_mid-keying bugs: a healthy reorder keeps a
+    # large intersection, whereas intersection==0 with both sides non-empty is the
+    # exact signature of the int-vs-str regression this whole change fixed.
+    ab_enabled = b_results is not None
+    a_keys = {r.get("prod_mid") for r in a_results if r.get("prod_mid")}
+    b_keys = {r.get("prod_mid") for r in (b_results or []) if r.get("prod_mid")}
+    intersection = len(a_keys & b_keys) if ab_enabled else None
+    logger.bind(
+        event="unified_search",
+        ts=datetime.now(TZ_TAIPEI).isoformat(),
+        request_id=request_id,
+        keyword=kw,
+        search_api=req.search_api,
+        version_a=req.version_a,
+        version_b=req.version_b,
+        ab_enabled=ab_enabled,
+        lang=req.lang, locale=req.locale, channel=req.channel,
+        count_requested=req.count,
+        cookie_present=bool(cookie),
+        a_total=a_total,
+        b_total=b_total,
+        a_returned=len(a_results),
+        b_returned=(len(b_results) if ab_enabled else None),
+        mid_warnings_a=len(a_mid_warnings or []),
+        mid_warnings_b=(len(b_mid_warnings or []) if ab_enabled else None),
+        match_intersection=intersection,
+        match_a_only=(len(a_keys - b_keys) if ab_enabled else None),
+        match_b_only=(len(b_keys - a_keys) if ab_enabled else None),
+        ab_summary=(response["ab_comparison"]["summary"] if response["ab_comparison"] else None),
+        duration_ms=round((time.monotonic() - t0) * 1000),
+    ).info(
+        f"unified-search keyword={kw!r} vA={req.version_a} vB={req.version_b} "
+        f"intersection={intersection if ab_enabled else 'n/a'} "
+        f"mid_warn_a={len(a_mid_warnings or [])} request_id={request_id}"
+    )
 
     return response
 

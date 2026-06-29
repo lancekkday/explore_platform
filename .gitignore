@@ -32,3 +32,6 @@ backend/data/baseline_cron.json
 # Deployment secrets — SA JSON / API keys placed alongside handoff data
 # (handoff/ is mounted into the container; this dir is intentionally NOT tracked)
 handoff/_secrets/
+
+# structured Kibana event logs
+backend/logs/

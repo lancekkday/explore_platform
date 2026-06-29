@@ -70,16 +70,16 @@ def test_raw_mixed_types_match_nothing():
     assert raw_matched == 0  # int 137689 != str "137689"
 
 
-def test_malformed_product_resolves_to_zero_sentinel():
-    """A present product whose id fields are unusable must resolve to the 0 sentinel —
-    this is the exact condition _process_version uses to emit an error log + surface a
-    mid_warning, since real prod_mids are always non-zero positive integers."""
-    # Neither prod_mid nor prod_oid usable -> 0 (flagged as anomaly).
-    assert (_normalize_mid("N/A") or _normalize_mid(None)) == 0
-    assert (_normalize_mid(None) or _normalize_mid("")) == 0
-    # prod_mid missing/zero but prod_oid valid -> falls back, NOT an anomaly.
-    assert (_normalize_mid(None) or _normalize_mid(243815)) == 243815
-    assert (_normalize_mid("0") or _normalize_mid("243815")) == 243815
+def test_malformed_prod_mid_resolves_to_zero_sentinel():
+    """A product whose prod_mid is unusable resolves to the 0 sentinel — the exact
+    condition _process_version uses to surface a mid_warning. Matching keys on
+    prod_mid ONLY (prod_oid is a different namespace and is NOT a fallback), so a
+    missing/non-numeric prod_mid is an anomaly even if prod_oid is present."""
+    assert _normalize_mid("N/A") == 0
+    assert _normalize_mid(None) == 0
+    assert _normalize_mid("") == 0
+    assert _normalize_mid("0") == 0
+    assert _normalize_mid(243815) == 243815  # valid prod_mid passes through
 
 
 def test_same_version_comparison_masks_the_bug():

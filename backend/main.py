@@ -55,7 +55,17 @@ for _candidate in [
 # Registered from the FastAPI startup event (NOT at import) so merely importing this
 # module — e.g. `from main import _normalize_mid` in unit tests — does not create a
 # logs dir or spin up a background sink thread.
+_kibana_sink_added = False
+
+
 def _setup_kibana_sink():
+    # Idempotent: the startup event can fire more than once in a process (e.g. a
+    # TestClient(app) context manager, or a future lifespan re-init); without this
+    # guard each re-entry adds another sink and every event is written N times.
+    global _kibana_sink_added
+    if _kibana_sink_added:
+        return
+    _kibana_sink_added = True
     log_dir = _base_dir / "logs"
     log_dir.mkdir(exist_ok=True)
     logger.add(
@@ -635,18 +645,21 @@ def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp,
     for i, p in enumerate(prods):
         res = judger.process_and_calibrate(p, i + 1, keyword, ai_metadata, _slim_product)
         res["rank_delta"] = None
-        # Carry prod_mid for baseline annotation.
+        # Carry prod_mid for baseline annotation + cross-version matching.
         # NOTE: the v3 API is inconsistent about prod_mid's JSON type across test_exp
-        # versions (int for some experiments, str for others). Normalize to int so the
-        # AB cross-rank match (frontend Map + _compute_ab_comparison) and baseline
-        # lookups compare equal — otherwise 137689 != "137689" yields 100% "未出現".
+        # versions (int for some experiments, str for others). It is int-coerced at the
+        # v3 boundary (kkday_api._coerce_product_id); _normalize_mid collapses anything
+        # left to int so 137689 == "137689" instead of 100% "未出現".
+        # Match on prod_mid ONLY — prod_oid is a different id namespace (can differ from
+        # prod_mid), so it must NOT be a fallback key or it mis-matches across versions.
         raw_mid, raw_oid = p.get("prod_mid"), p.get("prod_oid")
-        mid = _normalize_mid(raw_mid) or _normalize_mid(raw_oid)
+        mid = _normalize_mid(raw_mid)
         res["prod_mid"] = mid
-        # Every real product must carry a non-zero positive integer id. Resolving to
-        # <= 0 means the API changed shape or sent a malformed id — surface it loudly
-        # instead of silently keying the row on 0 (which would read as "未出現").
-        if mid <= 0:
+        # Every real v3 product carries a non-zero positive integer prod_mid. Resolving
+        # to <= 0 means the API changed shape / sent a malformed id — surface it instead
+        # of silently keying the row on 0 (which reads as "未出現"). Only flag for v3:
+        # the legacy (ajax) API legitimately lacks prod_mid, so warning there is noise.
+        if mid <= 0 and search_api == "v3":
             mid_warnings.append({
                 "rank": i + 1,
                 "prod_mid": raw_mid,

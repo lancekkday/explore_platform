@@ -292,8 +292,16 @@ export default function AnnotatedResultList({
   // Cross-column matching keys ONLY on a valid prod_mid (backend contract); rows
   // with no reliable id (prodMatchKey → null, also flagged in mid_warnings) are
   // left out of the maps instead of silently re-keying on `id`.
-  const otherByMid = new Map(otherItems.filter(r => prodMatchKey(r) != null).map(r => [prodMatchKey(r), r]))
-  const myByMid = new Map(items.filter(r => prodMatchKey(r) != null).map(r => [prodMatchKey(r), r]))
+  const byMatchKey = (rows) => {
+    const m = new Map()
+    for (const r of rows) {
+      const k = prodMatchKey(r)
+      if (k != null) m.set(k, r)
+    }
+    return m
+  }
+  const otherByMid = byMatchKey(otherItems)
+  const myByMid = byMatchKey(items)
 
   const annotated = items.map(it => {
     const matchKey = prodMatchKey(it)

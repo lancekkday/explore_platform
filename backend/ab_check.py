@@ -77,10 +77,23 @@ def _fetch_results(
             row_count=API_MAX_RESULTS, test_exp=version,
             lang=lang, locale=locale, channel=channel,
         )
+        # Match on prod_mid ONLY — prod_oid is a different id namespace and can
+        # differ from prod_mid, so falling back to it would key a row in the wrong
+        # space and mis-match across versions. prod_mid is int-coerced at the v3
+        # boundary (kkday_api._coerce_product_id); anything not a positive int is an
+        # anomaly → keyed 0 (never matches) and surfaced below so the cron go/no-go
+        # report isn't silently wrong.
         mids = tuple(
-            p.get("prod_mid") or p.get("prod_oid") or 0
+            p["prod_mid"] if isinstance(p.get("prod_mid"), int) and p["prod_mid"] > 0 else 0
             for p in prods
         )
+        unresolved = sum(1 for m in mids if m == 0)
+        if unresolved:
+            logger.warning(
+                f"[AB] query={query!r} version={version}: {unresolved}/{len(prods)} "
+                f"product(s) with unresolvable prod_mid (not a positive int) — "
+                f"reported as 未出現 in this run"
+            )
         if cache is not None:
             cache[key] = mids
         return mids

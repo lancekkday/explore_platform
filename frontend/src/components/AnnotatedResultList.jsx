@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { safeString } from '../utils/safeString'
+import { prodMatchKey } from '../utils/prodMid'
 import TierBadge from './ui/TierBadge'
 import { IconTag } from './icons/Icons'
 import { explainProduct } from '../api'
@@ -288,18 +289,23 @@ export default function AnnotatedResultList({
 
   const items = data?.results || []
   const otherItems = otherResults || []
-  const otherByMid = new Map(otherItems.map(r => [r.prod_mid || r.id, r]))
-  const myByMid = new Map(items.map(r => [r.prod_mid || r.id, r]))
+  // Cross-column matching keys ONLY on a valid prod_mid (backend contract); rows
+  // with no reliable id (prodMatchKey → null, also flagged in mid_warnings) are
+  // left out of the maps instead of silently re-keying on `id`.
+  const otherByMid = new Map(otherItems.filter(r => prodMatchKey(r) != null).map(r => [prodMatchKey(r), r]))
+  const myByMid = new Map(items.filter(r => prodMatchKey(r) != null).map(r => [prodMatchKey(r), r]))
 
   const annotated = items.map(it => {
-    const mid = it.prod_mid || it.id
-    const otherSameProduct = otherByMid.get(mid)
+    const matchKey = prodMatchKey(it)
+    const otherSameProduct = matchKey != null ? otherByMid.get(matchKey) : null
     return {
       item: it,
-      mid,
+      // Row identity for React key / refs: prefer prod_mid, fall back to id so
+      // anomalous rows still render (matching, above, deliberately does not).
+      mid: it.prod_mid || it.id,
       // For cross-rank display, we want the SAME PRODUCT's rank in the other column (not whatever sits at the same rank)
       crossRank: otherSameProduct?.rank ?? null,
-      baselineInfo: baselineMap?.get(mid) || null,
+      baselineInfo: matchKey != null ? (baselineMap?.get(matchKey) || null) : null,
     }
   })
 

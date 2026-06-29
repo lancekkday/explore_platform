@@ -9,6 +9,7 @@ import Drawer from '../components/Drawer'
 import LegendBar from '../components/LegendBar'
 import CalibrationModal from '../components/CalibrationModal'
 import { fetchUnifiedSearch, saveFeedback } from '../api'
+import { prodMatchKey } from '../utils/prodMid'
 import { useAppContext } from '../context/AppContext'
 
 export default function HomePage() {
@@ -198,9 +199,14 @@ export default function HomePage() {
       if (it.baseline_tag && it.baseline_profit_rank && it.rank > it.baseline_profit_rank * baselineDropMultiplier) {
         focus.add(mid); continue
       }
-      const aMatch = aItems.find(r => (r.prod_mid || r.id) === mid)
-      const bMatch = bItems.find(r => (r.prod_mid || r.id) === mid)
-      if (aMatch && bMatch && Math.abs(aMatch.rank - bMatch.rank) >= 5) focus.add(mid)
+      // Cross-version rank-delta match keys on a valid prod_mid only (same backend
+      // 0-sentinel contract as the result columns) — never fall back to `id`.
+      const matchKey = prodMatchKey(it)
+      if (matchKey != null) {
+        const aMatch = aItems.find(r => prodMatchKey(r) === matchKey)
+        const bMatch = bItems.find(r => prodMatchKey(r) === matchKey)
+        if (aMatch && bMatch && Math.abs(aMatch.rank - bMatch.rank) >= 5) focus.add(mid)
+      }
     }
     return {
       totalCount: Math.max(aItems.length, bItems.length),

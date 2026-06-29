@@ -10,6 +10,12 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env
 
 PAGE_SIZE = 50   # KKDay API 每頁上限
 
+# Source tag sent on every outbound search call so this platform's traffic is
+# identifiable in the API gateway / Kibana logs (verified accepted by the v3 search
+# API — returns 200 with identical results). Lets us separate 巡檢 traffic from real
+# users and correlate against our own request_id.
+KKDAY_FORWARDED_ID = "explore_platform"
+
 def _csrf_token_from_cookie(cookie: str) -> str:
     m = re.search(r"csrf_cookie_name=([^;\s]+)", cookie or "")
     return m.group(1) if m else ""
@@ -110,6 +116,7 @@ def fetch_kkday_products(keyword: str, env: str, cookie: str, row_count: int = 3
         ),
         "X-Requested-With": "XMLHttpRequest",
         "Cookie": cookie,
+        "kkday-forwarded-id": KKDAY_FORWARDED_ID,
     }
 
     all_products = []
@@ -217,6 +224,7 @@ def fetch_kkday_products_v3(
         "x-auth-key": auth_key,
         "Content-Type": "application/json",
         "Cookie": cookie,
+        "kkday-forwarded-id": KKDAY_FORWARDED_ID,
     }
 
     base_body = {

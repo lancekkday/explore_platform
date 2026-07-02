@@ -124,25 +124,30 @@ function ResultRow({
   keyword,
   showCrossRank,
 }) {
-  // sale_status === 0 means the v3 search API flagged this product as off-shelf /
-  // sold-out. API still ranks these (just demoted), so we surface them in the row
-  // instead of trusting the ranker to hide them.
+  // sale_status === 0 means the v3 search API flagged this product as
+  // "not purchasable" (下架 / 售罄 / 暫停販售 的合併訊號). API still ranks these
+  // (just demoted), so we surface them in the row instead of trusting the ranker
+  // to hide them. Backend `_slim_product` int-coerces sale_status at the API
+  // boundary so strict `=== 0` is safe here.
   const isOffShelf = item.sale_status === 0
   const rowBg = highlight
     ? 'bg-amber-100'
     : isOffShelf
       ? 'bg-rose-50/70 hover:bg-rose-100/70'
       : 'hover:bg-slate-50'
+  // border-l-2 is ALWAYS present (transparent on normal rows) so rank/title stay
+  // pixel-aligned across the whole list — otherwise off-shelf rows push their
+  // content right by 2px relative to normal rows.
   return (
     <div
       ref={rowRef}
-      className={`group relative flex flex-col justify-center px-2.5 py-1 min-h-[42px] border-b border-slate-100 transition-colors ${rowBg} ${
-        isOffShelf ? 'border-l-2 border-l-rose-400' : ''
+      className={`group relative flex flex-col justify-center px-2.5 py-1 min-h-[42px] border-b border-slate-100 border-l-2 transition-colors ${rowBg} ${
+        isOffShelf ? 'border-l-rose-400' : 'border-l-transparent'
       }`}
     >
       <div className="flex items-center gap-1.5">
         {/* rank */}
-        <span className={`text-[10px] w-[20px] text-right tabular-nums ${isOffShelf ? 'text-rose-400' : 'text-slate-400'}`}>#{item.rank}</span>
+        <span className={`text-[10px] w-[20px] text-right tabular-nums ${isOffShelf ? 'text-rose-500' : 'text-slate-400'}`}>#{item.rank}</span>
         {/* Off-shelf badge — front-loaded so it's the first thing the eye lands on */}
         {isOffShelf && (
           <span

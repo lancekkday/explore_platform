@@ -355,6 +355,17 @@ def get_guest_cookie(env: str = "stage"):
 def _slim_product(p, rank, result, keyword):
     pc = p.get("product_category") or {}
     cat_code = p.get("main_cat_key") or pc.get("main") or pc.get("key") or ""
+    # v3 search API sale_status: 1 = on sale, 0 = "not purchasable" (下架/售罄/暫停
+    # 的合併訊號). Normalize to int at the API boundary so the frontend can safely
+    # use strict `=== 0`: v3 has been observed to inconsistently serialize numeric
+    # fields as str across test_exp versions (see _coerce_product_id for prod_mid),
+    # and we don't want the badge to silently vanish if the API flips to "0".
+    ss = p.get("sale_status")
+    if ss is not None and not isinstance(ss, bool):
+        try:
+            ss = int(ss)
+        except (TypeError, ValueError):
+            pass  # leave non-numeric values visible for downstream anomaly detection
     return {
         "rank": rank, "id": str(p.get("prod_oid") or p.get("oid") or p.get("product_id") or rank),
         "name": p.get("name", ""), "img_url": p.get("img_url", ""), "url": p.get("url", ""),
@@ -363,10 +374,7 @@ def _slim_product(p, rank, result, keyword):
         "main_cat_key": cat_code,
         "destinations": sanitizer.get_destinations(p),
         "show_order_count": p.get("show_order_count", ""),
-        # v3 search API sale_status: 1 = on sale, 0 = off-shelf/sold-out (verified via
-        # empirical probing on niche keywords like 綠世界). Pass through untouched so
-        # the UI can surface sold-out rows visually.
-        "sale_status": p.get("sale_status"),
+        "sale_status": ss,
     }
 
 @app.post("/api/compare")

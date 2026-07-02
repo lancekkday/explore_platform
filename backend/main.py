@@ -363,6 +363,10 @@ def _slim_product(p, rank, result, keyword):
         "main_cat_key": cat_code,
         "destinations": sanitizer.get_destinations(p),
         "show_order_count": p.get("show_order_count", ""),
+        # v3 search API sale_status: 1 = on sale, 0 = off-shelf/sold-out (verified via
+        # empirical probing on niche keywords like 綠世界). Pass through untouched so
+        # the UI can surface sold-out rows visually.
+        "sale_status": p.get("sale_status"),
     }
 
 @app.post("/api/compare")

@@ -124,30 +124,56 @@ function ResultRow({
   keyword,
   showCrossRank,
 }) {
+  // sale_status === 0 means the v3 search API flagged this product as
+  // "not purchasable" (下架 / 售罄 / 暫停販售 的合併訊號). API still ranks these
+  // (just demoted), so we surface them in the row instead of trusting the ranker
+  // to hide them. Backend `_slim_product` int-coerces sale_status at the API
+  // boundary so strict `=== 0` is safe here.
+  const isOffShelf = item.sale_status === 0
+  const rowBg = highlight
+    ? 'bg-amber-100'
+    : isOffShelf
+      ? 'bg-rose-50/70 hover:bg-rose-100/70'
+      : 'hover:bg-slate-50'
+  // border-l-2 is ALWAYS present (transparent on normal rows) so rank/title stay
+  // pixel-aligned across the whole list — otherwise off-shelf rows push their
+  // content right by 2px relative to normal rows.
   return (
     <div
       ref={rowRef}
-      className={`group relative flex flex-col justify-center px-2.5 py-1 min-h-[42px] border-b border-slate-100 transition-colors ${
-        highlight ? 'bg-amber-100' : 'hover:bg-slate-50'
+      className={`group relative flex flex-col justify-center px-2.5 py-1 min-h-[42px] border-b border-slate-100 border-l-2 transition-colors ${rowBg} ${
+        isOffShelf ? 'border-l-rose-400' : 'border-l-transparent'
       }`}
     >
       <div className="flex items-center gap-1.5">
         {/* rank */}
-        <span className="text-[10px] text-slate-400 w-[20px] text-right tabular-nums">#{item.rank}</span>
+        <span className={`text-[10px] w-[20px] text-right tabular-nums ${isOffShelf ? 'text-rose-500' : 'text-slate-400'}`}>#{item.rank}</span>
+        {/* Off-shelf badge — front-loaded so it's the first thing the eye lands on */}
+        {isOffShelf && (
+          <span
+            className="text-[9px] font-bold tracking-wide px-1 py-px rounded bg-rose-600 text-white whitespace-nowrap"
+            title="搜尋 API sale_status=0 — 商品目前不可購買 (下架 / 售罄 / 暫停販售的合併訊號,無法從 search API 單一判斷)"
+          >
+            不可購買
+          </span>
+        )}
         {/* baseline label before title */}
         <BaselineBadge info={baselineInfo} />
         {/* title — render as link only when we have a URL, else plain span */}
         {(() => {
           const href = item.url || (item.prod_mid ? `https://www.stage.kkday.com/zh-tw/product/${item.prod_mid}` : null)
           const name = safeString(item.name)
+          const nameCls = isOffShelf
+            ? 'flex-1 min-w-0 text-[11px] leading-[1.4] text-slate-400 line-through truncate hover:text-rose-600'
+            : 'flex-1 min-w-0 text-[11px] leading-[1.4] text-slate-800 truncate hover:text-indigo-600 hover:underline'
           if (href) {
             return (
               <a
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex-1 min-w-0 text-[11px] leading-[1.4] text-slate-800 truncate hover:text-indigo-600 hover:underline"
-                title={name}
+                className={nameCls}
+                title={isOffShelf ? `[不可購買] ${name}` : name}
               >
                 {name}
               </a>
@@ -155,8 +181,8 @@ function ResultRow({
           }
           return (
             <span
-              className="flex-1 min-w-0 text-[11px] leading-[1.4] text-slate-800 truncate"
-              title={name}
+              className={isOffShelf ? 'flex-1 min-w-0 text-[11px] leading-[1.4] text-slate-400 line-through truncate' : 'flex-1 min-w-0 text-[11px] leading-[1.4] text-slate-800 truncate'}
+              title={isOffShelf ? `[不可購買] ${name}` : name}
             >
               {name}
             </span>

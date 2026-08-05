@@ -1,7 +1,12 @@
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, BeforeValidator
+
+# test_exp 10 碼制:version 一律當字串處理(可能有前導零),不驗證合法性 —
+# 前端帶什麼就用什麼。BeforeValidator 讓舊 client / 既存排程 JSON 送 int 也能收
+# (Pydantic v2 預設不做 int→str coercion,沒有這層會直接 422)。
+TestExpStr = Annotated[str, BeforeValidator(lambda v: v if v is None else str(v))]
 import json
 import os
 import time
@@ -106,6 +111,7 @@ class CompareRequest(BaseModel):
     lang: str = DEFAULT_LANG
     locale: str = DEFAULT_LOCALE
     channel: str = DEFAULT_CHANNEL
+    device_id: Optional[str] = None      # None/'' = 用後端預設 (個性化巡檢用)
 
 class FeedbackRequest(BaseModel):
     keyword: str
@@ -118,35 +124,38 @@ class BatchRunRequest(BaseModel):
     cookie: str
     ai_enabled: Optional[bool] = None
     search_api: Optional[str] = "ajax"   # "ajax" or "v3"
-    version_a: Optional[int] = 0
-    version_b: Optional[int] = None      # None = 不跑 B 版
+    version_a: Optional[TestExpStr] = "0"
+    version_b: Optional[TestExpStr] = None   # None = 不跑 B 版
     lang: str = DEFAULT_LANG
     locale: str = DEFAULT_LOCALE
     channel: str = DEFAULT_CHANNEL
+    device_id: Optional[str] = None
 
 class KeywordListRequest(BaseModel):
     keywords: list[Any]
 
 class ABCheckRequest(BaseModel):
-    version_a: int
-    version_b: int
+    version_a: TestExpStr
+    version_b: TestExpStr
     cookie: str = ""
     skip_precise: bool = False
     skip_broad: bool = False
     lang: str = DEFAULT_LANG
     locale: str = DEFAULT_LOCALE
     channel: str = DEFAULT_CHANNEL
+    device_id: Optional[str] = None
 
 class ABCheckStartRequest(BaseModel):
     type: str  # 'precise' | 'broad'
-    version_a: int
-    version_b: int
+    version_a: TestExpStr
+    version_b: TestExpStr
     cookie: str = ""
     limit: Optional[int] = None
     resume_run_id: Optional[str] = None
     lang: str = DEFAULT_LANG
     locale: str = DEFAULT_LOCALE
     channel: str = DEFAULT_CHANNEL
+    device_id: Optional[str] = None
 
 class ABCheckCancelRequest(BaseModel):
     run_id: str
@@ -157,11 +166,12 @@ class UnifiedSearchRequest(BaseModel):
     count: int = 300
     ai_enabled: bool = False
     search_api: str = "v3"
-    version_a: int = 3
-    version_b: Optional[int] = None
+    version_a: TestExpStr = "3"
+    version_b: Optional[TestExpStr] = None
     lang: str = DEFAULT_LANG
     locale: str = DEFAULT_LOCALE
     channel: str = DEFAULT_CHANNEL
+    device_id: Optional[str] = None
 
 class ExplainRequest(BaseModel):
     keyword: str
@@ -249,7 +259,8 @@ def _run_scheduled_batch(schedule_id: int):
     kw_override = s.get("keywords") if s.get("keywords") else None
     # run_batch_sync blocks until the batch finishes (APScheduler already provides a thread)
     ran = batch_engine.run_batch_sync(cookie, ai_enabled_override=bool(s["ai_enabled"]), keyword_list_override=kw_override, search_api=s.get("search_api", "ajax"),
-                                      version_a=s.get("version_a", 0), version_b=s.get("version_b"))
+                                      version_a=s.get("version_a", "0"), version_b=s.get("version_b"),
+                                      device_id=s.get("device_id"))
     if not ran:
         logger.warning(f"[Scheduler] Skipped schedule_id={schedule_id}: a batch was already running.")
         return
@@ -383,7 +394,7 @@ def compare_envs(req: CompareRequest):
     fetch_fn = fetch_kkday_products_v3 if req.search_api == "v3" else fetch_kkday_products
     fetch_kwargs = {"keyword": req.keyword, "env": "stage", "cookie": req.cookie, "row_count": req.count}
     if req.search_api == "v3":
-        fetch_kwargs.update(lang=req.lang, locale=req.locale, channel=req.channel)
+        fetch_kwargs.update(lang=req.lang, locale=req.locale, channel=req.channel, device_id=req.device_id)
     stage_prods, stage_total, _ = fetch_fn(**fetch_kwargs)
     # Production disabled (Datadome blocks prod API)
     prod_res = []
@@ -426,6 +437,7 @@ def ab_check(req: ABCheckRequest):
         lang=req.lang,
         locale=req.locale,
         channel=req.channel,
+        device_id=req.device_id,
     )
     return {"success": True, **result}
 
@@ -449,6 +461,7 @@ def ab_check_start(req: ABCheckStartRequest):
             lang=req.lang,
             locale=req.locale,
             channel=req.channel,
+            device_id=req.device_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -459,10 +472,11 @@ def ab_check_start(req: ABCheckStartRequest):
         "total_queries": run["total_queries"],
         # PR #28: 立即回 run-level locale,讓前端在 polling 第一輪之前就能顯示。
         # Resume 時這裡會回 parent 的值(start_run 內已 inherit),前端因此能立刻
-        # 看到「沿用了哪個 locale」,不會等 2s 才更新。
+        # 看到「沿用了哪個 locale / device」,不會等 2s 才更新。
         "lang": run.get("lang"),
         "locale": run.get("locale"),
         "channel": run.get("channel"),
+        "device_id": run.get("device_id"),
     }
 
 
@@ -640,7 +654,7 @@ def _normalize_mid(mid):
 
 def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp,
                      lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL,
-                     request_id=None):
+                     request_id=None, device_id=None):
     """Fetch + judge + annotate a single version. Returns (results, total, metrics)."""
     ai_metadata = judger.get_ai_metadata(keyword, ai_enabled=ai_enabled)
     fetch_fn = fetch_kkday_products_v3 if search_api == "v3" else fetch_kkday_products
@@ -650,6 +664,7 @@ def _process_version(keyword, cookie, count, ai_enabled, search_api, test_exp,
         kwargs["lang"] = lang
         kwargs["locale"] = locale
         kwargs["channel"] = channel
+        kwargs["device_id"] = device_id
     prods, total, _ = fetch_fn(**kwargs)
 
     results = []
@@ -800,12 +815,12 @@ async def unified_search(req: UnifiedSearchRequest):
     # A/B versions in parallel using threads (requests is sync)
     a_future = loop.run_in_executor(
         None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_a,
-        req.lang, req.locale, req.channel, request_id,
+        req.lang, req.locale, req.channel, request_id, req.device_id,
     )
     if req.version_b is not None:
         b_future = loop.run_in_executor(
             None, _process_version, kw, cookie, req.count, req.ai_enabled, req.search_api, req.version_b,
-            req.lang, req.locale, req.channel, request_id,
+            req.lang, req.locale, req.channel, request_id, req.device_id,
         )
         (a_results, a_total, a_metrics, a_alerts, a_mid_warnings), (b_results, b_total, b_metrics, b_alerts, b_mid_warnings) = await asyncio.gather(a_future, b_future)
     else:
@@ -860,6 +875,7 @@ async def unified_search(req: UnifiedSearchRequest):
         version_b=req.version_b,
         ab_enabled=ab_enabled,
         lang=req.lang, locale=req.locale, channel=req.channel,
+        device_id=req.device_id,
         count_requested=req.count,
         cookie_present=bool(cookie),
         a_total=a_total,
@@ -902,7 +918,8 @@ def update_keywords(req: KeywordListRequest):
 def run_batch(req: BatchRunRequest):
     batch_engine.run_batch(req.cookie, ai_enabled_override=req.ai_enabled, search_api=req.search_api,
                           version_a=req.version_a, version_b=req.version_b,
-                          lang=req.lang, locale=req.locale, channel=req.channel)
+                          lang=req.lang, locale=req.locale, channel=req.channel,
+                          device_id=req.device_id)
     return {"success": True}
 
 @app.post("/api/batch/stop")

@@ -20,8 +20,8 @@ export default function HomePage() {
     baselineKeywords,
     baselineDropMultiplier, setBaselineDropMultiplier,
     setSettingsVisible,
-    // i18n / channel (lang+locale picked on this page; channel from settings)
-    lang, setLang, locale, setLocale, channel,
+    // i18n / channel / device (lang+locale picked on this page; channel+deviceId from settings)
+    lang, setLang, locale, setLocale, channel, deviceId,
     // Cross-route persistent search state (so coming back from /batch
     // restores the last keyword + results instead of resetting to 'esim').
     homeKeyword, setHomeKeyword,
@@ -75,7 +75,7 @@ export default function HomePage() {
     setError('')
     try {
       const vb = enableAB ? versionB : null
-      const res = await fetchUnifiedSearch(kw, cookie, 300, aiEnabled, searchApi, versionA, vb, lang, locale, channel)
+      const res = await fetchUnifiedSearch(kw, cookie, 300, aiEnabled, searchApi, versionA, vb, lang, locale, channel, deviceId)
       if (res?.success) {
         setHomeResults({
           versionA: res.version_a,
@@ -297,12 +297,8 @@ export default function HomePage() {
               <AnnotatedResultList
                 column="A"
                 data={versionAData}
-                version={String(versionA)}
-                onVersionChange={(s) => {
-                  if (s === '') { setVersionA(0); return }
-                  const n = parseInt(s, 10)
-                  if (Number.isFinite(n)) setVersionA(n)
-                }}
+                version={versionA}
+                onVersionChange={setVersionA}
                 onSubmit={() => handleSearch()}
                 filterMode={filterMode}
                 focusIds={focusIds}
@@ -318,12 +314,8 @@ export default function HomePage() {
                 <AnnotatedResultList
                   column="B"
                   data={versionBData}
-                  version={String(versionB)}
-                  onVersionChange={(s) => {
-                    if (s === '') { setVersionB(0); return }
-                    const n = parseInt(s, 10)
-                    if (Number.isFinite(n)) setVersionB(n)
-                  }}
+                  version={versionB}
+                  onVersionChange={setVersionB}
                   onSubmit={() => handleSearch()}
                   filterMode={filterMode}
                   focusIds={focusIds}

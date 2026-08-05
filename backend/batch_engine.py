@@ -190,17 +190,18 @@ class BatchEngine:
         }
 
     def process_keyword(self, keyword_obj, cookie, search_api="ajax", version_a=0, version_b=None,
-                        lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL):
+                        lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL,
+                        device_id=None):
         keyword = keyword_obj["keyword"]
         ai_enabled = keyword_obj.get("ai_enabled", False)
-        logger.info(f"[Batch] Starting Task: {keyword} (api={search_api}, vA={version_a}, vB={version_b}, lang={lang}, locale={locale}, channel={channel})")
+        logger.info(f"[Batch] Starting Task: {keyword} (api={search_api}, vA={version_a}, vB={version_b}, lang={lang}, locale={locale}, channel={channel}, device_id={device_id})")
 
         try:
             ai_metadata = judger.get_ai_metadata(keyword, ai_enabled=ai_enabled)
             if search_api == "v3":
                 s_prods, s_total, _ = fetch_kkday_products_v3(
                     keyword, "stage", cookie, 300, test_exp=version_a,
-                    lang=lang, locale=locale, channel=channel,
+                    lang=lang, locale=locale, channel=channel, device_id=device_id,
                 )
             else:
                 s_prods, s_total, _ = fetch_kkday_products(keyword, "stage", cookie, 300)
@@ -221,7 +222,7 @@ class BatchEngine:
                 try:
                     b_prods, b_total, _ = fetch_kkday_products_v3(
                         keyword, "stage", cookie, 300, test_exp=version_b,
-                        lang=lang, locale=locale, channel=channel,
+                        lang=lang, locale=locale, channel=channel, device_id=device_id,
                     )
                     b_res = []
                     for i, p in enumerate(b_prods):
@@ -272,7 +273,8 @@ class BatchEngine:
             }
 
     def run_batch_sync(self, cookie, ai_enabled_override=None, keyword_list_override=None, search_api="ajax", version_a=0, version_b=None,
-                       lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL):
+                       lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL,
+                       device_id=None):
         """
         Run a batch synchronously in the calling thread.
         Used by APScheduler (which already provides a worker thread) so that
@@ -300,7 +302,7 @@ class BatchEngine:
                 self.current_keyword = kw_str
                 effective_kw_obj = kw_obj if ai_enabled_override is None else {**kw_obj, "ai_enabled": ai_enabled_override}
                 res = self.process_keyword(effective_kw_obj, cookie, search_api=search_api, version_a=version_a, version_b=version_b,
-                                           lang=lang, locale=locale, channel=channel)
+                                           lang=lang, locale=locale, channel=channel, device_id=device_id)
                 if res:
                     self.results[norm_key] = res
                 self.progress = int(((i + 1) / total_count) * 100)
@@ -314,13 +316,14 @@ class BatchEngine:
         return True
 
     def run_batch(self, cookie, ai_enabled_override=None, keyword_list_override=None, search_api="ajax", version_a=0, version_b=None,
-                  lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL):
+                  lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL,
+                  device_id=None):
         """Start a batch in a background daemon thread (used by manual API trigger)."""
         if self.is_running:
             return
         threading.Thread(
             target=self.run_batch_sync,
-            args=(cookie, ai_enabled_override, keyword_list_override, search_api, version_a, version_b, lang, locale, channel),
+            args=(cookie, ai_enabled_override, keyword_list_override, search_api, version_a, version_b, lang, locale, channel, device_id),
             daemon=True,
         ).start()
 

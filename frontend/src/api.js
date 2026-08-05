@@ -26,11 +26,11 @@ async function jsonOrThrow(r) {
   return r.json()
 }
 
-export const fetchCompare = (keyword, cookie, count, ai_enabled, search_api, lang, locale, channel) =>
+export const fetchCompare = (keyword, cookie, count, ai_enabled, search_api, lang, locale, channel, device_id) =>
   fetch(`${API_BASE}/compare`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ keyword, cookie, count, ai_enabled, search_api, lang, locale, channel }),
+    body: JSON.stringify({ keyword, cookie, count, ai_enabled, search_api, lang, locale, channel, device_id: device_id || null }),
   }).then(jsonOrThrow)
 
 export const fetchGuestCookie = (env = 'stage') =>
@@ -53,11 +53,11 @@ export const updateKeywords = (keywords) =>
     body: JSON.stringify({ keywords }),
   }).then(jsonOrThrow)
 
-export const startBatch = (cookie, search_api, version_a, version_b) =>
+export const startBatch = (cookie, search_api, version_a, version_b, device_id) =>
   fetch(`${API_BASE}/batch/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cookie, search_api, version_a, version_b: version_b ?? null }),
+    body: JSON.stringify({ cookie, search_api, version_a, version_b: version_b ?? null, device_id: device_id || null }),
   }).then(jsonOrThrow)
 
 export const stopBatch = () =>
@@ -117,11 +117,12 @@ export const explainProduct = (keyword, product) =>
 
 // ── AB-check runner (async + checkpointed) ────────────────────────────────
 
-export const startABCheckRun = (type, version_a, version_b, cookie, limit, resume_run_id, lang, locale, channel) =>
+export const startABCheckRun = (type, version_a, version_b, cookie, limit, resume_run_id, lang, locale, channel, device_id) =>
   fetch(`${API_BASE}/ab-check/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type, version_a, version_b, cookie, limit, resume_run_id, lang, locale, channel }),
+    // version_a/b 為字串直接帶入(10 碼制,不驗證);device_id 空字串 → null = 後端預設
+    body: JSON.stringify({ type, version_a, version_b, cookie, limit, resume_run_id, lang, locale, channel, device_id: device_id || null }),
   }).then(jsonOrThrow)
 
 export const getABCheckStatus = (run_id, since_idx = 0, { timeoutMs = 8000 } = {}) => {
@@ -153,11 +154,12 @@ export const fetchABCheckHistory = (type, limit = 50) => {
 export const fetchABCheckHistoryDetail = (run_id) =>
   fetch(`${API_BASE}/ab-check/history/${encodeURIComponent(run_id)}`).then(jsonOrThrow)
 
-export const fetchUnifiedSearch = (keyword, cookie, count, ai_enabled, search_api, version_a, version_b, lang, locale, channel) =>
+export const fetchUnifiedSearch = (keyword, cookie, count, ai_enabled, search_api, version_a, version_b, lang, locale, channel, device_id) =>
   fetch(`${API_BASE}/unified-search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ keyword, cookie, count, ai_enabled, search_api, version_a, version_b, lang, locale, channel }),
+    // version_a/b 為字串直接帶入(10 碼制,不驗證);device_id 空字串 → null = 後端預設
+    body: JSON.stringify({ keyword, cookie, count, ai_enabled, search_api, version_a, version_b, lang, locale, channel, device_id: device_id || null }),
   }).then(jsonOrThrow)
 
 export const fetchBaselineKeywords = () =>

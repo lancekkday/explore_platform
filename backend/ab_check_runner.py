@@ -71,8 +71,9 @@ def _connect() -> sqlite3.Connection:
 def init_schema() -> None:
     """Create ab_check_runs / ab_check_checkpoints tables if missing. Idempotent.
 
-    Also migrates older DBs lacking lang / locale / channel columns by ADD COLUMN
-    (sqlite raises OperationalError 'duplicate column' if已 exists,直接 swallow)。
+    Also migrates older DBs lacking lang / locale / channel / device_id columns by
+    ADD COLUMN (sqlite raises OperationalError 'duplicate column' if已 exists,直接
+    swallow),以及把 version_a/version_b 從 INTEGER 換成 TEXT(rebuild,見下)。
     """
     with _connect() as conn:
         conn.executescript(
@@ -81,8 +82,8 @@ def init_schema() -> None:
               run_id              TEXT PRIMARY KEY,
               type                TEXT NOT NULL,
               status              TEXT NOT NULL,
-              version_a           INTEGER NOT NULL,
-              version_b           INTEGER NOT NULL,
+              version_a           TEXT NOT NULL,
+              version_b           TEXT NOT NULL,
               limit_n             INTEGER,
               total_queries       INTEGER NOT NULL,
               done_count          INTEGER DEFAULT 0,
@@ -94,7 +95,8 @@ def init_schema() -> None:
               parent_run_id       TEXT,
               lang                TEXT NOT NULL DEFAULT 'zh-tw',
               locale              TEXT NOT NULL DEFAULT 'tw',
-              channel             TEXT NOT NULL DEFAULT 'ios'
+              channel             TEXT NOT NULL DEFAULT 'ios',
+              device_id           TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_runs_type_started
               ON ab_check_runs(type, started_at DESC);
@@ -122,6 +124,59 @@ def init_schema() -> None:
                 )
             except sqlite3.OperationalError:
                 pass  # column already exists
+        # device_id:NULL = 用後端預設 (kkday_api.DEFAULT_DEVICE_ID),舊 rows 亦同。
+        try:
+            conn.execute("ALTER TABLE ab_check_runs ADD COLUMN device_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
+        # Migration:test_exp 10 碼化 → version_a/b 必須是 TEXT affinity。
+        # 舊表是 INTEGER affinity,SQLite 會把 '0000000001' 自動轉成整數 1
+        # (前導零消失),ALTER TABLE 又不能改型別 → 只能 rebuild 表。
+        vtype = conn.execute(
+            "SELECT type FROM pragma_table_info('ab_check_runs') WHERE name='version_a'"
+        ).fetchone()
+        if vtype and vtype[0].upper() != "TEXT":
+            logger.info("[ABRunner] migrating ab_check_runs.version_a/b INTEGER → TEXT (rebuild)")
+            conn.executescript(
+                """
+                ALTER TABLE ab_check_runs RENAME TO ab_check_runs_int_ver;
+                CREATE TABLE ab_check_runs (
+                  run_id              TEXT PRIMARY KEY,
+                  type                TEXT NOT NULL,
+                  status              TEXT NOT NULL,
+                  version_a           TEXT NOT NULL,
+                  version_b           TEXT NOT NULL,
+                  limit_n             INTEGER,
+                  total_queries       INTEGER NOT NULL,
+                  done_count          INTEGER DEFAULT 0,
+                  baseline_version    TEXT NOT NULL,
+                  error_msg           TEXT,
+                  started_at          TEXT NOT NULL,
+                  finished_at         TEXT,
+                  summary_json        TEXT,
+                  parent_run_id       TEXT,
+                  lang                TEXT NOT NULL DEFAULT 'zh-tw',
+                  locale              TEXT NOT NULL DEFAULT 'tw',
+                  channel             TEXT NOT NULL DEFAULT 'ios',
+                  device_id           TEXT
+                );
+                INSERT INTO ab_check_runs
+                  (run_id, type, status, version_a, version_b, limit_n,
+                   total_queries, done_count, baseline_version, error_msg,
+                   started_at, finished_at, summary_json, parent_run_id,
+                   lang, locale, channel, device_id)
+                  SELECT run_id, type, status,
+                         CAST(version_a AS TEXT), CAST(version_b AS TEXT), limit_n,
+                         total_queries, done_count, baseline_version, error_msg,
+                         started_at, finished_at, summary_json, parent_run_id,
+                         lang, locale, channel, device_id
+                  FROM ab_check_runs_int_ver;
+                DROP TABLE ab_check_runs_int_ver;
+                CREATE INDEX IF NOT EXISTS idx_runs_type_started
+                  ON ab_check_runs(type, started_at DESC);
+                """
+            )
 
 
 def sweep_interrupted_runs() -> int:
@@ -234,17 +289,19 @@ def _get_active_baseline_ts() -> str:
 
 def _insert_run(run_id, type_, version_a, version_b, limit_n, total,
                 baseline_version, parent_run_id,
-                lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL) -> None:
+                lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL,
+                device_id=None) -> None:
     with _connect() as conn:
         conn.execute(
             """INSERT INTO ab_check_runs
                  (run_id, type, status, version_a, version_b, limit_n,
                   total_queries, baseline_version, started_at, parent_run_id,
-                  lang, locale, channel)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (run_id, type_, RUN_STATUS_RUNNING, version_a, version_b, limit_n,
+                  lang, locale, channel, device_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            # version 一律存字串 — 10 碼制可能有前導零,int 存法會弄丟
+            (run_id, type_, RUN_STATUS_RUNNING, str(version_a), str(version_b), limit_n,
              total, baseline_version, _now_iso(), parent_run_id,
-             lang, locale, channel),
+             lang, locale, channel, device_id),
         )
 
 
@@ -298,7 +355,7 @@ def _finish_run(run_id, status, summary_json=None, error_msg=None) -> None:
 _RUN_COLS = (
     "run_id, type, status, version_a, version_b, limit_n, total_queries, "
     "done_count, baseline_version, error_msg, started_at, finished_at, "
-    "summary_json, parent_run_id, lang, locale, channel"
+    "summary_json, parent_run_id, lang, locale, channel, device_id"
 )
 
 
@@ -391,8 +448,8 @@ def _run_worker(
     run_id: str,
     type_: str,
     queue,
-    version_a: int,
-    version_b: int,
+    version_a: str,
+    version_b: str,
     cookie: str,
     cancel_flag: threading.Event,
     skip_idx: Optional[set[int]] = None,
@@ -400,6 +457,7 @@ def _run_worker(
     lang: str = DEFAULT_LANG,
     locale: str = DEFAULT_LOCALE,
     channel: str = DEFAULT_CHANNEL,
+    device_id: Optional[str] = None,
 ) -> None:
     """同步單緒跑 queue。每跑完一個 query 就 commit 一次 checkpoint。
 
@@ -407,8 +465,8 @@ def _run_worker(
     seed_counts: parent run 的累積 alert tally,合到本 run 的 summary。
     """
     skip_idx = skip_idx or set()
-    # cache key shape: (query, version, lang, locale, channel) — 5-tuple after PR #28
-    cache: dict[tuple[str, int, str, str, str], tuple[int, ...]] = {}
+    # cache key shape: (query, version, lang, locale, channel, device_id) — 6-tuple
+    cache: dict[tuple[str, str, str, str, str, str], tuple[int, ...]] = {}
     severity_counts = {"P0": 0, "P1": 0, "P2": 0, "INFO": 0}
     total_alerts = 0
     if seed_counts:
@@ -436,11 +494,11 @@ def _run_worker(
         try:
             if type_ == "precise":
                 alerts = process_one_precise_query(
-                    row, version_a, version_b, cookie, cache, lang, locale, channel,
+                    row, version_a, version_b, cookie, cache, lang, locale, channel, device_id,
                 )
             else:
                 alerts = process_one_broad_query(
-                    query, group, version_a, version_b, cookie, cache, lang, locale, channel,
+                    query, group, version_a, version_b, cookie, cache, lang, locale, channel, device_id,
                 )
 
             alerts_dicts = [asdict(a) for a in alerts]
@@ -475,8 +533,8 @@ def _copy_parent_done_rows(
     parent_run_id: str,
     total_new: int,
     type_new: str,
-    version_a_new: int,
-    version_b_new: int,
+    version_a_new: str,
+    version_b_new: str,
     baseline_new: str,
     queries_new: list[str],
 ) -> tuple[set[int], dict]:
@@ -507,7 +565,9 @@ def _copy_parent_done_rows(
         if parent_total != total_new:
             logger.warning(f"[ABRunner] resume parent total={parent_total} != new total={total_new}, skipping copy")
             return set(), {}
-        if parent_va != version_a_new or parent_vb != version_b_new:
+        # str() 兩邊 normalize:TEXT 遷移前的舊 run 存的是 int,新 code 帶 str,
+        # 直接比較會把「同版本續跑」誤判成跨版本而 fallback 全跑。
+        if str(parent_va) != str(version_a_new) or str(parent_vb) != str(version_b_new):
             logger.warning(
                 f"[ABRunner] resume parent A/B=({parent_va},{parent_vb}) != "
                 f"new A/B=({version_a_new},{version_b_new}); alerts would be "
@@ -574,8 +634,8 @@ def _copy_parent_done_rows(
 
 def start_run(
     type_: str,
-    version_a: int,
-    version_b: int,
+    version_a: str,
+    version_b: str,
     cookie: str = "",
     limit: Optional[int] = None,
     resume_run_id: Optional[str] = None,
@@ -583,6 +643,7 @@ def start_run(
     lang: str = DEFAULT_LANG,
     locale: str = DEFAULT_LOCALE,
     channel: str = DEFAULT_CHANNEL,
+    device_id: Optional[str] = None,
 ) -> str:
     """啟動一個 run,回傳 run_id。
 
@@ -593,30 +654,36 @@ def start_run(
     的 checkpoint(含 alerts_json),worker 跳過那些 idx 只跑剩下的。Queue 順序
     必須跟 parent 一致(同 baseline + 同 limit)否則 fallback 全跑。
 
-    Resume 時 lang / locale / channel **沿用 parent**(忽略 caller 傳入的值)—
-    一條 run 的 locale 屬於它的身份,續跑不該換 locale 否則 parent 的 ok rows
-    跟新跑的 rows 會跨 locale 混合。
+    Resume 時 lang / locale / channel / device_id **沿用 parent**(忽略 caller
+    傳入的值)— 一條 run 的 locale/device 屬於它的身份,續跑不該換,否則 parent
+    的 ok rows 跟新跑的 rows 會跨 locale / 跨 device(個性化結果不同)混合。
     """
     if type_ not in ("precise", "broad"):
         raise ValueError(f"unknown run type: {type_}")
 
     init_schema()
 
-    # Resume:strip 掉 caller 傳的 locale,改用 parent 的 — 一條 run 的 locale
-    # 在第一次起跑時就釘住,續跑是「繼續同一個 run」不是「開新的」。
+    # version 一律當字串處理(10 碼制可能有前導零);不驗證合法性,前端帶什麼跑什麼
+    version_a = str(version_a)
+    version_b = str(version_b)
+    device_id = device_id or None   # '' 視同未指定 → 後端預設
+
+    # Resume:strip 掉 caller 傳的 locale/device_id,改用 parent 的 — 一條 run 的
+    # locale/device 在第一次起跑時就釘住,續跑是「繼續同一個 run」不是「開新的」。
     if resume_run_id:
         parent = get_run(resume_run_id)
         if parent:
             inherited = (parent.get("lang") or DEFAULT_LANG,
                          parent.get("locale") or DEFAULT_LOCALE,
-                         parent.get("channel") or DEFAULT_CHANNEL)
-            requested = (lang, locale, channel)
+                         parent.get("channel") or DEFAULT_CHANNEL,
+                         parent.get("device_id") or None)
+            requested = (lang, locale, channel, device_id)
             if inherited != requested:
                 logger.info(
-                    f"[ABRunner] resume from {resume_run_id}: inheriting parent locale "
+                    f"[ABRunner] resume from {resume_run_id}: inheriting parent locale/device "
                     f"{inherited}, overriding caller-supplied {requested}"
                 )
-            lang, locale, channel = inherited
+            lang, locale, channel, device_id = inherited
 
     if type_ == "precise":
         queue = _select_precise_queue(limit)
@@ -630,7 +697,7 @@ def start_run(
     baseline_ts = _get_active_baseline_ts()
 
     _insert_run(run_id, type_, version_a, version_b, limit, total, baseline_ts, resume_run_id,
-                lang=lang, locale=locale, channel=channel)
+                lang=lang, locale=locale, channel=channel, device_id=device_id)
     _insert_initial_checkpoints(run_id, queries)
 
     skip_idx: set[int] = set()
@@ -652,7 +719,7 @@ def start_run(
             _run_worker(
                 run_id, type_, queue, version_a, version_b, cookie, cancel_flag,
                 skip_idx=skip_idx, seed_counts=seed_counts,
-                lang=lang, locale=locale, channel=channel,
+                lang=lang, locale=locale, channel=channel, device_id=device_id,
             )
         except Exception as e:
             logger.exception(f"[ABRunner] run={run_id} fatal: {e}")
@@ -705,10 +772,11 @@ def _main() -> None:
     )
     ap.add_argument("--type", choices=["precise", "broad"], required=True)
     ap.add_argument("--limit", type=int, default=None, help="top-N queries (default: 全跑)")
-    ap.add_argument("--version-a", type=int, default=0)
-    ap.add_argument("--version-b", type=int, default=1)
+    ap.add_argument("--version-a", type=str, default="0", help="test_exp A (字串,10 碼制不驗證)")
+    ap.add_argument("--version-b", type=str, default="1", help="test_exp B (字串,10 碼制不驗證)")
     ap.add_argument("--cookie", default="", help="guest cookie for KKDay search v3")
     ap.add_argument("--resume", default=None, help="resume_run_id (parent reference)")
+    ap.add_argument("--device-id", default=None, help="v3 search device_id (個性化;預設用後端 fallback)")
     args = ap.parse_args()
 
     run_id = start_run(
@@ -719,6 +787,7 @@ def _main() -> None:
         limit=args.limit,
         resume_run_id=args.resume,
         sync=True,
+        device_id=args.device_id,
     )
     _print_run_summary(run_id)
 

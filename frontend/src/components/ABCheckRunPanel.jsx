@@ -258,24 +258,27 @@ export default function ABCheckRunPanel({ type }) {
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-[10px] uppercase tracking-[0.05em] font-medium text-text-tertiary">演算法比對</label>
+          <label className="text-[10px] uppercase tracking-[0.05em] font-medium text-text-tertiary">演算法比對 (test_exp)</label>
+          {/* test_exp 10 碼制:字串直接帶入,不驗證合法性 (可能含前導零) */}
           <div className="flex items-center gap-1.5">
             <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-chip-blue text-text-blue-dk">A</span>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               value={versionA}
-              onChange={(e) => setVersionA(parseInt(e.target.value, 10) || 0)}
+              onChange={(e) => setVersionA(e.target.value)}
               disabled={isInflight}
-              className="w-[52px] h-[30px] px-2 text-[13px] tabular-nums text-center border border-border-hair rounded text-text-primary disabled:bg-slate-50"
+              className="w-[104px] h-[30px] px-2 text-[12px] font-mono tabular-nums text-center border border-border-hair rounded text-text-primary disabled:bg-slate-50"
             />
             <span className="text-[11px] text-text-tertiary mx-0.5">vs</span>
             <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-chip-purple text-text-purple-dk">B</span>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               value={versionB}
-              onChange={(e) => setVersionB(parseInt(e.target.value, 10) || 0)}
+              onChange={(e) => setVersionB(e.target.value)}
               disabled={isInflight}
-              className="w-[52px] h-[30px] px-2 text-[13px] tabular-nums text-center border border-border-hair rounded text-text-primary disabled:bg-slate-50"
+              className="w-[104px] h-[30px] px-2 text-[12px] font-mono tabular-nums text-center border border-border-hair rounded text-text-primary disabled:bg-slate-50"
             />
           </div>
         </div>
@@ -319,11 +322,12 @@ export default function ABCheckRunPanel({ type }) {
               style={{ width: `${run.total > 0 ? (run.doneCount / run.total) * 100 : 0}%` }}
             />
           </div>
-          {/* PR #28:running 中也顯示這個 run 的 locale。Resume 時這裡會跟
+          {/* PR #28:running 中也顯示這個 run 的 locale / device。Resume 時這裡會跟
               ctx 全域選的不同 — 因為 backend 沿用了 parent 的。 */}
           {(run.lang || run.locale || run.channel) && (
-            <span className="font-mono text-[10px] text-text-tertiary ml-auto">
+            <span className="font-mono text-[10px] text-text-tertiary ml-auto" title={run.deviceId ? `device_id=${run.deviceId}` : 'device_id:後端預設'}>
               {run.lang} · {run.locale} · {run.channel}
+              {run.deviceId ? ` · dev:${run.deviceId.slice(0, 8)}${run.deviceId.length > 8 ? '…' : ''}` : ''}
             </span>
           )}
         </div>

@@ -16,6 +16,7 @@ export default function SettingsPanel({
   searchApi, setSearchApi,
   aiEnabled, setAiEnabled,
   channel, setChannel,
+  deviceId, setDeviceId,
   cookieInfo, onRefreshCookie,
   onOpenKeywordEditor,
   onOpenScheduleModal,
@@ -202,23 +203,37 @@ export default function SettingsPanel({
                 </select>
               </div>
 
+              {/* test_exp 10 碼制:字串直接帶入 API,不驗證合法性 (可能含前導零) */}
               <div className="flex items-center justify-between">
-                <label className="text-[12px] font-bold text-slate-700">Version A 預設值</label>
+                <label className="text-[12px] font-bold text-slate-700">Version A (test_exp)</label>
                 <input
-                  type="number"
+                  type="text"
                   value={versionA}
-                  onChange={e => setVersionA(parseInt(e.target.value) || 0)}
-                  className="w-16 px-2 py-1 text-[12px] font-black text-center border-2 border-slate-200 rounded-lg focus:border-indigo-500 outline-none"
+                  onChange={e => setVersionA(e.target.value)}
+                  placeholder="例:0000000001"
+                  className="w-32 px-2 py-1 text-[12px] font-black font-mono text-center border-2 border-slate-200 rounded-lg focus:border-indigo-500 outline-none placeholder:font-normal placeholder:text-slate-300"
                 />
               </div>
 
               <div className="flex items-center justify-between">
-                <label className="text-[12px] font-bold text-slate-700">Version B 預設值</label>
+                <label className="text-[12px] font-bold text-slate-700">Version B (test_exp)</label>
                 <input
-                  type="number"
-                  value={versionB ?? 3}
-                  onChange={e => setVersionB(parseInt(e.target.value) || 0)}
-                  className="w-16 px-2 py-1 text-[12px] font-black text-center border-2 border-slate-200 rounded-lg focus:border-indigo-500 outline-none"
+                  type="text"
+                  value={versionB ?? ''}
+                  onChange={e => setVersionB(e.target.value)}
+                  placeholder="例:0000000002"
+                  className="w-32 px-2 py-1 text-[12px] font-black font-mono text-center border-2 border-slate-200 rounded-lg focus:border-indigo-500 outline-none placeholder:font-normal placeholder:text-slate-300"
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <label className="text-[12px] font-bold text-slate-700" title="v3 search API device_id;個性化搜尋巡檢用">Device ID</label>
+                <input
+                  type="text"
+                  value={deviceId}
+                  onChange={e => setDeviceId(e.target.value.trim())}
+                  placeholder="留空使用預設"
+                  className="w-48 px-2 py-1 text-[11px] font-mono border-2 border-slate-200 rounded-lg focus:border-indigo-500 outline-none placeholder:text-slate-300"
                 />
               </div>
 

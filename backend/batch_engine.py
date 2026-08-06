@@ -189,7 +189,7 @@ class BatchEngine:
             "rank_delta": None
         }
 
-    def process_keyword(self, keyword_obj, cookie, search_api="ajax", version_a=0, version_b=None,
+    def process_keyword(self, keyword_obj, cookie, search_api="ajax", version_a="0", version_b=None,
                         lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL,
                         device_id=None):
         keyword = keyword_obj["keyword"]
@@ -272,7 +272,7 @@ class BatchEngine:
                 "version_b": {"total": 0, "results": [], "metrics": {"ndcg_10": 0, "mismatch_rate": 1.0}}
             }
 
-    def run_batch_sync(self, cookie, ai_enabled_override=None, keyword_list_override=None, search_api="ajax", version_a=0, version_b=None,
+    def run_batch_sync(self, cookie, ai_enabled_override=None, keyword_list_override=None, search_api="ajax", version_a="0", version_b=None,
                        lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL,
                        device_id=None):
         """
@@ -315,7 +315,7 @@ class BatchEngine:
         logger.info(f"[Batch] Finished {total_count} tasks. Saved record.")
         return True
 
-    def run_batch(self, cookie, ai_enabled_override=None, keyword_list_override=None, search_api="ajax", version_a=0, version_b=None,
+    def run_batch(self, cookie, ai_enabled_override=None, keyword_list_override=None, search_api="ajax", version_a="0", version_b=None,
                   lang=DEFAULT_LANG, locale=DEFAULT_LOCALE, channel=DEFAULT_CHANNEL,
                   device_id=None):
         """Start a batch in a background daemon thread (used by manual API trigger)."""

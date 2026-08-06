@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
+import { truncId } from '../utils/truncId'
 import RunStatusBar from './RunStatusBar'
 
 const TYPE_LABEL = { precise: '精準詞', broad: '泛詞' }
@@ -327,7 +328,7 @@ export default function ABCheckRunPanel({ type }) {
           {(run.lang || run.locale || run.channel) && (
             <span className="font-mono text-[10px] text-text-tertiary ml-auto" title={run.deviceId ? `device_id=${run.deviceId}` : 'device_id:後端預設'}>
               {run.lang} · {run.locale} · {run.channel}
-              {run.deviceId ? ` · dev:${run.deviceId.slice(0, 8)}${run.deviceId.length > 8 ? '…' : ''}` : ''}
+              {run.deviceId ? ` · dev:${truncId(run.deviceId)}` : ''}
             </span>
           )}
         </div>

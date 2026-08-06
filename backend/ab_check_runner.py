@@ -138,8 +138,13 @@ def init_schema() -> None:
         ).fetchone()
         if vtype and vtype[0].upper() != "TEXT":
             logger.info("[ABRunner] migrating ab_check_runs.version_a/b INTEGER → TEXT (rebuild)")
+            # BEGIN…COMMIT 讓整段 rebuild 原子化:executescript 是逐句 autocommit,
+            # 沒包 transaction 的話 INSERT 中途失敗會留下空的新表 + 舊資料困在
+            # rename 後的表裡,而且下次啟動看到 TEXT affinity 就跳過 migration,
+            # 不會自我修復。
             conn.executescript(
                 """
+                BEGIN;
                 ALTER TABLE ab_check_runs RENAME TO ab_check_runs_int_ver;
                 CREATE TABLE ab_check_runs (
                   run_id              TEXT PRIMARY KEY,
@@ -175,6 +180,7 @@ def init_schema() -> None:
                 DROP TABLE ab_check_runs_int_ver;
                 CREATE INDEX IF NOT EXISTS idx_runs_type_started
                   ON ab_check_runs(type, started_at DESC);
+                COMMIT;
                 """
             )
 

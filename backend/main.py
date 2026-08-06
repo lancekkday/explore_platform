@@ -258,9 +258,10 @@ def _run_scheduled_batch(schedule_id: int):
     # Use schedule-specific keywords if set, otherwise fall back to global list
     kw_override = s.get("keywords") if s.get("keywords") else None
     # run_batch_sync blocks until the batch finishes (APScheduler already provides a thread)
+    # device_id 不帶:Schedule model 沒有這個欄位(排程一律用後端預設 device)。
+    # 要讓排程吃自訂 device_id 時,先在 ScheduleCreate/PatchRequest 補欄位再接這裡。
     ran = batch_engine.run_batch_sync(cookie, ai_enabled_override=bool(s["ai_enabled"]), keyword_list_override=kw_override, search_api=s.get("search_api", "ajax"),
-                                      version_a=s.get("version_a", "0"), version_b=s.get("version_b"),
-                                      device_id=s.get("device_id"))
+                                      version_a=s.get("version_a", "0"), version_b=s.get("version_b"))
     if not ran:
         logger.warning(f"[Scheduler] Skipped schedule_id={schedule_id}: a batch was already running.")
         return

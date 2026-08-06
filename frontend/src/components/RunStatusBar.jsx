@@ -1,4 +1,5 @@
 import { useCopyToClipboard } from '../utils/useCopyToClipboard'
+import { truncId } from '../utils/truncId'
 
 // Inline tabler-style SVG icons (avoid @tabler/icons-react dep)
 function IconPause({ className = '' }) {
@@ -185,7 +186,7 @@ export default function RunStatusBar({ run, onResume }) {
             {' · '}<span style={{ color: palette.textMain }}>{run.channel}</span>
             {run.deviceId && (
               <span title={`device_id=${run.deviceId}`}>
-                {' · '}dev:<span style={{ color: palette.textMain }}>{run.deviceId.slice(0, 8)}{run.deviceId.length > 8 ? '…' : ''}</span>
+                {' · '}dev:<span style={{ color: palette.textMain }}>{truncId(run.deviceId)}</span>
               </span>
             )}
             {isInterrupted && <span className="ml-2 opacity-75">(續跑沿用)</span>}

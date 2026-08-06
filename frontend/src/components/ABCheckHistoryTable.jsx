@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchABCheckHistory, fetchABCheckHistoryDetail } from '../api'
+import { truncId } from '../utils/truncId'
 
 const TYPE_LABEL = { precise: '精準詞', broad: '泛詞' }
 
@@ -152,7 +153,7 @@ function HistoryList({ rows, filterType, setFilterType, onPick, loading, error, 
                   </td>
                   <td className="px-3 py-1.5 font-mono text-slate-500 text-[10px]" title={`lang=${r.lang} locale=${r.locale} channel=${r.channel} device_id=${r.device_id || '(後端預設)'}`}>
                     {r.lang || r.locale || r.channel
-                      ? `${r.lang}·${r.locale}·${r.channel}${r.device_id ? `·dev:${r.device_id.slice(0, 6)}…` : ''}`
+                      ? `${r.lang}·${r.locale}·${r.channel}${r.device_id ? `·dev:${truncId(r.device_id)}` : ''}`
                       : <span className="text-slate-300">—</span>}
                   </td>
                   <td className="px-3 py-1.5 font-mono text-slate-500 text-[10px]">
@@ -228,7 +229,7 @@ function HistoryDetail({ runId, onBack }) {
           {r.device_id && (
             <>
               <span className="text-slate-300">|</span>
-              <span className="text-slate-500" title={`device_id=${r.device_id}`}>dev=<span className="font-mono">{r.device_id.slice(0, 10)}{r.device_id.length > 10 ? '…' : ''}</span></span>
+              <span className="text-slate-500" title={`device_id=${r.device_id}`}>dev=<span className="font-mono">{truncId(r.device_id)}</span></span>
             </>
           )}
           <span className="text-slate-300">|</span>

@@ -138,6 +138,18 @@ def init_schema() -> None:
         ).fetchone()
         if vtype and vtype[0].upper() != "TEXT":
             logger.info("[ABRunner] migrating ab_check_runs.version_a/b INTEGER → TEXT (rebuild)")
+            # 一次性檔案級備份:rebuild 是單向(舊表會 DROP),transaction 只保原子
+            # 性、救不了「成功執行了錯誤的轉換」。先把整顆 history.db 快照到旁邊
+            # (連 checkpoints / batch 表一起),萬一 CAST 或搬移有 bug 還能整檔救回。
+            # 用 sqlite backup API 而非 file copy — WAL 模式下直接 copy 檔案可能拿到
+            # 不一致的 snapshot。固定檔名 + exists guard:migration 只跑一次,重跑
+            # (例如上次 rebuild 中途失敗 rollback 後)也不會蓋掉最早的乾淨備份。
+            bak_path = f"{DB_PATH}.pre-text-migration.bak"
+            if not os.path.exists(bak_path):
+                with sqlite3.connect(bak_path) as bak:
+                    conn.backup(bak)
+                bak.close()
+                logger.info(f"[ABRunner] pre-migration backup written → {bak_path}")
             # BEGIN…COMMIT 讓整段 rebuild 原子化:executescript 是逐句 autocommit,
             # 沒包 transaction 的話 INSERT 中途失敗會留下空的新表 + 舊資料困在
             # rename 後的表裡,而且下次啟動看到 TEXT affinity 就跳過 migration,

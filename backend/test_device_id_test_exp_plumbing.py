@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -218,6 +219,57 @@ def test_resume_inherits_parent_device_id(tmp_path, monkeypatch):
     resumed = runner.get_run(resume_id)
     assert resumed["device_id"] == "dev-parent", "resume 必須無視 caller 的 device_id,沿用 parent"
     assert resumed["parent_run_id"] == parent_id
+
+
+def test_init_schema_migrates_int_versions_with_backup(tmp_path, monkeypatch):
+    """舊 INTEGER schema → init_schema() 自動 rebuild 成 TEXT:
+    - 舊 rows CAST 保留、前導零之後存得住
+    - rebuild 前先寫檔案級備份 history.db.pre-text-migration.bak(單向 DROP 的保險)
+    - idempotent:再跑一次不動備份、不再 rebuild"""
+    import sqlite3
+    import ab_check_runner as runner
+
+    tmp_db = tmp_path / "hist-mig.db"
+    monkeypatch.setattr(runner, "DB_PATH", str(tmp_db))
+
+    # 建「舊版」schema(INTEGER version,無 device_id / lang / locale / channel)
+    conn = sqlite3.connect(tmp_db)
+    conn.executescript("""
+        CREATE TABLE ab_check_runs (
+          run_id TEXT PRIMARY KEY, type TEXT NOT NULL, status TEXT NOT NULL,
+          version_a INTEGER NOT NULL, version_b INTEGER NOT NULL,
+          limit_n INTEGER, total_queries INTEGER NOT NULL, done_count INTEGER DEFAULT 0,
+          baseline_version TEXT NOT NULL, error_msg TEXT, started_at TEXT NOT NULL,
+          finished_at TEXT, summary_json TEXT, parent_run_id TEXT
+        );
+        INSERT INTO ab_check_runs (run_id,type,status,version_a,version_b,total_queries,baseline_version,started_at)
+        VALUES ('old1','precise','done',0,1,10,'bl-x','2026-01-01T00:00:00');
+    """)
+    conn.commit()
+    conn.close()
+
+    runner.init_schema()
+
+    # 備份檔存在且含舊 row(INTEGER 原樣)
+    bak_path = f"{runner.DB_PATH}.pre-text-migration.bak"
+    assert os.path.exists(bak_path), "rebuild 前必須寫檔案級備份"
+    with sqlite3.connect(bak_path) as bak:
+        assert bak.execute("SELECT version_a FROM ab_check_runs WHERE run_id='old1'").fetchone() == (0,)
+    bak.close()
+
+    # 主 DB:TEXT affinity + 舊 row 轉字串保留 + 舊表已 DROP
+    with sqlite3.connect(tmp_db) as conn:
+        cols = {row[1]: row[2] for row in conn.execute("PRAGMA table_info(ab_check_runs)")}
+        assert cols["version_a"] == "TEXT" and cols["version_b"] == "TEXT"
+        assert "device_id" in cols
+        assert conn.execute("SELECT version_a, version_b FROM ab_check_runs WHERE run_id='old1'").fetchone() == ("0", "1")
+        assert not conn.execute("SELECT name FROM sqlite_master WHERE name='ab_check_runs_int_ver'").fetchone()
+    conn.close()
+
+    # idempotent:再跑一次不炸,備份不被覆寫
+    mtime = os.path.getmtime(bak_path)
+    runner.init_schema()
+    assert os.path.getmtime(bak_path) == mtime, "備份是一次性的,不可被後續啟動覆寫"
 
 
 def test_resume_copies_parent_rows_across_int_str_versions(tmp_path, monkeypatch):

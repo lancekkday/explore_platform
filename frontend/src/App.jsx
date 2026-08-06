@@ -61,6 +61,7 @@ function Layout() {
         searchApi={ctx.searchApi} setSearchApi={ctx.setSearchApi}
         aiEnabled={ctx.aiEnabled} setAiEnabled={ctx.setAiEnabled}
         channel={ctx.channel} setChannel={ctx.setChannel}
+        deviceId={ctx.deviceId} setDeviceId={ctx.setDeviceId}
         cookieInfo={ctx.cookieInfo}
         onRefreshCookie={ctx.autoFetchCookie}
         onOpenKeywordEditor={ctx.openKeywordEditor}

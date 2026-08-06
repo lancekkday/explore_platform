@@ -29,15 +29,14 @@ function PanelHeader({ column, data, version, onVersionChange, onSubmit }) {
     <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">test_exp</span>
   )
   const versionInput = (
+    // test_exp 10 碼制:字串直接帶入 API,不做合法性驗證/過濾 (可能含前導零)
     <input
       type="text"
       inputMode="numeric"
-      pattern="[0-9]*"
       value={version}
-      onChange={(e) => onVersionChange?.(e.target.value.replace(/\D/g, ''))}
+      onChange={(e) => onVersionChange?.(e.target.value)}
       onKeyDown={(e) => { if (e.key === 'Enter') onSubmit?.() }}
-      maxLength={4}
-      className="w-[36px] h-[18px] text-[11px] font-medium text-slate-700 text-center border border-slate-300 rounded-[3px] bg-white outline-none focus:border-indigo-500"
+      className="w-[92px] h-[18px] text-[11px] font-mono font-medium text-slate-700 text-center border border-slate-300 rounded-[3px] bg-white outline-none focus:border-indigo-500"
     />
   )
 

@@ -63,12 +63,14 @@ def _stage_label_zh(stage_status: Optional[str]) -> str:
 
 
 def _fetch_results(
-    query: str, version: int, cookie: str, cache: dict = None,
+    query: str, version: str, cookie: str, cache: dict = None,
     lang: str = DEFAULT_LANG, locale: str = DEFAULT_LOCALE, channel: str = DEFAULT_CHANNEL,
+    device_id: str = None,
 ) -> tuple[int, ...]:
     """呼叫 v3 search API，回傳 prod_mid tuple（有 cache）。
-    cache key 包含 (query, version, lang, locale, channel) 以免不同語系/locale 共用結果。"""
-    key = (query, version, lang, locale, channel)
+    cache key 包含 (query, version, lang, locale, channel, device_id) 以免不同
+    語系/locale/device(個性化) 共用結果。"""
+    key = (query, version, lang, locale, channel, device_id)
     if cache is not None and key in cache:
         return cache[key]
     try:
@@ -76,6 +78,7 @@ def _fetch_results(
             keyword=query, env="stage", cookie=cookie,
             row_count=API_MAX_RESULTS, test_exp=version,
             lang=lang, locale=locale, channel=channel,
+            device_id=device_id,
         )
         # Match on prod_mid ONLY — prod_oid is a different id namespace and can
         # differ from prod_mid, so falling back to it would key a row in the wrong
@@ -165,10 +168,11 @@ def check_ab_precise(query, mid, baseline_rank, a_rank, b_rank) -> Optional[Aler
 def process_one_precise_query(
     row, version_a, version_b, cookie, cache=None,
     lang: str = DEFAULT_LANG, locale: str = DEFAULT_LOCALE, channel: str = DEFAULT_CHANNEL,
+    device_id: str = None,
 ) -> list[Alert]:
     query = row["query"]
-    a_results = _fetch_results(query, version_a, cookie, cache, lang, locale, channel)
-    b_results = _fetch_results(query, version_b, cookie, cache, lang, locale, channel)
+    a_results = _fetch_results(query, version_a, cookie, cache, lang, locale, channel, device_id)
+    b_results = _fetch_results(query, version_b, cookie, cache, lang, locale, channel, device_id)
 
     alerts = []
     for rank_n, mid_col in [(1, "top1_prod_mid"), (2, "top2_prod_mid")]:
@@ -245,10 +249,11 @@ def check_ab_broad(query, mid, baseline_rank, a_rank, b_rank) -> Optional[Alert]
 def process_one_broad_query(
     query, group, version_a, version_b, cookie, cache=None,
     lang: str = DEFAULT_LANG, locale: str = DEFAULT_LOCALE, channel: str = DEFAULT_CHANNEL,
+    device_id: str = None,
 ) -> list[Alert]:
     """group: list of broad baseline row dicts (prod_mid, profit_rank, ...) for this query."""
-    a_results = _fetch_results(query, version_a, cookie, cache, lang, locale, channel)
-    b_results = _fetch_results(query, version_b, cookie, cache, lang, locale, channel)
+    a_results = _fetch_results(query, version_a, cookie, cache, lang, locale, channel, device_id)
+    b_results = _fetch_results(query, version_b, cookie, cache, lang, locale, channel, device_id)
 
     alerts = []
     for row in group:
@@ -275,12 +280,13 @@ def process_one_broad_query(
 def _run_precise(
     precise_rows, va, vb, cookie, cache=None,
     lang: str = DEFAULT_LANG, locale: str = DEFAULT_LOCALE, channel: str = DEFAULT_CHANNEL,
+    device_id: str = None,
 ) -> list[Alert]:
     """precise_rows: iterable of baseline_service._precise.values()"""
     alerts = []
     with ThreadPoolExecutor(max_workers=API_PARALLEL_WORKERS) as ex:
         futures = {
-            ex.submit(process_one_precise_query, r, va, vb, cookie, cache, lang, locale, channel): r["query"]
+            ex.submit(process_one_precise_query, r, va, vb, cookie, cache, lang, locale, channel, device_id): r["query"]
             for r in precise_rows
         }
         for f in as_completed(futures):
@@ -294,12 +300,13 @@ def _run_precise(
 def _run_broad(
     broad_groups, va, vb, cookie, cache=None,
     lang: str = DEFAULT_LANG, locale: str = DEFAULT_LOCALE, channel: str = DEFAULT_CHANNEL,
+    device_id: str = None,
 ) -> list[Alert]:
     """broad_groups: iterable of (query, [row dict, ...])"""
     alerts = []
     with ThreadPoolExecutor(max_workers=API_PARALLEL_WORKERS) as ex:
         futures = {
-            ex.submit(process_one_broad_query, q, g, va, vb, cookie, cache, lang, locale, channel): q
+            ex.submit(process_one_broad_query, q, g, va, vb, cookie, cache, lang, locale, channel, device_id): q
             for q, g in broad_groups
         }
         for f in as_completed(futures):
@@ -313,21 +320,22 @@ def _run_broad(
 # ── 對外入口 ─────────────────────────────────────────────────────────────────
 
 def run_ab_check(
-    version_a: int,
-    version_b: int,
+    version_a: str,
+    version_b: str,
     cookie: str,
     skip_precise: bool = False,
     skip_broad: bool = False,
     lang: str = DEFAULT_LANG,
     locale: str = DEFAULT_LOCALE,
     channel: str = DEFAULT_CHANNEL,
+    device_id: str = None,
 ) -> dict:
     """
     執行 AB 巡檢，回傳 { summary, alerts }。
     cache 為 request-local，避免 concurrency 問題。
     """
-    # cache key shape: (query, version, lang, locale, channel) — 5-tuple after PR #28
-    cache: dict[tuple[str, int, str, str, str], tuple[int, ...]] = {}
+    # cache key shape: (query, version, lang, locale, channel, device_id) — 6-tuple
+    cache: dict[tuple[str, str, str, str, str, str], tuple[int, ...]] = {}
     all_alerts: list[Alert] = []
 
     # Use baseline_service singleton (already loaded in memory) instead of re-reading CSVs
@@ -338,7 +346,7 @@ def run_ab_check(
                 f"[AB] Running precise check: {len(precise_rows)} queries, "
                 f"A={version_a} B={version_b} lang={lang} locale={locale} channel={channel}"
             )
-            all_alerts += _run_precise(precise_rows, version_a, version_b, cookie, cache, lang, locale, channel)
+            all_alerts += _run_precise(precise_rows, version_a, version_b, cookie, cache, lang, locale, channel, device_id)
 
     if not skip_broad:
         broad_groups = list(baseline_service._broad.items())
@@ -347,7 +355,7 @@ def run_ab_check(
                 f"[AB] Running broad check: {len(broad_groups)} queries, "
                 f"A={version_a} B={version_b} lang={lang} locale={locale} channel={channel}"
             )
-            all_alerts += _run_broad(broad_groups, version_a, version_b, cookie, cache, lang, locale, channel)
+            all_alerts += _run_broad(broad_groups, version_a, version_b, cookie, cache, lang, locale, channel, device_id)
 
     severity_counts = {"P0": 0, "P1": 0, "P2": 0, "INFO": 0}
     for a in all_alerts:

@@ -1,4 +1,5 @@
 import { useCopyToClipboard } from '../utils/useCopyToClipboard'
+import { truncId } from '../utils/truncId'
 
 // Inline tabler-style SVG icons (avoid @tabler/icons-react dep)
 function IconPause({ className = '' }) {
@@ -176,13 +177,18 @@ export default function RunStatusBar({ run, onResume }) {
           {isDone && <SummaryInline summary={run.summary} />}
           {isFailed && (run.errorMsg || run.error || '伺服器異常,請檢查 backend log')}
         </div>
-        {/* PR #28: 顯示這個 run 的 locale。Interrupted 時特別標「續跑沿用」提醒
-            使用者:即使他現在 dropdown 切到別的 locale,續跑仍會用這組值。 */}
+        {/* PR #28: 顯示這個 run 的 locale / device。Interrupted 時特別標「續跑沿用」
+            提醒使用者:即使他現在設定切到別的 locale/device,續跑仍會用這組值。 */}
         {(run.lang || run.locale || run.channel) && (
           <div className="text-[10px] font-mono" style={{ color: palette.textSub, opacity: 0.85 }}>
             locale:<span style={{ color: palette.textMain }}>{run.lang}</span>
             {' · '}<span style={{ color: palette.textMain }}>{run.locale}</span>
             {' · '}<span style={{ color: palette.textMain }}>{run.channel}</span>
+            {run.deviceId && (
+              <span title={`device_id=${run.deviceId}`}>
+                {' · '}dev:<span style={{ color: palette.textMain }}>{truncId(run.deviceId)}</span>
+              </span>
+            )}
             {isInterrupted && <span className="ml-2 opacity-75">(續跑沿用)</span>}
           </div>
         )}

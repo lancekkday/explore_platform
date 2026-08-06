@@ -195,6 +195,8 @@ def _fetch_page_v3(url, headers, body, env, keyword):
 DEFAULT_LANG = "zh-tw"
 DEFAULT_LOCALE = "tw"
 DEFAULT_CHANNEL = "ios"
+# 個性化搜尋巡檢:device_id 可由前端帶入;空值 fallback 到 env / 既有寫死值
+DEFAULT_DEVICE_ID = os.getenv("KKDAY_SEARCH_DEVICE_ID", "e5af2aba849682eebc53766e4487289f")
 
 
 def fetch_kkday_products_v3(
@@ -202,23 +204,25 @@ def fetch_kkday_products_v3(
     env: str,
     cookie: str,
     row_count: int = 300,
-    test_exp: int = 3,
+    test_exp: str = "3",
     lang: str = DEFAULT_LANG,
     locale: str = DEFAULT_LOCALE,
     channel: str = DEFAULT_CHANNEL,
+    device_id: str = None,
 ):
     """
     使用 v3 search API 抓取商品，最多回傳 row_count 筆。
     介面與 fetch_kkday_products 相同：回傳 (products, total, total_page)。
-    test_exp: 搜尋演算法版本（AB 巡檢用）。
+    test_exp: 搜尋演算法版本（AB 巡檢用）。10 碼制後為字串,前端帶什麼就送什麼
+              (不做合法性驗證);為相容舊呼叫端,int 會被轉成字串。
     lang / locale / channel: 由呼叫端帶入,預設值與舊行為一致 (zh-tw / tw / ios)。
+    device_id: 個性化搜尋用;None/空值時 fallback DEFAULT_DEVICE_ID。
     """
     url = _V3_BASE_URLS.get(env)
     if not url:
         raise ValueError(f"Unknown env: {env}")
 
     auth_key = os.getenv("KKDAY_SEARCH_AUTH_KEY", "")
-    device_id = os.getenv("KKDAY_SEARCH_DEVICE_ID", "e5af2aba849682eebc53766e4487289f")
 
     headers = {
         "x-auth-key": auth_key,
@@ -236,10 +240,12 @@ def fetch_kkday_products_v3(
         "source": channel or DEFAULT_CHANNEL,
         "translate_status": 1,
         "page_name": "product_list_mobile",
-        "device_id": device_id,
+        "device_id": device_id or DEFAULT_DEVICE_ID,
         "ux_exp": 0,
         "sort": "PREC",
-        "test_exp": test_exp,
+        # 一律送字串:10 碼制的 test_exp 可能有前導零 (e.g. "0000000001"),
+        # int 會把它吃掉;None 以外的值直接 str() pass-through,不驗證合法性。
+        "test_exp": str(test_exp) if test_exp is not None else test_exp,
     }
 
     all_products = []

@@ -11,13 +11,13 @@ const POLL_INTERVAL_MS = 2000
 
 function emptyRun() {
   // rowsMap: idx → checkpoint row (live state)
-  // lang/locale/channel:由 backend _row_to_run_dict 給,resume 時 backend 自動沿用
-  // parent 的值 → 跟 ctx 全域 lang/locale/channel 不一定一致。RunStatusBar / 配置
-  // 列顯示用,提醒使用者「這個 run 是用哪個 locale 跑的」。
+  // lang/locale/channel/deviceId:由 backend _row_to_run_dict 給,resume 時 backend
+  // 自動沿用 parent 的值 → 跟 ctx 全域設定不一定一致。RunStatusBar / 配置列顯示用,
+  // 提醒使用者「這個 run 是用哪個 locale / device 跑的」。
   return { runId: null, status: null, total: 0, doneCount: 0,
            runningIdx: null, rowsMap: new Map(), sinceIdx: 0,
            limitN: null, summary: null, errorMsg: null, error: null,
-           lang: null, locale: null, channel: null }
+           lang: null, locale: null, channel: null, deviceId: null }
 }
 
 const TERMINAL = new Set(['done', 'failed', 'cancelled', 'interrupted'])
@@ -49,18 +49,21 @@ export function useAppContext() {
 
 export function AppContextProvider({ children }) {
   // ── Search/AB settings (shared by HomePage & BatchPage) ──────────────────
-  const [versionA, setVersionA] = useState(0)
-  const [versionB, setVersionB] = useState(1)
+  // test_exp 10 碼制:version 一律存字串直接送後端,不做合法性驗證
+  // (可能有前導零,parseInt 會弄丟)。
+  const [versionA, setVersionA] = useState('0')
+  const [versionB, setVersionB] = useState('1')
   const [enableAB, setEnableAB] = useState(true)
   const [searchApi, setSearchApi] = useState('v3')
   const [aiEnabled, setAiEnabled] = useState(false)
 
-  // ── Locale / channel (per-request API fields, shared by Home & Batch) ────
+  // ── Locale / channel / device (per-request API fields, Home & Batch 共用) ─
   // 預設值對齊後端 kkday_api.py 的 DEFAULT_*。lang + locale 給 HomePage 切,
-  // channel 給 SettingsPanel 切。
+  // channel + deviceId 給 SettingsPanel 切。deviceId 空字串 = 用後端預設。
   const [lang, setLang] = useState('zh-tw')
   const [locale, setLocale] = useState('tw')
   const [channel, setChannel] = useState('ios')
+  const [deviceId, setDeviceId] = useState('')
 
   // ── Cookie / connection ──────────────────────────────────────────────────
   const [cookie, setCookie] = useState('')
@@ -147,10 +150,11 @@ export function AppContextProvider({ children }) {
         summary: res.run.summary ?? prev.summary,    // F2: persist summary for done bar
         errorMsg: res.run.error_msg ?? prev.errorMsg, // F8: surface backend error
         // PR #28: run-level locale 從 DB 讀回,resume 時 backend 沿用 parent 的,
-        // 因此可能與 ctx 全域 lang/locale/channel 不同。
+        // 因此可能與 ctx 全域 lang/locale/channel/deviceId 不同。
         lang: res.run.lang ?? prev.lang,
         locale: res.run.locale ?? prev.locale,
         channel: res.run.channel ?? prev.channel,
+        deviceId: res.run.device_id ?? prev.deviceId,
       } : prev)
       if (TERMINAL.has(res.run.status)) clearPollTimer(type)
     } catch (e) {
@@ -179,7 +183,7 @@ export function AppContextProvider({ children }) {
       // F10: empty / '0' / negative / NaN ⇒ null (全跑); otherwise ≥1
       const raw = (limit == null) ? null : parseInt(limit, 10)
       const limitN = (raw == null || isNaN(raw) || raw <= 0) ? null : raw
-      const startRes = await startABCheckRun(type, versionA, versionB, cookie, limitN, resumeRunId, lang, locale, channel)
+      const startRes = await startABCheckRun(type, versionA, versionB, cookie, limitN, resumeRunId, lang, locale, channel, deviceId)
       if (!startRes?.run_id) {
         setter({ ...emptyRun(), error: errToStr(startRes?.detail, '啟動失敗') })
         return null
@@ -191,11 +195,12 @@ export function AppContextProvider({ children }) {
         status: startRes.status,
         total: startRes.total_queries,
         limitN,
-        // Resume 時 backend 會回 parent 的 locale(start_run 已 inherit) — 即時填入,
-        // 不用等 2s polling 才看到「沿用了哪個 locale」。
+        // Resume 時 backend 會回 parent 的 locale/device(start_run 已 inherit) —
+        // 即時填入,不用等 2s polling 才看到「沿用了哪組值」。
         lang: startRes.lang ?? lang,
         locale: startRes.locale ?? locale,
         channel: startRes.channel ?? channel,
+        deviceId: startRes.device_id ?? (deviceId || null),
       })
       // 立刻拉一次 status 把 pending rows 渲染出來,再開始 2s polling
       await pollRunOnce(type, runId)
@@ -328,8 +333,9 @@ export function AppContextProvider({ children }) {
     // Search/AB
     versionA, setVersionA, versionB, setVersionB, enableAB, setEnableAB,
     searchApi, setSearchApi, aiEnabled, setAiEnabled,
-    // Locale / channel (lang+locale on HomePage, channel in SettingsPanel)
+    // Locale / channel / device (lang+locale on HomePage, channel+deviceId in SettingsPanel)
     lang, setLang, locale, setLocale, channel, setChannel,
+    deviceId, setDeviceId,
     // Cookie
     cookie, cookieInfo, cookieError, autoFetchCookie,
     // Baseline metadata

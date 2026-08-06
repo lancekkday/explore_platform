@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchABCheckHistory, fetchABCheckHistoryDetail } from '../api'
+import { truncId } from '../utils/truncId'
 
 const TYPE_LABEL = { precise: '精準詞', broad: '泛詞' }
 
@@ -150,9 +151,9 @@ function HistoryList({ rows, filterType, setFilterType, onPick, loading, error, 
                   <td className="px-3 py-1.5 font-mono text-slate-500 text-[10px]">
                     {r.baseline_version ? r.baseline_version.slice(0, 15) : <span className="text-slate-300">—</span>}
                   </td>
-                  <td className="px-3 py-1.5 font-mono text-slate-500 text-[10px]" title={`lang=${r.lang} locale=${r.locale} channel=${r.channel}`}>
+                  <td className="px-3 py-1.5 font-mono text-slate-500 text-[10px]" title={`lang=${r.lang} locale=${r.locale} channel=${r.channel} device_id=${r.device_id || '(後端預設)'}`}>
                     {r.lang || r.locale || r.channel
-                      ? `${r.lang}·${r.locale}·${r.channel}`
+                      ? `${r.lang}·${r.locale}·${r.channel}${r.device_id ? `·dev:${truncId(r.device_id)}` : ''}`
                       : <span className="text-slate-300">—</span>}
                   </td>
                   <td className="px-3 py-1.5 font-mono text-slate-500 text-[10px]">
@@ -225,6 +226,12 @@ function HistoryDetail({ runId, onBack }) {
           <span className="text-slate-500">A=<span className="font-mono">{r.version_a}</span> · B=<span className="font-mono">{r.version_b}</span></span>
           <span className="text-slate-300">|</span>
           <span className="text-slate-500">limit=<span className="font-mono">{r.limit_n ?? '全跑'}</span></span>
+          {r.device_id && (
+            <>
+              <span className="text-slate-300">|</span>
+              <span className="text-slate-500" title={`device_id=${r.device_id}`}>dev=<span className="font-mono">{truncId(r.device_id)}</span></span>
+            </>
+          )}
           <span className="text-slate-300">|</span>
           <span className="text-slate-500">進度 <span className="tabular-nums text-slate-800 font-semibold">{r.done_count}/{r.total_queries}</span></span>
         </div>

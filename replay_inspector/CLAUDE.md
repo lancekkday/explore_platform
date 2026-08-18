@@ -48,6 +48,9 @@ API_BASE=http://localhost:8300 streamlit run app/streamlit_app.py
 
 # 接真 BQ(需 GOOGLE_APPLICATION_CREDENTIALS;表由 dataform 產出後才有資料)
 BQ_PROJECT_ID=kkday-data-dap BQ_DATASET=dl_qa uvicorn src.api.main:app --port 8300
+
+# Docker(從 repo 根目錄;與主平台同一份 docker-compose.yml 一起 up)
+docker compose up -d replay-api replay-ui
 ```
 
 ## 環境變數

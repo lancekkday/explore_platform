@@ -294,6 +294,9 @@ def compare(
         if r["rank_a"] is not None and r["rank_b"] is not None and r["rank_a"] != r["rank_b"]
     )
     tie_unresolvable = sum(1 for r in rows if r["verdict"] == "tie_unresolvable")
+    # ui-spec §5 讀數列第三格「跨帶變動」= real_move 計數。rank_changes 含同帶內
+    # 位移(總量),跨帶才是可歸因於演算法的變動 — 兩者都回,UI 用 real_move。
+    real_move = sum(1 for r in rows if r["verdict"] == "real_move")
 
     return {
         "meta": {"keyword": keyword, "locale": locale, "exp_a": exp_a, "exp_b": exp_b},
@@ -301,6 +304,7 @@ def compare(
             "personalization_strength": round(strength, 4),
             "top10_overlap": top10_overlap,
             "rank_changes": rank_changes,
+            "real_move_changes": real_move,
             "tie_unresolvable_changes": tie_unresolvable,
             "warning": strength_warning(strength),
         },

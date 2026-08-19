@@ -58,8 +58,10 @@ st.markdown("""
 .readout .v.grey{color:var(--graphite);}
 .readout .warn{font:400 11px/1.4 var(--sans);margin-top:2px;}
 .readout .warn.alert{color:var(--alert);} .readout .warn.counter{color:var(--counter);}
+@media (max-width:600px){ .readout{grid-template-columns:repeat(2,1fr);} } /* §3 */
 /* 排序表 (§6) */
-table.rank{width:100%;border-collapse:collapse;background:var(--surface);
+.rank-wrap{overflow-x:auto;} /* 窄屏表格自身橫捲,判讀欄不被擠成直排 */
+table.rank{width:100%;min-width:560px;border-collapse:collapse;background:var(--surface);
   border:.5px solid var(--rule);border-radius:6px;}
 table.rank th{font:500 11px/1.2 var(--cond);letter-spacing:.06em;color:var(--graphite);
   text-align:left;padding:8px 10px;border-bottom:.5px solid var(--rule);}
@@ -362,11 +364,11 @@ with left:
                 prev_band_last_score = r.get("ltr_score_a") or prev_band_last_score
 
         st.markdown(
-            "<table class='rank ri'><thead><tr>"
+            "<div class='rank-wrap'><table class='rank ri'><thead><tr>"
             "<th></th><th scope='col'>A</th><th scope='col'>B</th>"
             "<th scope='col'>PROD_MID</th><th scope='col' style='text-align:right'>分數</th>"
             "<th scope='col'>相關性</th><th scope='col'>判讀</th>"
-            "</tr></thead><tbody>" + "".join(body) + "</tbody></table>",
+            "</tr></thead><tbody>" + "".join(body) + "</tbody></table></div>",
             unsafe_allow_html=True,
         )
         d = cmp_data["dispersion_a"]

@@ -3,7 +3,8 @@
 Search Personalization Replay Inspector(個性化搜尋事件回放器)— 回答「同一個
 keyword,treatment 與 control 看到的結果差在哪、為什麼」。唯讀工具。
 
-規格:`spec/v1-spec.md`(權威)。實作計畫:`docs/superpowers/plans/`。
+規格:`spec/v1-spec.md`(資料與領域邏輯,權威)+ `spec/ui-spec.md`(畫面,計量學視覺
+系統 — 顏色只給值得查的事,不可判讀的主動退場)。實作計畫:`docs/superpowers/plans/`。
 
 ## 紅線(違反即 bug)
 
@@ -25,13 +26,15 @@ src/repo/bigquery.py    ← 分區強制 / 成本 guard / PII;EventRepo Protocol
         ↓
 src/api/main.py         ← FastAPI(5.2–5.5 + POST /api/events/search)
         ↓
-app/streamlit_app.py    ← 單頁三段:條件列 → 對照面板+排序表 → 特徵面板
+app/streamlit_app.py    ← ui-spec 版面:標題摘要+條件收合 → 讀數列 → 排序對照(同分帶括號)+特徵側欄
 ```
 
 Domain 純函式(必有測試):
 - `src/domain/relevance.py` — 六碼解碼。spec §9.1–9.3 未決,答案回來**只改這個檔**與前端配色
 - `src/domain/tie_band.py` — float32 ULP 同分帶(`TIE_ULP_THRESHOLD=10`,待與 RD 校準)
 - `src/domain/compare.py` — verdict / 個性化強度(<5% 紅、>60% 黃)/ A∪B 合併
+- `src/domain/presentation.py` — 判讀文字/燈號映射/前綴計算/帶間距 (ui-spec §9.2,
+  Streamlit 與未來 TCMS 移植共用;§10 可測反模式都在 tests/test_presentation.py)
 
 API 層與前端層分開:後續 MCP tool `search-event-inspect`(L0 唯讀)共用 repo+domain,
 分區檢查與 PII 遮罩都在 API/repo 層,MCP 才吃得到。

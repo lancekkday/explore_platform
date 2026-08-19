@@ -46,6 +46,9 @@
     `cache_hit=false` 要看 live 排序,面板卻可能抓到 cache 事件,比對對象錯置
 - `tests/test_api.py`:TestClient + FakeRepo,覆蓋驗收 2/3/4/6/7 的 API 面。
 ### Phase 4 — Streamlit
+> ⚠ 本段的版面描述已被後到的 `spec/ui-spec.md`(計量學視覺系統)取代 —
+> 實作以 ui-spec 為準:標題列摘要 + 條件收合 + 讀數列 + 左右雙欄、同分帶括號、
+> 前綴淡化、ink 色階燈號。呈現層純函式在 `src/domain/presentation.py`。
 - `app/streamlit_app.py`:單頁三段(條件列 → 對照面板四卡 + 排序表 → 特徵面板)。
   - 六格燈號(第 4 格獨立配色,標「⚠ 語意待 9.1」)、only_a/only_b 整列底色、同分帶文案、精排邊界線(4.4)、旗標優先於特徵值(4.5)、cf 展開按鈕才打 5.4
   - `API_BASE` env 指向 FastAPI;demo 模式 = API 以 `USE_FAKE=1` 啟動(Streamlit 一律走 API,不直連 repo — 規則集中一層)

@@ -134,6 +134,22 @@ tr.edge-b td:first-child{box-shadow:inset 3px 0 0 var(--counter);}
 .panel{background:var(--surface);border:.5px solid var(--rule);border-radius:6px;padding:12px 14px;}
 .dim{opacity:.4;pointer-events:none;}
 .empty-state{font:400 13px/1.5 var(--sans);color:var(--graphite);padding:28px 0;}
+/* 特徵面板側標籤:收合後變成貼右緣的直式 tab (參照主平台批次頁的側標籤樣式) */
+.st-key-panel_expand button{
+  writing-mode:vertical-rl;letter-spacing:.25em;
+  font:500 12px/1 var(--cond);color:var(--graphite);
+  background:var(--tolerance);border:1px solid var(--rule);border-right:none;
+  border-radius:10px 0 0 10px;min-height:118px;width:32px;padding:14px 5px;
+}
+.st-key-panel_expand button:hover{color:var(--ink);border-color:var(--graphite);
+  background:var(--surface);}
+.st-key-panel_expand{display:flex;justify-content:flex-end;}
+.st-key-panel_collapse button{
+  font:500 11px/1.2 var(--cond);letter-spacing:.06em;color:var(--graphite);
+  background:var(--surface);border:.5px solid var(--rule);border-radius:6px;
+  padding:4px 10px;min-height:0;
+}
+.st-key-panel_collapse button:hover{color:var(--ink);border-color:var(--graphite);}
 </style>
 """, unsafe_allow_html=True)
 
@@ -313,7 +329,7 @@ else:
 with right:
     _ids = [e["session_id"] for e in events]
     if st.session_state.panel_open:
-        st.button("收合 »", on_click=_toggle_panel, use_container_width=True,
+        st.button("收合 »", key="panel_collapse", on_click=_toggle_panel,
                   help="把特徵面板收到最右邊,讓排序表滿版")
         pick = st.selectbox(
             "事件", _ids,
@@ -325,7 +341,8 @@ with right:
         )
         st.session_state["picked_session"] = pick
     else:
-        st.button("«", on_click=_toggle_panel, help="展開特徵面板")
+        st.button("特徵面板", key="panel_expand", on_click=_toggle_panel,
+                  help="展開特徵面板")
         stored = st.session_state.get("picked_session")
         pick = stored if stored in _ids else _ids[0]
     picked_ev = next(e for e in events if e["session_id"] == pick)

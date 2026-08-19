@@ -177,11 +177,16 @@ def test_compare_requires_keyword_and_exps(client, repo):
 
 def test_raw_table_guard():
     from src.repo.bigquery import assert_no_raw_table
+    # 新名 (2026-08-19 更正:dw_analysis_record.stream_search_record)
+    with pytest.raises(RuntimeError):
+        assert_no_raw_table("SELECT * FROM `kkday-data-dap.dw_analysis_record.stream_search_record`")
+    # 舊文件用名也擋 (spec 早期版本寫 dl_base.ar-stream_search_record)
     with pytest.raises(RuntimeError):
         assert_no_raw_table("SELECT * FROM `kkday-data-dap.dl_base.ar-stream_search_record`")
     with pytest.raises(RuntimeError):
         assert_no_raw_table("select data from dl_base.ar_stream_search_record")
-    assert_no_raw_table("SELECT 1 FROM `kkday-data-dap.dl_qa.search_event_daily`")
+    # 自家落表在同 dataset,表名不含 stream — 不得誤傷
+    assert_no_raw_table("SELECT 1 FROM `kkday-data-dap.dw_analysis_record.search_event_daily`")
 
 
 def test_no_source_file_references_raw_table():
@@ -197,7 +202,8 @@ def test_no_source_file_references_raw_table():
                 stripped = line.strip()
                 if stripped.startswith("#") or "_RAW_TABLE_PATTERN" in line or "cost guard" in line:
                     continue
-                if "ar-stream_search_record" in line or "ar_stream_search_record" in line:
+                if ("ar-stream_search_record" in line or "ar_stream_search_record" in line
+                        or "stream_search_record" in line):
                     offenders.append(f"{p}: {stripped[:80]}")
     assert not offenders, offenders
 

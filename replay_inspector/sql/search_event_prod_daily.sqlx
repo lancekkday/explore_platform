@@ -1,6 +1,6 @@
 config {
   type: "incremental",
-  schema: "dl_qa",
+  schema: "dw_analysis_record",
   name: "search_event_prod_daily",
   bigquery: {
     partitionBy: "TIMESTAMP_TRUNC(event_date, DAY)",
@@ -24,7 +24,7 @@ WITH events AS (
     JSON_VALUE(data, '$.experiment.exp_version') AS exp_version,
     SAFE_CAST(JSON_VALUE(data, '$.pagination.start') AS INT64) AS page_start,
     JSON_QUERY_ARRAY(data, '$.prods')            AS prods          -- TODO(verify) path
-  FROM ${ref("dl_base", "ar-stream_search_record")}
+  FROM ${ref("dw_analysis_record", "stream_search_record")}
   WHERE event_type IN ('content', 'content.cache')
     AND JSON_VALUE(data, '$.request_type') = 'product.list'
     ${when(incremental(),

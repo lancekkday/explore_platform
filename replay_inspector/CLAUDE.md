@@ -8,7 +8,7 @@ keyword,treatment 與 control 看到的結果差在哪、為什麼」。唯讀�
 
 ## 紅線(違反即 bug)
 
-1. **任何程式路徑不得查原表** `dl_base` 的 ar-stream 搜尋事件流(一小時 10.7 GB)。
+1. **任何程式路徑不得查原表** `dw_analysis_record.stream_search_record`(一小時 10.7 GB)。
    只有 `sql/*.sqlx`(dataform incremental)可以碰。`src/repo/bigquery.py:assert_no_raw_table`
    對每句 SQL 防呆,`tests/test_api.py` 另有靜態掃描。
 2. **`event_date` 分區條件必填**:API 層缺 `date` 回 400 且查詢不得送出。
@@ -19,7 +19,7 @@ keyword,treatment 與 control 看到的結果差在哪、為什麼」。唯讀�
 ## 架構
 
 ```
-BigQuery dl_qa.search_event_{daily,prod_daily}   ← sql/*.sqlx (dataform, 資料團隊 review 併入)
+BigQuery dw_analysis_record.search_event_{daily,prod_daily}   ← sql/*.sqlx (dataform, 資料團隊 review 併入)
         ↓
 src/repo/bigquery.py    ← 分區強制 / 成本 guard / PII;EventRepo Protocol
    └── src/repo/fake.py ← FakeEventRepo:測試 + demo(福岡 fixture)
@@ -50,7 +50,7 @@ USE_FAKE=1 uvicorn src.api.main:app --port 8300
 API_BASE=http://localhost:8300 streamlit run app/streamlit_app.py
 
 # 接真 BQ(需 GOOGLE_APPLICATION_CREDENTIALS;表由 dataform 產出後才有資料)
-BQ_PROJECT_ID=kkday-data-dap BQ_DATASET=dl_qa uvicorn src.api.main:app --port 8300
+BQ_PROJECT_ID=kkday-data-dap BQ_DATASET=dw_analysis_record uvicorn src.api.main:app --port 8300
 
 # Docker(從 repo 根目錄;與主平台同一份 docker-compose.yml 一起 up)
 docker compose up -d replay-api replay-ui
@@ -62,7 +62,7 @@ docker compose up -d replay-api replay-ui
 |---|---|---|
 | `USE_FAKE` | — | `1` = repo factory 回 FakeEventRepo(demo/開發) |
 | `BQ_PROJECT_ID` | `kkday-data-dap` | BQ 專案 |
-| `BQ_DATASET` | `dl_qa` | dataset |
+| `BQ_DATASET` | `dw_analysis_record` | dataset (2026-08-19 更正,spec 早版寫 dl_qa) |
 | `API_BASE` | `http://localhost:8300` | Streamlit 打的 API 位址 |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | 真 BQ 模式必填 |
 

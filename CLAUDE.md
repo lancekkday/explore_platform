@@ -27,7 +27,7 @@ treatment vs control(同分帶判讀、uf/cf 歸因)。
 (`backend` / `frontend` / `replay-api` :8300 / `replay-ui` :8301,單一 image 兩個 command);
 dev 環境用 `./start_replay.sh`(demo:`USE_FAKE=1`,BQ 表產出前的預設)。
 規格/紅線/架構見 `replay_inspector/CLAUDE.md`(有自己的 spec 與 superpowers plan)。
-**不要把兩邊的 backend / domain 邏輯混用** — 回放器的資料來源是 `dl_qa.search_event_*` 表(dataform 產出,
+**不要把兩邊的 backend / domain 邏輯混用** — 回放器的資料來源是 `dw_analysis_record.search_event_*` 表(dataform 產出,
 sqlx 初稿在 `replay_inspector/sql/`),不打 search API;主平台反之。
 
 ## Commands

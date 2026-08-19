@@ -1,7 +1,7 @@
 """資料存取層 — 分區強制、成本紅線、PII 規則都做在這一層。
 
 spec §2 紅線:
-- 前端與 API 一律不得查詢原表 (dl_base 的 ar-stream 搜尋事件流;一小時 10.7 GB)
+- 前端與 API 一律不得查詢原表 (dw_analysis_record 的 stream 搜尋事件流;一小時 10.7 GB)
   → `assert_no_raw_table()` 對每一句組出的 SQL 做防呆,連手滑都擋
 - `event_date` 分區條件必填,用範圍比較 (不用 TIMESTAMP_TRUNC)
 - 列表 SELECT 走欄位白名單,cf_raw 永不出現在列表查詢
@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Protocol
 
 BQ_PROJECT_ID = os.getenv("BQ_PROJECT_ID", "kkday-data-dap")
-BQ_DATASET = os.getenv("BQ_DATASET", "dl_qa")
+BQ_DATASET = os.getenv("BQ_DATASET", "dw_analysis_record")
 
 EVENT_TABLE = f"`{BQ_PROJECT_ID}.{BQ_DATASET}.search_event_daily`"
 PROD_TABLE = f"`{BQ_PROJECT_ID}.{BQ_DATASET}.search_event_prod_daily`"
@@ -26,7 +26,9 @@ PROD_TABLE = f"`{BQ_PROJECT_ID}.{BQ_DATASET}.search_event_prod_daily`"
 TZ_TAIPEI = timezone(timedelta(hours=8))
 
 # spec 2.1:出現這個 pattern 的查詢視為 bug。涵蓋 `-` 與 `_` 兩種寫法。
-_RAW_TABLE_PATTERN = re.compile(r"ar[-_]stream[-_]search[-_]record", re.IGNORECASE)
+# 涵蓋新名 dw_analysis_record.stream_search_record 與舊文件用名 ar-stream_…;
+# 我們自己的表名 (search_event_*) 不含 "stream" 不會誤傷
+_RAW_TABLE_PATTERN = re.compile(r"(ar[-_])?stream[-_]search[-_]record", re.IGNORECASE)
 
 # spec 5.2 列表回應欄位 (白名單;絕不含 cf_raw / uf_* / member_uuid / user_id / ip_masked)
 LIST_COLUMNS = [
@@ -54,7 +56,7 @@ def assert_no_raw_table(sql: str) -> str:
     """成本紅線防呆:SQL 內出現原表名即丟例外 (spec 驗收 1)。"""
     if _RAW_TABLE_PATTERN.search(sql):
         raise RuntimeError(
-            "cost guard: query references raw table ar-stream_search_record — "
+            "cost guard: query references raw table stream_search_record — "
             "only the dataform incremental job may touch it (spec 2.1)"
         )
     return sql

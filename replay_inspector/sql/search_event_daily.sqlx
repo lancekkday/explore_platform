@@ -1,6 +1,6 @@
 config {
   type: "incremental",
-  schema: "dl_qa",
+  schema: "dw_analysis_record",
   name: "search_event_daily",
   uniqueKey: ["session_id"],
   bigquery: {
@@ -13,7 +13,7 @@ config {
 
 -- =============================================================================
 -- ⚠ 交付初稿:給資料團隊 review 併入 dataform repo。
---   唯一允許讀取原表 ${ref-raw} 的路徑 (spec 2.1,一天付一次 193GB 成本)。
+--   唯一允許讀取原表 stream_search_record 的路徑 (spec 2.1,一天付一次 193GB 成本)。
 --   欄位 JSON path 以 spec §3.1 為準;未能實測處標 -- TODO(verify)。
 --
 -- 兩個 join 陷阱 (spec 2.4):
@@ -58,7 +58,7 @@ WITH content AS (
       JSON_QUERY_ARRAY(data, '$.cf.query.tokens')) t)    AS cf_query_tokens,
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.cf')), 'null')           AS cf_raw,
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.ltr_features')), 'null') AS ltr_features
-  FROM ${ref("dl_base", "ar-stream_search_record")}
+  FROM ${ref("dw_analysis_record", "stream_search_record")}
   WHERE event_type IN ('content', 'content.cache')
     AND JSON_VALUE(data, '$.request_type') = 'product.list'      -- V1 只處理這個
     ${when(incremental(),
@@ -85,7 +85,7 @@ recall AS (
     JSON_VALUE(data, '$.data.uf.profile_version')         AS uf_profile_version,
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.data.uf.lbs')), 'null')     AS uf_lbs,   -- 新增:原本未落表
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.data.ltr_features')), 'null') AS recall_ltr_features
-  FROM ${ref("dl_base", "ar-stream_search_record")}
+  FROM ${ref("dw_analysis_record", "stream_search_record")}
   WHERE event_type IN ('recall', 'recall.cache')
     -- cache 跨日:join 視窗開 [D-1, D] (spec 2.4-1)
     ${when(incremental(),

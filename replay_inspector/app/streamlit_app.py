@@ -315,7 +315,7 @@ if not events:
 
 # 特徵面板可收折到最右邊 (收合時排序表滿版;事件選擇記在 session,資料照常載入)
 if "panel_open" not in st.session_state:
-    st.session_state.panel_open = True
+    st.session_state.panel_open = False   # 預設收合 — 排序表滿版,要看特徵再點右緣 tab
 
 
 def _toggle_panel():

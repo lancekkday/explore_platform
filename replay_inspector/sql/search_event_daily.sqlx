@@ -84,10 +84,11 @@ recall AS (
     JSON_VALUE(data, '$.uf.profile_version')         AS uf_profile_version,
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.uf.lbs')), 'null')     AS uf_lbs,   -- 新增:原本未落表
     -- cf 拆欄 (實測:cf 只在 recall 側)。
-    -- ✓ 定案 2026-08-19:cf_raw「不落表」— 單筆 ~138KB,per-path 計費下
-    --   全量落表日成本 ≈ 每日 recall 筆數 × 138KB (數十 GB/日)。
-    --   完整 cf 由平台 5.4 端點以 source_event_id + 分區日對 view 受控
-    --   單筆回查 (LIMIT 1,每次 ~0.14MB),見 repo 層 build_cf_live_query。
+    -- ✓ 定案 2026-08-19 (二次修正):cf_raw「落表」— per-path 計費是
+    --   path × 掃過的分區,不是按命中列算:實測「單筆」uf 回查實際計費
+    --   18GB,cf path 更大 → 平台端即時回查不可行。cf 的成本只能在
+    --   dataform 每日單次掃描裡一起付 (spec 原設計正確)。
+    NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.cf')), 'null')           AS cf_raw,
     JSON_VALUE(data, '$.cf.platform')          AS cf_platform,
     SAFE_CAST(JSON_VALUE(data, '$.cf.hour') AS INT64)    AS cf_hour,
     SAFE_CAST(JSON_VALUE(data, '$.cf.weekday') AS INT64) AS cf_weekday,

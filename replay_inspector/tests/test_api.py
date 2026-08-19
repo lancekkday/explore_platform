@@ -214,7 +214,7 @@ def test_no_source_file_references_raw_table():
             for line in text.splitlines():
                 stripped = line.strip()
                 if (stripped.startswith("#") or "_RAW_TABLE_PATTERN" in line
-                        or "cost guard" in line or "cost-guard-exempt" in line):
+                        or "cost guard" in line):
                     continue
                 if ("ar-stream_search_record" in line or "ar_stream_search_record" in line
                         or "stream_search_record" in line):
@@ -262,30 +262,17 @@ def test_compare_respects_cache_hit_filter(client, repo):
     assert all(row["verdict"] == "only_a" for row in body["rows"])
 
 
-def test_cf_live_probe_controlled_shape():
-    """5.4 受控例外:cf_raw 不落表,對原始事件 view 只允許「單筆 + event_id +
-    分區窗」這一種查詢形狀;分區窗前展 1 天 (跨日 cache)。"""
-    from src.repo.bigquery import _assert_cf_probe, build_cf_live_query, local_date_to_utc_range
-    sql, params = build_cf_live_query("recall-001", DEMO_DATE)
-    assert "LIMIT 1" in sql and "event_id = @event_id" in sql
-    assert "event_type IN ('recall', 'recall.cache')" in sql
-    assert params["event_id"] == "recall-001"
-    # 分區窗:比一般查詢窗多往前 1 天 (spec 2.4 跨日 cache)
-    normal_start, _ = local_date_to_utc_range(DEMO_DATE)
-    assert (normal_start - params["p_start"]).days == 1
-    # 形狀強制:少任何一個必要片段就炸
-    with pytest.raises(RuntimeError):
-        _assert_cf_probe("SELECT data FROM `x.y.stream_search_record`")
-    with pytest.raises(RuntimeError):
-        _assert_cf_probe(sql.replace("LIMIT 1", ""))
-
-
-def test_raw_view_still_blocked_for_general_queries():
-    """受控例外不弱化紅線:一般查詢建構器摸到原始事件 view 仍被 guard 擋下。"""
-    from src.repo.bigquery import assert_no_raw_table
+def test_raw_view_blocked_without_exception():
+    """紅線無例外:平台任何查詢摸到原始事件 view 一律被 guard 擋下。
+    (2026-08-19 教訓:per-path 計費 = path × 掃過的分區,「單筆」回查 prods/uf
+    實測計費 14~18GB — 平台端沒有便宜的直查形狀,cf_raw 一律走中繼表。)"""
+    from src.repo.bigquery import assert_no_raw_table, build_cf_query
     with pytest.raises(RuntimeError):
         assert_no_raw_table(
             "SELECT keyword FROM `kkday-data-dap.dw_analysis_record.stream_search_record`")
+    # 5.4 讀的是中繼表的 cf_raw 欄
+    sql, _ = build_cf_query("sess-x", DEMO_DATE)
+    assert "cf_raw" in sql and "search_event_daily" in sql
 
 
 def test_prods_query_can_lock_session():

@@ -22,10 +22,6 @@ BQ_DATASET = os.getenv("BQ_DATASET", "dw_analysis_record")
 
 EVENT_TABLE = f"`{BQ_PROJECT_ID}.{BQ_DATASET}.search_event_daily`"
 PROD_TABLE = f"`{BQ_PROJECT_ID}.{BQ_DATASET}.search_event_prod_daily`"
-# 5.4 受控例外的唯一目標:cf_raw 不落中繼表 (單筆 138KB,落全量日成本數十 GB),
-# 完整 cf 以「event_id + 分區窗 + LIMIT 1」形狀對原始事件 view 單筆回查 —
-# data 欄為 JSON 型別 per-path 計費,單次僅 ~0.14MB。形狀由 _assert_cf_probe 強制。
-RAW_EVENT_VIEW = f"`{BQ_PROJECT_ID}.{BQ_DATASET}.stream_search_record`"  # cost-guard-exempt
 
 TZ_TAIPEI = timezone(timedelta(hours=8))
 
@@ -191,50 +187,20 @@ def build_cf_query(session_id: str, date: str,
                    keyword: Optional[str] = None,
                    exp_version: Optional[str] = None,
                    locale: Optional[str] = None) -> tuple[str, dict]:
-    """5.4 第一步:從中繼表查此 content 事件的 source_event_id (recall 事件 id)。
-    cf 掛在 recall 側且 cf_raw 不落表 — 拿到 id 後由 build_cf_live_query 回查。"""
+    """5.4 專用:cf_raw 從中繼表單筆載入,絕不隨列表回傳。
+
+    註 (2026-08-19 教訓):曾嘗試「不落表、對原始 view 單筆回查」— 實測
+    per-path 計費是 path × 掃過的分區 (非命中列),單筆回查實際計費可達
+    十幾 GB → 不可行。cf_raw 落中繼表,成本在 dataform 每日單次掃描付。"""
     start, end = local_date_to_utc_range(date)
     params: dict[str, Any] = {"p_start": start, "p_end": end, "session_id": session_id}
     where = ["event_date >= @p_start", "event_date < @p_end", "session_id = @session_id"]
     where += _cluster_hint_where(params, keyword, exp_version, locale)
     sql = (
-        f"SELECT source_event_id FROM {EVENT_TABLE} "
+        f"SELECT cf_raw FROM {EVENT_TABLE} "
         f"WHERE {' AND '.join(where)} LIMIT 1"
     )
     return assert_no_raw_table(sql), params
-
-
-def _assert_cf_probe(sql: str) -> str:
-    """受控例外的形狀強制:允許查原始事件 view 的「唯一」合法形狀 —
-    單筆 (LIMIT 1)、event_id 等值、分區範圍必在。少一樣就丟例外,
-    防止這個例外被複製貼上成全表掃描。"""
-    required = ("LIMIT 1", "event_id = @event_id",
-                "event_date >= @p_start", "event_date < @p_end",
-                "JSON_QUERY(data, '$.cf')")
-    for frag in required:
-        if frag not in sql:
-            raise RuntimeError(
-                f"cost guard: cf live-probe shape violated (missing {frag!r}) — "
-                f"原始事件 view 只允許單筆 cf 回查這一種查詢形狀"
-            )
-    return sql
-
-
-def build_cf_live_query(recall_event_id: str, date: str) -> tuple[str, dict]:
-    """5.4 第二步:對原始事件 view 受控單筆回查 recall 的 $.cf。
-    分區窗前展 1 天 — content.cache 引用的 recall.cache 可能來自前一天 (spec 2.4)。"""
-    start, end = local_date_to_utc_range(date)
-    start = start - timedelta(days=1)
-    sql = (
-        f"SELECT TO_JSON_STRING(JSON_QUERY(data, '$.cf')) AS cf_raw "
-        f"FROM {RAW_EVENT_VIEW} "
-        f"WHERE event_date >= @p_start AND event_date < @p_end "
-        f"AND event_id = @event_id "
-        f"AND event_type IN ('recall', 'recall.cache') "
-        f"LIMIT 1"
-    )
-    return _assert_cf_probe(sql), {"p_start": start, "p_end": end,
-                                   "event_id": recall_event_id}
 
 
 def build_prods_query(date: str, keyword: str, locale: Optional[str],
@@ -314,15 +280,9 @@ class BigQueryEventRepo:
     def get_cf_raw(self, session_id: str, date: str,
                    keyword: Optional[str] = None, exp_version: Optional[str] = None,
                    locale: Optional[str] = None) -> Optional[str]:
-        # 兩段式:中繼表拿 source_event_id → 受控單筆回查 view 的 $.cf
         sql, params = build_cf_query(session_id, date, keyword, exp_version, locale)
         rows = self._run(sql, params)
-        if not rows or not rows[0].get("source_event_id"):
-            return None
-        sql2, params2 = build_cf_live_query(rows[0]["source_event_id"], date)
-        rows2 = self._run(sql2, params2)
-        cf = rows2[0]["cf_raw"] if rows2 else None
-        return None if cf in (None, "null") else cf
+        return rows[0]["cf_raw"] if rows else None
 
     def get_prods(self, date: str, keyword: str, locale: Optional[str],
                   exp_version: str, session_id: Optional[str] = None) -> list[dict]:

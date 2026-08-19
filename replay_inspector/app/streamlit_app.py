@@ -70,27 +70,33 @@ header[data-testid="stHeader"]{display:none;}
 /* 排序表 (§6) */
 .rank-wrap{overflow-x:auto;} /* 窄屏表格自身橫捲 */
 table.rank{width:100%;min-width:640px;border-collapse:collapse;background:var(--surface);
-  border:.5px solid var(--rule);border-radius:6px;}
+  border:.5px solid var(--rule);border-radius:6px;
+  table-layout:fixed;} /* 欄寬走 colgroup;商品欄無定寬 → 自動吃可用空間 */
 table.rank th{font:500 11px/1.2 var(--cond);letter-spacing:.06em;color:var(--graphite);
-  text-align:left;padding:8px 10px;border-bottom:.5px solid var(--rule);}
+  text-align:left;padding:8px 10px;border-bottom:.5px solid var(--rule);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 table.rank td{padding:0 10px;height:34px;border-top:.5px solid var(--rule);
   font:400 12px/1.4 var(--sans);color:var(--ink);}
 table.rank tr.hoverable{transition:background .12s;}
 table.rank tr.hoverable:hover{background:#EFF3F2;}
 @media (prefers-reduced-motion: reduce){ table.rank tr.hoverable{transition:none;} }
 td.num,.mono{font:400 12.5px/1 var(--mono);}
-td.rk{width:32px;text-align:right;}
-td.mid{width:250px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.pname{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--faint);}
-.pname:hover{border-bottom-color:var(--ink);}
+td.rk{text-align:right;}
+td.mid{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} /* 寬度由 colgroup 流動分配 */
+td.meta{font:400 10.5px/1.3 var(--cond);color:var(--graphite);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;}
+/* 提高特異度壓過 Streamlit .stMarkdown a 的預設藍色連結 */
+table.rank a.pname, table.rank a.pname:visited{color:var(--ink);text-decoration:none;
+  border-bottom:1px dotted var(--faint);}
+table.rank a.pname:hover{border-bottom-color:var(--ink);color:var(--ink);}
 .pmid{font:400 10px/1 var(--mono);color:var(--faint);margin-left:4px;}
-td.score{width:110px;text-align:right;}
-td.lamps{width:74px;white-space:nowrap;padding-right:4px;}
+td.score{text-align:right;}
+td.lamps{white-space:nowrap;padding-right:4px;}
 .score .prefix{color:var(--faint);} /* §2.3 共同前綴淡化 */
 .norerank{font:400 11px/1.2 var(--cond);color:var(--faint);}
 /* 同分帶 (§6.1):括號軌線 + tolerance 底色 */
 tr.band td{background:var(--tolerance);}
-td.rail{width:10px;padding:0;}
+td.rail{padding:0;}
 tr.band td.rail{position:relative;}
 tr.band td.rail::after{content:'';position:absolute;left:8px;top:0;bottom:0;width:2px;
   background:color-mix(in srgb, var(--graphite) 30%, transparent);}
@@ -289,16 +295,39 @@ if not events:
         unsafe_allow_html=True)
     st.stop()
 
-left, right = st.columns([2.6, 1], gap="medium")
+# 特徵面板可收折到最右邊 (收合時排序表滿版;事件選擇記在 session,資料照常載入)
+if "panel_open" not in st.session_state:
+    st.session_state.panel_open = True
+
+
+def _toggle_panel():
+    st.session_state.panel_open = not st.session_state.panel_open
+
+
+if st.session_state.panel_open:
+    left, right = st.columns([2.6, 1], gap="medium")
+else:
+    left, right = st.columns([46, 1], gap="small")   # 右欄縮成最右一條細桿
 
 # ══ 右欄先執行:事件選擇 + 特徵面板 (§7,兩種模式共用) ══════════════════════════
 with right:
-    pick = st.selectbox(
-        "事件", [e["session_id"] for e in events],
-        format_func=lambda s: next(
-            f"{e['exp_version']} · {e['event_type']} · {e['session_id'][:18]}"
-            for e in events if e["session_id"] == s),
-    )
+    _ids = [e["session_id"] for e in events]
+    if st.session_state.panel_open:
+        st.button("收合 »", on_click=_toggle_panel, use_container_width=True,
+                  help="把特徵面板收到最右邊,讓排序表滿版")
+        pick = st.selectbox(
+            "事件", _ids,
+            index=_ids.index(st.session_state["picked_session"])
+            if st.session_state.get("picked_session") in _ids else 0,
+            format_func=lambda s: next(
+                f"{e['exp_version']} · {e['event_type']} · {e['session_id'][:18]}"
+                for e in events if e["session_id"] == s),
+        )
+        st.session_state["picked_session"] = pick
+    else:
+        st.button("«", on_click=_toggle_panel, help="展開特徵面板")
+        stored = st.session_state.get("picked_session")
+        pick = stored if stored in _ids else _ids[0]
     picked_ev = next(e for e in events if e["session_id"] == pick)
     hints = {"keyword": picked_ev.get("keyword"),
              "exp_version": picked_ev.get("exp_version"),
@@ -310,61 +339,63 @@ with right:
 
     flags = detail["quality_flags"]
     joined_ok = not flags["join_failed"]
-    f_join = ("<span class='flag-ok'>✓ recall 已串接</span>" if joined_ok
-              else "<span class='flag-alert'>✕ 串不回 recall</span>")
-    f_uf = ("<span class='flag-warn'>⚠ 上游未推 uf</span>" if flags["uf_absent"]
-            else "<span class='flag-ok'>✓ uf 存在</span>")
-    f_ltr = ("<span class='flag-warn'>⚠ ltr 由 cache 回收</span>"
-             if flags["ltr_features_recovered"] else "<span class='flag-ok'>✓ ltr 原生</span>")
-    join_note = ("" if joined_ok else
-                 "<div class='ri-note' style='margin-top:4px'>串不回 recall 事件,"
-                 "因此沒有特徵資料。排序仍可判讀。</div>")
-    st.markdown(f"<div class='ri panel'><div class='ri-eyebrow' style='margin-bottom:6px'>串接品質</div>"
-                f"<div class='flags'>{f_join}{f_uf}{f_ltr}</div>{join_note}</div>",
-                unsafe_allow_html=True)
-
-    cov = detail["coverage_baseline"]
-    uf = detail["uf"]
-    uf_rows_html = ""
-    for name, cov_key, field in [("INTENT", "uf_intent", "intent"),
-                                 ("PROFILE", "uf_profile", "profile"),
-                                 ("LBS", "uf_lbs", "lbs")]:
-        pct = cov[cov_key]
-        low = " ○" if pct < 0.30 else ""   # §7.2 低覆蓋提示
-        val = uf[field]
-        val_html = (f"<span class='uf-val'>{_esc(val)}</span>" if val is not None
-                    else "<span class='uf-val empty'>本筆無資料</span>")
-        uf_rows_html += (f"<div class='uf-row'><span class='uf-name'>{name}</span>"
-                         f"<span class='uf-cov'>{pct:.1%}{low}</span>{val_html}</div>")
-
     cf = detail["cf_summary"]
-    chips = ""
-    for label, v in [("", cf["platform"]),
-                     ("", f"{cf['hour']}時" if cf["hour"] is not None else None),
-                     ("", f"週{_WD[cf['weekday'] - 1]}"
-                      if isinstance(cf.get("weekday"), int) and 1 <= cf["weekday"] <= 7 else None),
-                     ("query.final ", cf["query_final"]),
-                     ("tokens ", cf["query_tokens"])]:
-        if v is not None:
-            chips += f"<span>{_esc(label)}{_esc(v)}</span>"
+    if st.session_state.panel_open:
+        f_join = ("<span class='flag-ok'>✓ recall 已串接</span>" if joined_ok
+                  else "<span class='flag-alert'>✕ 串不回 recall</span>")
+        f_uf = ("<span class='flag-warn'>⚠ 上游未推 uf</span>" if flags["uf_absent"]
+                else "<span class='flag-ok'>✓ uf 存在</span>")
+        f_ltr = ("<span class='flag-warn'>⚠ ltr 由 cache 回收</span>"
+                 if flags["ltr_features_recovered"] else "<span class='flag-ok'>✓ ltr 原生</span>")
+        join_note = ("" if joined_ok else
+                     "<div class='ri-note' style='margin-top:4px'>串不回 recall 事件,"
+                     "因此沒有特徵資料。排序仍可判讀。</div>")
+        st.markdown(f"<div class='ri panel'><div class='ri-eyebrow' style='margin-bottom:6px'>串接品質</div>"
+                    f"<div class='flags'>{f_join}{f_uf}{f_ltr}</div>{join_note}</div>",
+                    unsafe_allow_html=True)
 
-    dim_cls = "" if joined_ok else " dim"
-    st.markdown(
-        f"<div class='ri panel{dim_cls}' style='margin-top:8px'>"
-        f"<div class='ri-eyebrow'>USER FEATURE</div>{uf_rows_html}"
-        f"<div class='ri-eyebrow' style='margin:10px 0 6px'>CONTEXT FEATURE"
-        f" <span class='uf-cov'>{cov['cf']:.0%}</span></div>"
-        f"<div class='chips'>{chips}</div></div>",
-        unsafe_allow_html=True,
-    )
+        cov = detail["coverage_baseline"]
+        uf = detail["uf"]
+        uf_rows_html = ""
+        for name, cov_key, field in [("INTENT", "uf_intent", "intent"),
+                                     ("PROFILE", "uf_profile", "profile"),
+                                     ("LBS", "uf_lbs", "lbs")]:
+            pct = cov[cov_key]
+            low = " ○" if pct < 0.30 else ""   # §7.2 低覆蓋提示
+            val = uf[field]
+            val_html = (f"<span class='uf-val'>{_esc(val)}</span>" if val is not None
+                        else "<span class='uf-val empty'>本筆無資料</span>")
+            uf_rows_html += (f"<div class='uf-row'><span class='uf-name'>{name}</span>"
+                             f"<span class='uf-cov'>{pct:.1%}{low}</span>{val_html}</div>")
 
-    if joined_ok and st.button("展開完整 cf(138 KB)"):
-        cf_full, cerr = _get(f"/api/events/{pick}/cf", {"date": P["date"], **hints})
-        if cf_full:
-            st.json(cf_full["cf_raw"])
-        else:
-            st.markdown(f"<div class='ri empty-state'>{_esc(cerr)}</div>",
-                        unsafe_allow_html=True)
+        cf = detail["cf_summary"]
+        chips = ""
+        for label, v in [("", cf["platform"]),
+                         ("", f"{cf['hour']}時" if cf["hour"] is not None else None),
+                         ("", f"週{_WD[cf['weekday'] - 1]}"
+                          if isinstance(cf.get("weekday"), int) and 1 <= cf["weekday"] <= 7 else None),
+                         ("query.final ", cf["query_final"]),
+                         ("tokens ", cf["query_tokens"])]:
+            if v is not None:
+                chips += f"<span>{_esc(label)}{_esc(v)}</span>"
+
+        dim_cls = "" if joined_ok else " dim"
+        st.markdown(
+            f"<div class='ri panel{dim_cls}' style='margin-top:8px'>"
+            f"<div class='ri-eyebrow'>USER FEATURE</div>{uf_rows_html}"
+            f"<div class='ri-eyebrow' style='margin:10px 0 6px'>CONTEXT FEATURE"
+            f" <span class='uf-cov'>{cov['cf']:.0%}</span></div>"
+            f"<div class='chips'>{chips}</div></div>",
+            unsafe_allow_html=True,
+        )
+
+        if joined_ok and st.button("展開完整 cf(138 KB)"):
+            cf_full, cerr = _get(f"/api/events/{pick}/cf", {"date": P["date"], **hints})
+            if cf_full:
+                st.json(cf_full["cf_raw"])
+            else:
+                st.markdown(f"<div class='ri empty-state'>{_esc(cerr)}</div>",
+                            unsafe_allow_html=True)
 
 
 # ══ 左欄:單人回放 或 兩組對照 ═════════════════════════════════════════════════
@@ -439,7 +470,10 @@ with left:
             prev_score = p.get("ltr_score") or prev_score
 
         st.markdown(
-            "<div class='rank-wrap'><table class='rank ri'><thead><tr>"
+            "<div class='rank-wrap'><table class='rank ri'>"
+            "<colgroup><col style='width:10px'><col style='width:46px'><col>"
+            "<col style='width:110px'><col style='width:80px'>"
+            "<col style='width:92px'><col style='width:120px'></colgroup><thead><tr>"
             "<th></th><th scope='col'>名次</th><th scope='col'>商品</th>"
             "<th scope='col' style='text-align:right'>分數</th>"
             "<th scope='col'>相關性</th>"
@@ -590,7 +624,11 @@ with left:
                     prev_band_last_score = r.get("ltr_score_a") or prev_band_last_score
 
             st.markdown(
-                "<div class='rank-wrap'><table class='rank ri'><thead><tr>"
+                "<div class='rank-wrap'><table class='rank ri'>"
+                "<colgroup><col style='width:10px'><col style='width:40px'>"
+                "<col style='width:40px'><col>"
+                "<col style='width:110px'><col style='width:80px'>"
+                "<col style='width:170px'></colgroup><thead><tr>"
                 "<th></th><th scope='col'>A</th><th scope='col'>B</th>"
                 "<th scope='col'>商品</th><th scope='col' style='text-align:right'>分數</th>"
                 "<th scope='col'>相關性</th><th scope='col'>判讀</th>"

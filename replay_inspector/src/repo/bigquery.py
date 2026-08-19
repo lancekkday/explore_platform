@@ -220,7 +220,7 @@ def build_prods_query(date: str, keyword: str, locale: Optional[str],
         where.append("session_id = @session_id")
         params["session_id"] = session_id
     sql = (
-        f"SELECT session_id, rank, prod_mid, prod_oid, is_ad, ltr_score, "
+        f"SELECT session_id, rank, prod_mid, prod_oid, prod_name, is_ad, ltr_score, "
         f"relevance_status_code, in_rerank_scope "
         f"FROM {PROD_TABLE} WHERE {' AND '.join(where)} "
         f"ORDER BY rank ASC LIMIT 1000"

@@ -160,6 +160,7 @@ def event_detail(
             "rank": p["rank"],
             "prod_mid": p["prod_mid"],
             "prod_oid": p.get("prod_oid"),
+            "prod_name": p.get("prod_name"),
             "is_ad": bool(p.get("is_ad")),
             "ltr_score": p.get("ltr_score"),
             "tie_band": band,
@@ -260,11 +261,29 @@ def compare(
     date = _require_date(date)
     if not keyword:
         raise HTTPException(status_code=400, detail="keyword is required")
-    if not exp_a or not exp_b:
-        raise HTTPException(status_code=400, detail="exp_a (treatment) and exp_b (control) are required")
 
-    def _latest_session_prods(exp: str) -> list[dict]:
-        # 同天同 keyword+exp 可能有多個 session — 各側取最新一個事件的商品列,
+    # exp_a/exp_b 可省略 — 自動從當日該 keyword 的事件偵測兩個實驗組
+    # (RD:個性化實驗階段 control 組就是非個性化 baseline 組)。升冪排序取前二,
+    # 對齊 ui-spec §4 範例「A treatment 100000 ↔ B control 100001」的編號慣例;
+    # 顯式帶入仍可覆寫。
+    if not exp_a or not exp_b:
+        seen: list[str] = []
+        for ev in repo.list_events(date, {"keyword": keyword, "locale": locale,
+                                          "cache_hit": cache_hit}):
+            v = ev.get("exp_version")
+            if v and v not in seen:
+                seen.append(v)
+        seen.sort()
+        if len(seen) < 2:
+            raise HTTPException(
+                status_code=404,
+                detail="找不到兩個實驗組事件,無法對照 — 可放寬 locale / cache_hit,"
+                       "或以 exp_a/exp_b 明確指定",
+            )
+        exp_a, exp_b = seen[0], seen[1]
+
+    def _latest_session(exp: str) -> Optional[dict]:
+        # 同天同 keyword+exp 可能有多個 session — 各側取最新一個事件,
         # 不鎖 session 的話多個事件的 rank 會混在同一張排序表 (spec 3.2 FK)。
         # cache_hit 必須跟著帶:使用者明選 cache_hit=false 要看 live 排序時,
         # 不帶會抓到 cache 事件,比對對象錯置。
@@ -272,13 +291,33 @@ def compare(
             "keyword": keyword, "exp_version": exp, "locale": locale,
             "cache_hit": cache_hit,
         })
-        if not events:
-            return []
-        return repo.get_prods(date, keyword, locale, exp,
-                              session_id=events[0]["session_id"])
+        return events[0] if events else None
 
-    a_prods = _latest_session_prods(exp_a)
-    b_prods = _latest_session_prods(exp_b)
+    def _side(exp: str) -> tuple[list[dict], Optional[dict]]:
+        ev = _latest_session(exp)
+        if not ev:
+            return [], None
+        prods = repo.get_prods(date, keyword, locale, exp,
+                               session_id=ev["session_id"])
+        detail = repo.get_event(ev["session_id"], date, keyword=keyword,
+                                exp_version=exp, locale=ev.get("locale"))
+        # 表格內每列要能呈現來源側的 exp / lang / locale / cf (事件層級 metadata)
+        meta = {
+            "exp_version": exp,
+            "session_id": ev["session_id"],
+            "lang": (detail or {}).get("lang"),
+            "locale": (detail or {}).get("locale") or ev.get("locale"),
+            "currency": (detail or {}).get("currency"),
+            "cf": {
+                "platform": (detail or {}).get("cf_platform"),
+                "hour": (detail or {}).get("cf_hour"),
+                "weekday": (detail or {}).get("cf_weekday"),
+            },
+        }
+        return prods, meta
+
+    a_prods, a_meta = _side(exp_a)
+    b_prods, b_meta = _side(exp_b)
     if not a_prods and not b_prods:
         raise HTTPException(status_code=404, detail="no prods for either experiment")
 
@@ -299,7 +338,8 @@ def compare(
     real_move = sum(1 for r in rows if r["verdict"] == "real_move")
 
     return {
-        "meta": {"keyword": keyword, "locale": locale, "exp_a": exp_a, "exp_b": exp_b},
+        "meta": {"keyword": keyword, "locale": locale, "exp_a": exp_a, "exp_b": exp_b,
+                 "a": a_meta, "b": b_meta},
         "metrics": {
             "personalization_strength": round(strength, 4),
             "top10_overlap": top10_overlap,

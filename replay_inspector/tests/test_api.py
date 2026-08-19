@@ -165,12 +165,25 @@ def test_compare_fukuoka_strength_and_ties(client):
     assert all(x is None for x in ranks[len(non_null):])
 
 
-def test_compare_requires_keyword_and_exps(client, repo):
-    assert client.get("/api/compare", params={"date": DEMO_DATE}).status_code == 400
-    assert client.get(
-        "/api/compare", params={"date": DEMO_DATE, "keyword": "福岡"}
-    ).status_code == 400
+def test_compare_requires_keyword(client, repo):
+    r = client.get("/api/compare", params={"date": DEMO_DATE})
+    assert r.status_code == 400
     assert repo.query_count == 0
+
+
+def test_compare_auto_detects_experiments(client):
+    """exp_a/exp_b 可省略 — 自動從當日事件偵測兩組 (升冪:A=較小編號=treatment
+    慣例);表格 meta.a/b 帶回各側 exp / lang / locale / cf。"""
+    r = client.get("/api/compare", params={"date": DEMO_DATE, "keyword": "福岡"})
+    assert r.status_code == 200, r.text
+    meta = r.json()["meta"]
+    assert meta["exp_a"] == "exp_a" and meta["exp_b"] == "exp_b"
+    assert meta["a"]["exp_version"] == "exp_a"
+    assert meta["a"]["lang"] == "zh-tw" and meta["a"]["locale"] == "tw"
+    assert meta["a"]["cf"]["platform"] == "web"
+    assert meta["b"]["exp_version"] == "exp_b"
+    # 指標與顯式指定時一致
+    assert r.json()["metrics"]["top10_overlap"] == 8
 
 
 # ── 驗收 1:成本紅線 guard ────────────────────────────────────────────────────

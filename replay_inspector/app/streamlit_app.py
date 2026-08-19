@@ -1,11 +1,15 @@
 """Streamlit 前端 — 依 spec/ui-spec.md(計量學視覺系統)。
 
+兩種模式(由條件自動切換):
+  對照模式   — 只填 keyword:自動偵測 treatment/control 兩組,A/B 排序對照。
+  單人回放   — 進階條件填了 kkud / member_uuid / session_id:使用者在 AB test
+               只會歸屬一個組別,沒有對照可言 — 呈現「這個人這次搜尋實際看到
+               什麼」(召回/排序回放),事件 metadata (exp/lang/locale/cf) 是
+               這個模式的一級資訊。
+
 核心命題:讓人分辨訊號與雜訊 — 顏色只給值得查的事(only_a/b、品質旗標、
 強度警示),不可判讀的東西在視覺上主動退場(ui-spec §1.1)。
-
-一律透過 FastAPI 取數,不直連 BigQuery。本機 demo:
-  USE_FAKE=1 uvicorn src.api.main:app --port 8300
-  API_BASE=http://localhost:8300 streamlit run app/streamlit_app.py
+一律透過 FastAPI 取數,不直連 BigQuery。
 """
 from __future__ import annotations
 
@@ -44,11 +48,10 @@ st.markdown("""
   --mono:'IBM Plex Mono',monospace;
 }
 .stApp{background:var(--paper);}
-/* 隱藏 Streamlit 自帶 chrome (Deploy 工具列/選單) — 它是固定定位,會蓋住
-   我們的標題摘要列,看起來像「上面壞掉沒做好」 */
+/* 隱藏 Streamlit 自帶 chrome (Deploy 工具列/選單) — 固定定位會蓋住標題摘要列 */
 header[data-testid="stHeader"]{display:none;}
 #MainMenu,footer{visibility:hidden;}
-.block-container{padding-top:1.6rem;max-width:1280px;}
+.block-container{padding-top:1.6rem;max-width:1400px;}
 .ri *{font-variant-numeric:tabular-nums;}
 .ri-title{font:500 15px/1.4 var(--sans);color:var(--ink);}
 .ri-eyebrow{font:500 11px/1.2 var(--cond);letter-spacing:.06em;color:var(--graphite);text-transform:uppercase;}
@@ -64,8 +67,8 @@ header[data-testid="stHeader"]{display:none;}
 .readout .warn.alert{color:var(--alert);} .readout .warn.counter{color:var(--counter);}
 @media (max-width:600px){ .readout{grid-template-columns:repeat(2,1fr);} } /* §3 */
 /* 排序表 (§6) */
-.rank-wrap{overflow-x:auto;} /* 窄屏表格自身橫捲,判讀欄不被擠成直排 */
-table.rank{width:100%;min-width:560px;border-collapse:collapse;background:var(--surface);
+.rank-wrap{overflow-x:auto;} /* 窄屏表格自身橫捲 */
+table.rank{width:100%;min-width:640px;border-collapse:collapse;background:var(--surface);
   border:.5px solid var(--rule);border-radius:6px;}
 table.rank th{font:500 11px/1.2 var(--cond);letter-spacing:.06em;color:var(--graphite);
   text-align:left;padding:8px 10px;border-bottom:.5px solid var(--rule);}
@@ -75,7 +78,12 @@ table.rank tr.hoverable{transition:background .12s;}
 table.rank tr.hoverable:hover{background:#EFF3F2;}
 @media (prefers-reduced-motion: reduce){ table.rank tr.hoverable{transition:none;} }
 td.num,.mono{font:400 12.5px/1 var(--mono);}
-td.rk{width:32px;text-align:right;} td.mid{width:96px;} td.score{width:110px;text-align:right;}
+td.rk{width:32px;text-align:right;}
+td.mid{width:250px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pname{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--faint);}
+.pname:hover{border-bottom-color:var(--ink);}
+.pmid{font:400 10px/1 var(--mono);color:var(--faint);margin-left:4px;}
+td.score{width:110px;text-align:right;}
 td.lamps{width:74px;white-space:nowrap;padding-right:4px;}
 .score .prefix{color:var(--faint);} /* §2.3 共同前綴淡化 */
 .norerank{font:400 11px/1.2 var(--cond);color:var(--faint);}
@@ -98,12 +106,11 @@ tr.boundary.rerank td{color:var(--counter);}
 .v-real{color:var(--ink);font-weight:500;} .v-tie{color:var(--graphite);} .v-id{color:var(--faint);}
 tr.edge-a td:first-child{box-shadow:inset 3px 0 0 var(--measure);}
 tr.edge-b td:first-child{box-shadow:inset 3px 0 0 var(--counter);}
-/* 燈號 (§6.4) */
+/* 燈號 (§6.4)。第 4 格 (IP) 已定案為品牌 IP,與主題同性質,不特別標記 */
 .lamp{display:inline-block;width:7px;height:14px;border-radius:1px;margin-right:2px;vertical-align:middle;}
 .lamp.l0{background:var(--rule);} .lamp.l1{background:color-mix(in srgb,var(--ink) 25%,white);}
 .lamp.l2{background:color-mix(in srgb,var(--ink) 50%,white);}
 .lamp.l3{background:color-mix(in srgb,var(--ink) 75%,white);} .lamp.l4{background:var(--ink);}
-.lamp.ip{border-top:1px dashed var(--graphite);} /* §6.4 第 4 格語意待確認 */
 .lamp.hollow{background:transparent;border:1px solid var(--faint);}
 .lamp-q{font:400 12px/1 var(--mono);color:var(--faint);margin-left:2px;}
 .ad{font:500 11px/1.2 var(--cond);letter-spacing:.06em;color:var(--counter);margin-left:4px;}
@@ -124,6 +131,11 @@ tr.edge-b td:first-child{box-shadow:inset 3px 0 0 var(--counter);}
 """, unsafe_allow_html=True)
 
 
+DIM_ZH = {"sellable": "可售", "location": "地點", "category": "類目",
+          "ip": "IP", "theme": "主題", "text": "文本"}
+_WD = "一二三四五六日"
+
+
 def _esc(v) -> str:
     return html.escape(str(v))
 
@@ -136,15 +148,60 @@ def _get(path: str, params: dict):
     return r.json(), None
 
 
-# ══ 標題列 + 條件(§4:摘要常駐、條件收合)═══════════════════════════════════════
+def _cf_txt(cf: dict | None) -> str:
+    cf = cf or {}
+    parts = []
+    if cf.get("platform"):
+        parts.append(str(cf["platform"]))
+    if cf.get("hour") is not None:
+        parts.append(f"{cf['hour']}時")
+    wd = cf.get("weekday")
+    if isinstance(wd, int) and 1 <= wd <= 7:
+        parts.append(f"週{_WD[wd - 1]}")
+    return "·".join(parts) if parts else "—"
 
-DIM_ZH = {"sellable": "可售", "location": "地點", "category": "類目",
-          "ip": "IP", "theme": "主題", "text": "文本"}
+
+def _lamps(rel, raw_code) -> str:
+    """六格燈號。值語意 (RD 定案):0=最相關/通過→淡;值越大越偏離→越深。"""
+    if rel is None or all(v is None for v in rel.values()):
+        boxes = "".join("<span class='lamp hollow'></span>" for _ in RELEVANCE_DIMS)
+        return (f"<span role='img' aria-label='相關性碼解碼失敗' "
+                f"title='解碼失敗:{_esc(raw_code)}'>{boxes}"
+                f"<span class='lamp-q'>?</span></span>")
+    tip = f"{_esc(raw_code)} · " + " ".join(
+        f"{DIM_ZH[d]}{rel[d]}" for d in RELEVANCE_DIMS) + " (0=最相關,值越大越偏離)"
+    aria = ",".join(f"{DIM_ZH[d]}={rel[d]}" for d in RELEVANCE_DIMS)
+    boxes = "".join(
+        f"<span class='lamp l{lamp_level(rel[d])}' title='{tip}'></span>"
+        for d in RELEVANCE_DIMS)
+    return f"<span role='img' aria-label='{aria}'>{boxes}</span>"
+
+
+def _prod_cell(mid, name, is_ad) -> str:
+    """商品欄:名稱連 kkday 商品頁 (線上事件 → www),mid 退居小字;缺名時 mid 即連結。"""
+    mid = _esc(mid)
+    url = f"https://www.kkday.com/zh-tw/product/{mid}"
+    label = _esc(name) if name else mid
+    note = f"<span class='pmid'>{mid}</span>" if name else ""
+    ad = "<span class='ad'>AD</span>" if is_ad else ""
+    return (f"<a class='pname' href='{url}' target='_blank' rel='noreferrer' "
+            f"title='開啟商品頁 · prod_mid {mid}'>{label}</a>{note}{ad}")
+
+
+def _score_html(in_scope, sstr, plen) -> str:
+    if not in_scope:
+        return "<span class='norerank'>未進精排</span>"
+    if sstr is None:
+        return "<span class='v-id'>—</span>"
+    return f"<span class='score'><span class='prefix'>{sstr[:plen]}</span>{sstr[plen:]}</span>"
+
+
+# ══ 標題列 + 條件(§4:摘要常駐、條件收合)═══════════════════════════════════════
 
 if "params" not in st.session_state:
     st.session_state.params = {
         "date": "2026-08-13", "keyword": "福岡", "lang": "", "locale": "",
-        "currency": "", "exp_a": "exp_a", "exp_b": "exp_b",
+        "currency": "",
         "kkud": "", "member_uuid": "", "session_id": "", "cache_hit": "(不限)",
     }
 P = st.session_state.params
@@ -153,10 +210,6 @@ summary_bits = [f"<b>{_esc(P['keyword']) or '—'}</b>"]
 if P["lang"] or P["locale"]:
     summary_bits.append(f"{_esc(P['lang'] or '?')} · {_esc(P['locale'] or '?')}")
 summary_bits.append(f"{_esc(P['date'])} <span class='ri-note'>(UTC+8)</span>")
-summary_bits.append(
-    f"<span style='color:var(--measure)'>A treatment {_esc(P['exp_a'])}</span>"
-    f" ↔ <span style='color:var(--counter)'>B control {_esc(P['exp_b'])}</span>"
-)
 st.markdown(
     f"<div class='ri' style='display:flex;justify-content:space-between;align-items:baseline'>"
     f"<div class='ri-title'>{'&ensp;'.join(summary_bits)}</div>"
@@ -165,37 +218,41 @@ st.markdown(
 )
 
 with st.expander("條件", expanded=False):
-    c1, c2, c3, c4, c5, c6, c7 = st.columns([1.1, 1.3, 0.7, 0.7, 0.7, 1, 1])
-    P["date"] = c1.text_input("日期 (UTC+8)", value=P["date"])
-    P["keyword"] = c2.text_input("keyword", value=P["keyword"])
+    c1, c2, c3, c4, c5 = st.columns([1.2, 1.6, 0.8, 0.8, 0.8])
+    P["date"] = c1.text_input("日期 (UTC+8) *", value=P["date"])
+    P["keyword"] = c2.text_input("keyword *", value=P["keyword"])
     P["lang"] = c3.text_input("lang", value=P["lang"])
     P["locale"] = c4.text_input("locale", value=P["locale"])
     P["currency"] = c5.text_input("currency", value=P["currency"])
-    P["exp_a"] = c6.text_input("exp_a (treatment)", value=P["exp_a"])
-    P["exp_b"] = c7.text_input("exp_b (control)", value=P["exp_b"])
     a1, a2, a3, a4 = st.columns(4)
-    P["kkud"] = a1.text_input("kkud", value=P["kkud"])
+    P["kkud"] = a1.text_input("kkud", value=P["kkud"],
+                              help="填了即進入「單人回放」— 使用者只屬一組,無 A/B 對照")
     P["member_uuid"] = a2.text_input("member_uuid", value=P["member_uuid"],
-                                     help="走 POST body,不進 URL")
-    P["session_id"] = a3.text_input("session_id", value=P["session_id"])
+                                     help="走 POST body,不進 URL;填了即進入單人回放")
+    P["session_id"] = a3.text_input("session_id", value=P["session_id"],
+                                    help="填了即進入單人回放")
     P["cache_hit"] = a4.selectbox("cache_hit", ["(不限)", "true", "false"],
                                   index=["(不限)", "true", "false"].index(P["cache_hit"]))
 
 run = st.button("查詢", type="primary")
 if not run and "ran" not in st.session_state:
     st.markdown("<div class='ri empty-state'>設定條件後按「查詢」開始。"
-                "日期與 keyword 已帶入示範值。</div>", unsafe_allow_html=True)
+                "日期與 keyword 為必填 (*)。填入 kkud / member_uuid / session_id "
+                "會切到「單人回放」— 查某個使用者在線上實際看到的召回結果。</div>",
+                unsafe_allow_html=True)
     st.stop()
 st.session_state["ran"] = True
 
-# ── 空狀態文案 (§8.1:指出下一步,不道歉不含糊) ────────────────────────────────
+# ── 必填檢查 (§8.1 文案:指出下一步) ──────────────────────────────────────────
 if not P["date"]:
     st.markdown("<div class='ri empty-state'>選一個日期才能查詢。</div>", unsafe_allow_html=True)
     st.stop()
-if not any([P["keyword"], P["kkud"], P["member_uuid"], P["session_id"]]):
-    st.markdown("<div class='ri empty-state'>keyword、kkud、member_uuid、session_id 至少填一項。</div>",
-                unsafe_allow_html=True)
+if not P["keyword"]:
+    st.markdown("<div class='ri empty-state'>keyword 為必填。</div>", unsafe_allow_html=True)
     st.stop()
+
+# 單人回放模式:使用者在 AB test 只會歸屬一個組別 → 沒有 A/B 對照
+user_mode = bool(P["kkud"] or P["member_uuid"] or P["session_id"])
 
 resp = requests.post(f"{API_BASE}/api/events/search", json={
     "date": P["date"],
@@ -212,180 +269,16 @@ if resp.status_code == 400:
 events = resp.json()["rows"]
 if not events:
     loc = P["locale"] or "任一 locale"
+    who = "(含使用者條件)" if user_mode else ""
     st.markdown(
         f"<div class='ri empty-state'>{_esc(P['date'][5:])} 的「{_esc(P['keyword'])}」在 "
-        f"{_esc(loc)} 沒有 content 事件。試著放寬 locale,或換一天。</div>",
+        f"{_esc(loc)} 沒有 content 事件{who}。試著放寬 locale,或換一天。</div>",
         unsafe_allow_html=True)
     st.stop()
 
-# ── compare ───────────────────────────────────────────────────────────────────
-cmp_params = {"date": P["date"], "keyword": P["keyword"],
-              "locale": P["locale"] or None, "exp_a": P["exp_a"], "exp_b": P["exp_b"]}
-if P["cache_hit"] != "(不限)":
-    cmp_params["cache_hit"] = P["cache_hit"]
-cmp_data, cmp_err = _get("/api/compare", cmp_params) if (P["keyword"] and P["exp_a"] and P["exp_b"]) else (None, None)
+left, right = st.columns([2.6, 1], gap="medium")
 
-left, right = st.columns([2.2, 1], gap="medium")
-
-# ══ 讀數列 + 排序對照 (§5, §6) ═════════════════════════════════════════════════
-with left:
-    if cmp_data is None:
-        msg = "找不到 control 組事件,無法計算個性化強度。可改用兩個裝置對照。" \
-            if cmp_err else "需要 keyword 與 exp_a / exp_b 才能對照。"
-        st.markdown(f"<div class='ri empty-state'>{_esc(msg)}</div>", unsafe_allow_html=True)
-    else:
-        rows = cmp_data["rows"]
-        m = cmp_data["metrics"]
-        all_out_of_scope = rows and all(not r["in_rerank_scope"] for r in rows)
-
-        # 讀數列 (§5):四個數字,不加圖表
-        strength = m["personalization_strength"]
-        warning = m["warning"]
-        s_cls, s_note = "", ""
-        if all_out_of_scope:
-            s_txt = "不適用"
-            s_cls = "grey"
-        else:
-            s_txt = f"{strength:.0%}"
-            if warning == "suspect_inactive":
-                s_cls, s_note = "alert", "兩組結果幾乎相同,個性化可能未生效"
-            elif warning == "suspect_excessive":
-                s_cls, s_note = "counter", "兩組差異偏大,注意長尾商品曝光"
-        note_html = f"<div class='warn {s_cls}'>{s_note}</div>" if s_note else ""
-        st.markdown(f"""
-<div class='ri readout'>
-  <div><div class='ri-eyebrow'>個性化強度</div><div class='v {s_cls}'>{s_txt}</div>{note_html}</div>
-  <div><div class='ri-eyebrow'>Top10 重疊</div><div class='v'>{m['top10_overlap']}/10</div></div>
-  <div><div class='ri-eyebrow'>跨帶變動</div><div class='v'>{m.get('real_move_changes', 0)}</div></div>
-  <div><div class='ri-eyebrow'>同帶內位移</div><div class='v grey'>{m['tie_unresolvable_changes']}</div></div>
-</div>""", unsafe_allow_html=True)
-
-        if all_out_of_scope:
-            st.markdown("<div class='ri ri-note' style='margin-bottom:8px'>"
-                        "── 精排邊界 · 第 101 名之後無 ltr_score,個性化不生效 ──</div>",
-                        unsafe_allow_html=True)
-
-        # 排序表:§2.3 前綴淡化 — 前綴長度由可見列決定,不寫死
-        score_strs = {id(r): f"{r['ltr_score_a']:.5f}" for r in rows
-                      if r.get("ltr_score_a") is not None}
-        plen = common_prefix_len(list(score_strs.values()))
-
-        def _score_cell(r) -> str:
-            if not r["in_rerank_scope"]:
-                return "<span class='norerank'>未進精排</span>"
-            s = score_strs.get(id(r))
-            if s is None:
-                return "<span class='v-id'>—</span>"
-            return (f"<span class='score'><span class='prefix'>{s[:plen]}</span>"
-                    f"{s[plen:]}</span>")
-
-        def _lamps(rel, raw_code) -> str:
-            if rel is None or all(v is None for v in rel.values()):
-                boxes = "".join(
-                    f"<span class='lamp hollow{' ip' if d == 'ip' else ''}'></span>"
-                    for d in RELEVANCE_DIMS)
-                return (f"<span role='img' aria-label='相關性碼解碼失敗' "
-                        f"title='解碼失敗:{_esc(raw_code)}'>{boxes}"
-                        f"<span class='lamp-q'>?</span></span>")
-            tip = f"{_esc(raw_code)} · " + " ".join(
-                f"{DIM_ZH[d]}{rel[d]}" for d in RELEVANCE_DIMS)
-            aria = ",".join(f"{DIM_ZH[d]}={rel[d]}" for d in RELEVANCE_DIMS)
-            boxes = ""
-            for d in RELEVANCE_DIMS:
-                lv = lamp_level(rel[d])
-                ip_cls = " ip" if d == "ip" else ""
-                ip_tip = ";IP 維度語意待確認" if d == "ip" else ""
-                boxes += f"<span class='lamp l{lv}{ip_cls}' title='{tip}{ip_tip}'></span>"
-            return f"<span role='img' aria-label='{aria}'>{boxes}</span>"
-
-        V_CLS = {"only_a": "v-only-a", "only_b": "v-only-b", "real_move": "v-real",
-                 "tie_unresolvable": "v-tie", "identical": "v-id"}
-
-        # 帶分組 (§6.1):依 rank_a 序,band_a 相同者為一組;單筆成帶不畫括號不上底色
-        body = []
-        prev_band = None
-        prev_band_last_score = None
-        crossed_rerank = False
-        band_sizes: dict = {}
-        for r in rows:
-            if r["rank_a"] is not None and r["band_a"] is not None:
-                band_sizes[r["band_a"]] = band_sizes.get(r["band_a"], 0) + 1
-
-        in_band_pos = 0
-        for i, r in enumerate(rows):
-            ra, rb = r["rank_a"], r["rank_b"]
-            band = r["band_a"] if ra is not None else None
-            grouped = band is not None and band_sizes.get(band, 0) >= 2
-
-            # 精排邊界列 (§6.5)
-            if not crossed_rerank and ra is not None and ra > RERANK_BOUNDARY:
-                crossed_rerank = True
-                body.append("<tr class='boundary rerank'><td colspan='7'><div class='line'>"
-                            "精排邊界 · 第 101 名之後無 ltr_score,個性化不生效</div></td></tr>")
-
-            # 帶邊界列 (§6.1):間距值是分組成立的理由,必須顯示
-            if band is not None and prev_band is not None and band != prev_band:
-                g = band_gap(prev_band_last_score, r.get("ltr_score_a"))
-                if g and g["ulp"] is not None:
-                    body.append(
-                        f"<tr class='boundary'><td colspan='7'><div class='line'>"
-                        f"帶邊界 · Δ{g['gap']:.1e} ≈ {g['ulp']:.0f} ULP</div></td></tr>")
-                in_band_pos = 0
-            elif band == prev_band and band is not None:
-                in_band_pos += 1
-            else:
-                in_band_pos = 0
-
-            cls = ["hoverable"]
-            if grouped:
-                cls.append("band")
-                if in_band_pos == 0:
-                    cls.append("band-first")
-                nxt = rows[i + 1] if i + 1 < len(rows) else None
-                if nxt is None or nxt.get("band_a") != band or nxt.get("rank_a") is None:
-                    cls.append("band-last")
-            if r["verdict"] == "only_a":
-                cls.append("edge-a")
-            elif r["verdict"] == "only_b":
-                cls.append("edge-b")
-
-            vt = verdict_text(r["verdict"], ra, rb, r.get("relevance_diff_dims"))
-            ad = "<span class='ad'>AD</span>" if r["is_ad"] else ""
-            rel = r["relevance_a"] or r["relevance_b"]
-            raw = ""  # 原始碼進 tooltip;rows 未帶原碼時以解碼值重組
-            if rel and all(v is not None for v in rel.values()):
-                raw = "".join(str(rel[d]) for d in RELEVANCE_DIMS)
-            body.append(
-                f"<tr class='{' '.join(cls)}'>"
-                f"<td class='rail'></td>"
-                f"<td class='rk num'>{ra if ra is not None else '—'}</td>"
-                f"<td class='rk num'>{rb if rb is not None else '—'}</td>"
-                f"<td class='mid mono'>{_esc(r['prod_mid'])}{ad}</td>"
-                f"<td class='score num'>{_score_cell(r)}</td>"
-                f"<td class='lamps'>{_lamps(rel, raw)}</td>"
-                f"<td class='{V_CLS.get(r['verdict'], '')}'>{_esc(vt)}</td></tr>"
-            )
-            prev_band = band
-            if grouped or band is not None:
-                prev_band_last_score = r.get("ltr_score_a") or prev_band_last_score
-
-        st.markdown(
-            "<div class='rank-wrap'><table class='rank ri'><thead><tr>"
-            "<th></th><th scope='col'>A</th><th scope='col'>B</th>"
-            "<th scope='col'>PROD_MID</th><th scope='col' style='text-align:right'>分數</th>"
-            "<th scope='col'>相關性</th><th scope='col'>判讀</th>"
-            "</tr></thead><tbody>" + "".join(body) + "</tbody></table></div>",
-            unsafe_allow_html=True,
-        )
-        d = cmp_data["dispersion_a"]
-        if d["range"] is not None and d.get("min_adjacent_gap_ulp") is not None:
-            st.markdown(
-                f"<div class='ri ri-note' style='margin-top:6px'>A 組離散度:全距 {d['range']:.2e}"
-                f" · 相對差異 {d['relative_range']:.1e} · 最小相鄰間距 ≈ "
-                f"{d['min_adjacent_gap_ulp']:.0f} ULP(≤10 ULP 視為同分)</div>",
-                unsafe_allow_html=True)
-
-# ══ 特徵側欄 (§7:品質 → uf → cf) ══════════════════════════════════════════════
+# ══ 右欄先執行:事件選擇 + 特徵面板 (§7,兩種模式共用) ══════════════════════════
 with right:
     pick = st.selectbox(
         "事件", [e["session_id"] for e in events],
@@ -432,12 +325,11 @@ with right:
                          f"<span class='uf-cov'>{pct:.1%}{low}</span>{val_html}</div>")
 
     cf = detail["cf_summary"]
-    weekday_zh = "一二三四五六日"
-    wd = cf["weekday"]
     chips = ""
     for label, v in [("", cf["platform"]),
                      ("", f"{cf['hour']}時" if cf["hour"] is not None else None),
-                     ("", f"週{weekday_zh[wd - 1]}" if isinstance(wd, int) and 1 <= wd <= 7 else None),
+                     ("", f"週{_WD[cf['weekday'] - 1]}"
+                      if isinstance(cf.get("weekday"), int) and 1 <= cf["weekday"] <= 7 else None),
                      ("query.final ", cf["query_final"]),
                      ("tokens ", cf["query_tokens"])]:
         if v is not None:
@@ -453,11 +345,247 @@ with right:
         unsafe_allow_html=True,
     )
 
-    if joined_ok:
-        if st.button("展開完整 cf(138 KB)"):
-            cf_full, cerr = _get(f"/api/events/{pick}/cf", {"date": P["date"], **hints})
-            if cf_full:
-                st.json(cf_full["cf_raw"])
+    if joined_ok and st.button("展開完整 cf(138 KB)"):
+        cf_full, cerr = _get(f"/api/events/{pick}/cf", {"date": P["date"], **hints})
+        if cf_full:
+            st.json(cf_full["cf_raw"])
+        else:
+            st.markdown(f"<div class='ri empty-state'>{_esc(cerr)}</div>",
+                        unsafe_allow_html=True)
+
+
+# ══ 左欄:單人回放 或 兩組對照 ═════════════════════════════════════════════════
+with left:
+    if user_mode:
+        # ── 單人回放:選定事件的召回/排序結果,無 A/B ─────────────────────────
+        pg = detail["pagination"]
+        login = "已登入" if picked_ev.get("logged_in") else "未登入"
+        cache_txt = "cache" if detail.get("cache_hit") else "live"
+        cf_line = _cf_txt({"platform": cf["platform"], "hour": cf["hour"],
+                           "weekday": cf["weekday"]})
+        st.markdown(
+            f"<div class='ri' style='margin-top:6px'>"
+            f"<span style='color:var(--measure);font-weight:500'>"
+            f"{_esc(detail.get('exp_version'))}</span>"
+            f"<span class='ri-note'> · {_esc(detail.get('lang') or '?')}·"
+            f"{_esc(detail.get('locale') or '?')} · {_esc(cf_line)}"
+            f" · {login} · {cache_txt} · {_esc(detail.get('event_date_local') or '')}</span>"
+            f"<div class='ri-note' style='margin-top:2px'>單人回放 — 使用者只歸屬一個實驗組,"
+            f"無 A/B 對照;本頁 {pg.get('prod_cnt') or 0} 筆 · 全量 {pg.get('total_count') or '—'} 筆"
+            f" · rank ≤ {pg.get('rerank_boundary')} 進精排</div></div>",
+            unsafe_allow_html=True,
+        )
+
+        prods = detail["prods"]
+        score_strs = {id(p): f"{p['ltr_score']:.5f}" for p in prods
+                      if p.get("ltr_score") is not None}
+        plen = common_prefix_len(list(score_strs.values()))
+
+        band_sizes: dict = {}
+        for p in prods:
+            if p.get("tie_band") is not None:
+                band_sizes[p["tie_band"]] = band_sizes.get(p["tie_band"], 0) + 1
+
+        body = []
+        prev_band = None
+        prev_score = None
+        crossed_rerank = False
+        for i, p in enumerate(prods):
+            band = p.get("tie_band")
+            grouped = band is not None and band_sizes.get(band, 0) >= 2
+            if not crossed_rerank and p["rank"] > RERANK_BOUNDARY:
+                crossed_rerank = True
+                body.append("<tr class='boundary rerank'><td colspan='6'><div class='line'>"
+                            "精排邊界 · 第 101 名之後無 ltr_score,個性化不生效</div></td></tr>")
+            if band is not None and prev_band is not None and band != prev_band:
+                g = band_gap(prev_score, p.get("ltr_score"))
+                if g and g["ulp"] is not None:
+                    body.append(
+                        f"<tr class='boundary'><td colspan='6'><div class='line'>"
+                        f"帶邊界 · Δ{g['gap']:.1e} ≈ {g['ulp']:.0f} ULP</div></td></tr>")
+            cls = ["hoverable"]
+            if grouped:
+                cls.append("band")
+                if prev_band != band:
+                    cls.append("band-first")
+                nxt = prods[i + 1] if i + 1 < len(prods) else None
+                if nxt is None or nxt.get("tie_band") != band:
+                    cls.append("band-last")
+            sstr = score_strs.get(id(p))
+            body.append(
+                f"<tr class='{' '.join(cls)}'>"
+                f"<td class='rail'></td>"
+                f"<td class='rk num'>{p['rank']}</td>"
+                f"<td class='mid'>{_prod_cell(p['prod_mid'], p.get('prod_name'), p.get('is_ad'))}</td>"
+                f"<td class='score num'>{_score_html(p.get('in_rerank_scope'), sstr, plen)}</td>"
+                f"<td class='lamps'>{_lamps(p.get('relevance'), p.get('relevance_status_code') or '')}</td>"
+                f"<td></td></tr>"
+            )
+            prev_band = band
+            prev_score = p.get("ltr_score") or prev_score
+
+        st.markdown(
+            "<div class='rank-wrap'><table class='rank ri'><thead><tr>"
+            "<th></th><th scope='col'>名次</th><th scope='col'>商品</th>"
+            "<th scope='col' style='text-align:right'>分數</th>"
+            "<th scope='col'>相關性</th><th></th>"
+            "</tr></thead><tbody>" + "".join(body) + "</tbody></table></div>",
+            unsafe_allow_html=True,
+        )
+        d = detail.get("dispersion") or {}
+        if d.get("range") is not None and d.get("min_adjacent_gap_ulp") is not None:
+            st.markdown(
+                f"<div class='ri ri-note' style='margin-top:6px'>分數離散度:全距 {d['range']:.2e}"
+                f" · 最小相鄰間距 ≈ {d['min_adjacent_gap_ulp']:.0f} ULP(≤10 ULP 視為同分)</div>",
+                unsafe_allow_html=True)
+
+    else:
+        # ── 對照模式:自動偵測 treatment/control 兩組 ─────────────────────────
+        cmp_params = {"date": P["date"], "keyword": P["keyword"],
+                      "locale": P["locale"] or None}
+        if P["cache_hit"] != "(不限)":
+            cmp_params["cache_hit"] = P["cache_hit"]
+        cmp_data, cmp_err = _get("/api/compare", cmp_params)
+
+        if cmp_data is None:
+            msg = cmp_err or "找不到 control 組事件,無法計算個性化強度。可改用兩個裝置對照。"
+            st.markdown(f"<div class='ri empty-state'>{_esc(msg)}</div>", unsafe_allow_html=True)
+        else:
+            rows = cmp_data["rows"]
+            m = cmp_data["metrics"]
+            meta = cmp_data["meta"]
+            a_meta = meta.get("a") or {}
+            b_meta = meta.get("b") or {}
+            all_out_of_scope = rows and all(not r["in_rerank_scope"] for r in rows)
+
+            # 身分摘要:事件層級 metadata (exp / lang·locale / cf) 講一次就好,
+            # 不進表格逐列重複 — 兩側不同時在這一行就看得出來
+            def _side_desc(tag, color, mm):
+                if not mm:
+                    return f"<span style='color:var(--faint)'>{tag}:無事件</span>"
+                loc = f"{mm.get('lang') or '?'}·{mm.get('locale') or '?'}"
+                return (f"<span style='color:{color};font-weight:500'>{tag} "
+                        f"{_esc(mm.get('exp_version'))}</span>"
+                        f"<span class='ri-note'> ({_esc(loc)} · {_esc(_cf_txt(mm.get('cf')))})</span>")
+            st.markdown(
+                f"<div class='ri' style='margin-top:6px'>"
+                f"{_side_desc('A treatment', 'var(--measure)', a_meta)}"
+                f"<span style='color:var(--graphite)'> ↔ </span>"
+                f"{_side_desc('B control', 'var(--counter)', b_meta)}</div>",
+                unsafe_allow_html=True,
+            )
+
+            # 讀數列 (§5)
+            strength = m["personalization_strength"]
+            warning = m["warning"]
+            s_cls, s_note = "", ""
+            if all_out_of_scope:
+                s_txt = "不適用"
+                s_cls = "grey"
             else:
-                st.markdown(f"<div class='ri empty-state'>{_esc(cerr)}</div>",
+                s_txt = f"{strength:.0%}"
+                if warning == "suspect_inactive":
+                    s_cls, s_note = "alert", "兩組結果幾乎相同,個性化可能未生效"
+                elif warning == "suspect_excessive":
+                    s_cls, s_note = "counter", "兩組差異偏大,注意長尾商品曝光"
+            note_html = f"<div class='warn {s_cls}'>{s_note}</div>" if s_note else ""
+            st.markdown(f"""
+<div class='ri readout'>
+  <div><div class='ri-eyebrow'>個性化強度</div><div class='v {s_cls}'>{s_txt}</div>{note_html}</div>
+  <div><div class='ri-eyebrow'>Top10 重疊</div><div class='v'>{m['top10_overlap']}/10</div></div>
+  <div><div class='ri-eyebrow'>跨帶變動</div><div class='v'>{m.get('real_move_changes', 0)}</div></div>
+  <div><div class='ri-eyebrow'>同帶內位移</div><div class='v grey'>{m['tie_unresolvable_changes']}</div></div>
+</div>""", unsafe_allow_html=True)
+
+            if all_out_of_scope:
+                st.markdown("<div class='ri ri-note' style='margin-bottom:8px'>"
+                            "── 精排邊界 · 第 101 名之後無 ltr_score,個性化不生效 ──</div>",
                             unsafe_allow_html=True)
+
+            score_strs = {id(r): f"{r['ltr_score_a']:.5f}" for r in rows
+                          if r.get("ltr_score_a") is not None}
+            plen = common_prefix_len(list(score_strs.values()))
+
+            V_CLS = {"only_a": "v-only-a", "only_b": "v-only-b", "real_move": "v-real",
+                     "tie_unresolvable": "v-tie", "identical": "v-id"}
+
+            band_sizes: dict = {}
+            for r in rows:
+                if r["rank_a"] is not None and r["band_a"] is not None:
+                    band_sizes[r["band_a"]] = band_sizes.get(r["band_a"], 0) + 1
+
+            body = []
+            prev_band = None
+            prev_band_last_score = None
+            crossed_rerank = False
+            in_band_pos = 0
+            for i, r in enumerate(rows):
+                ra, rb = r["rank_a"], r["rank_b"]
+                band = r["band_a"] if ra is not None else None
+                grouped = band is not None and band_sizes.get(band, 0) >= 2
+
+                if not crossed_rerank and ra is not None and ra > RERANK_BOUNDARY:
+                    crossed_rerank = True
+                    body.append("<tr class='boundary rerank'><td colspan='7'><div class='line'>"
+                                "精排邊界 · 第 101 名之後無 ltr_score,個性化不生效</div></td></tr>")
+
+                if band is not None and prev_band is not None and band != prev_band:
+                    g = band_gap(prev_band_last_score, r.get("ltr_score_a"))
+                    if g and g["ulp"] is not None:
+                        body.append(
+                            f"<tr class='boundary'><td colspan='7'><div class='line'>"
+                            f"帶邊界 · Δ{g['gap']:.1e} ≈ {g['ulp']:.0f} ULP</div></td></tr>")
+                    in_band_pos = 0
+                elif band == prev_band and band is not None:
+                    in_band_pos += 1
+                else:
+                    in_band_pos = 0
+
+                cls = ["hoverable"]
+                if grouped:
+                    cls.append("band")
+                    if in_band_pos == 0:
+                        cls.append("band-first")
+                    nxt = rows[i + 1] if i + 1 < len(rows) else None
+                    if nxt is None or nxt.get("band_a") != band or nxt.get("rank_a") is None:
+                        cls.append("band-last")
+                if r["verdict"] == "only_a":
+                    cls.append("edge-a")
+                elif r["verdict"] == "only_b":
+                    cls.append("edge-b")
+
+                vt = verdict_text(r["verdict"], ra, rb, r.get("relevance_diff_dims"))
+                rel = r["relevance_a"] or r["relevance_b"]
+                raw = ""
+                if rel and all(v is not None for v in rel.values()):
+                    raw = "".join(str(rel[d]) for d in RELEVANCE_DIMS)
+                sstr = score_strs.get(id(r))
+                body.append(
+                    f"<tr class='{' '.join(cls)}'>"
+                    f"<td class='rail'></td>"
+                    f"<td class='rk num'>{ra if ra is not None else '—'}</td>"
+                    f"<td class='rk num'>{rb if rb is not None else '—'}</td>"
+                    f"<td class='mid'>{_prod_cell(r['prod_mid'], r.get('prod_name'), r.get('is_ad'))}</td>"
+                    f"<td class='score num'>{_score_html(r['in_rerank_scope'], sstr, plen)}</td>"
+                    f"<td class='lamps'>{_lamps(rel, raw)}</td>"
+                    f"<td class='{V_CLS.get(r['verdict'], '')}'>{_esc(vt)}</td></tr>"
+                )
+                prev_band = band
+                if band is not None:
+                    prev_band_last_score = r.get("ltr_score_a") or prev_band_last_score
+
+            st.markdown(
+                "<div class='rank-wrap'><table class='rank ri'><thead><tr>"
+                "<th></th><th scope='col'>A</th><th scope='col'>B</th>"
+                "<th scope='col'>商品</th><th scope='col' style='text-align:right'>分數</th>"
+                "<th scope='col'>相關性</th><th scope='col'>判讀</th>"
+                "</tr></thead><tbody>" + "".join(body) + "</tbody></table></div>",
+                unsafe_allow_html=True,
+            )
+            d = cmp_data["dispersion_a"]
+            if d["range"] is not None and d.get("min_adjacent_gap_ulp") is not None:
+                st.markdown(
+                    f"<div class='ri ri-note' style='margin-top:6px'>A 組離散度:全距 {d['range']:.2e}"
+                    f" · 相對差異 {d['relative_range']:.1e} · 最小相鄰間距 ≈ "
+                    f"{d['min_adjacent_gap_ulp']:.0f} ULP(≤10 ULP 視為同分)</div>",
+                    unsafe_allow_html=True)

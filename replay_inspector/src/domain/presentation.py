@@ -15,13 +15,12 @@ _CIRCLED = "①②③④⑤⑥"
 
 
 def _diff_suffix(diff_dims: list[str] | None) -> str:
-    # ⚠ 差異位的「位置」語意不等值 (待 spec §9.1 確認後決定是否加警示色):
-    #   ④ ip — 若確認為使用者地理,是預期中的個性化
-    #   ① 可售 — 可能只是兩個事件的時間差,商品狀態變了
-    #   ②③⑤⑥ — 若這幾位真是 query × 商品相關性,同 query 同商品在兩組間
-    #     不該不同 → 差異落在這裡不是解釋,是異常訊號 (normalized_keyword
-    #     不同 / index shard 傾斜 / 快取陳舊),同時是資料一致性檢查。
-    #   §9.1 沒答案前只渲染、不判讀。
+    # 差異位語意 (RD 2026-08-19 定案:④=品牌 IP → 六位全是 query × 商品維度):
+    #   同 query 同商品在 treatment/control 間,任何位的差異都不該來自個性化 —
+    #   ① 可能是兩事件的時間差 (商品狀態變了);其餘位 = 異常訊號
+    #   (normalized_keyword 不同 / index shard 傾斜 / 快取陳舊),
+    #   即資料一致性檢查。ui-spec §2.1 明定 --alert 不用於排序表,
+    #   故維持灰色呈現,判讀交給使用者 (hover 有逐位數值)。
     idx = [RELEVANCE_DIMS.index(d) for d in (diff_dims or []) if d in RELEVANCE_DIMS]
     if not idx:
         return ""
@@ -56,7 +55,11 @@ def verdict_text(verdict: str, rank_a: Optional[int], rank_b: Optional[int],
 
 def lamp_level(value: Optional[int]) -> Optional[int]:
     """ui-spec §6.4 值→ink 色階:0→0(rule 灰), 1→1(25%), 2→2(50%), 3→3(75%), ≥4→4(100%)。
-    None 保持 None (解碼失敗,六個空心框 + ?)。"""
+    None 保持 None (解碼失敗,六個空心框 + ?)。
+
+    語意 (RD 定案「數字越小越相關」):0 = 通過/最相關 → 淡;值越大 = 該維度
+    偏離越多 → 越深。深色格 = 值得看的異常,全 0 的列自然退場 — 與 ui-spec
+    色彩紀律同向,故映射不倒轉。"""
     if value is None:
         return None
     return 0 if value <= 0 else min(int(value), 4)

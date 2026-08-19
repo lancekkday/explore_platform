@@ -5,13 +5,14 @@
 """
 from __future__ import annotations
 
-# 由左至右每位的維度。位置序已由 Joyce (rd_data) 2026-08-17 於群組 DM 確認:
-# 可售/地點/類目/IP/主題/文本 — 與 spec 4.1 一致。
-# ⚠ 第 4 位 "ip" 的語意 (spec 9.1) 尚差最後一步:
-#   kkday-search-es-api searches_v3.2.5 release note (DT-6054) 寫
-#   「相容 6 碼 relevance_status_code + 納入『品牌 IP』」→ 強烈指向
-#   「IP 聯名內容」而非使用者地理。若定案為品牌 IP:與 theme 同性質,
-#   前端第 4 格改一般配色、拿掉虛線標記即可,本檔不動。
+# 由左至右每位的維度。RD 已全數確認 (Joyce 2026-08-17 位置序;2026-08-19 語意):
+#   可售/地點/類目/IP/主題/文本 — 與 spec 4.1 一致
+#   第 4 位 IP = 品牌 IP (聯名內容,如吉卜力),與 theme 同性質 (spec 9.1 定案)
+#   值語意:「數字越小越相關」→ 0 = 最相關/通過 (spec 9.2/9.3 定案;
+#   '000220' 第 1 位 0 = 可售,所以能曝光)。燈號視覺:值越大顏色越深 =
+#   「該維度偏離越多」,全 0 的列自然淡出 — 與 ui-spec 色彩紀律一致。
+#   ⇒ 六位全部是 query × 商品維度,treatment/control 間任何位的差異都
+#   不該來自個性化 (見 presentation._diff_suffix 的異常訊號註記)。
 RELEVANCE_DIMS = ["sellable", "location", "category", "ip", "theme", "text"]
 
 _CODE_LEN = len(RELEVANCE_DIMS)

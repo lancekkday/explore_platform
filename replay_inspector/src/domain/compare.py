@@ -102,6 +102,7 @@ def merge_rows(a_prods: list[dict], b_prods: list[dict]) -> list[dict]:
         src = a or b
         rows.append({
             "prod_mid": mid,
+            "prod_name": src.get("prod_name"),
             "rank_a": rank_a, "rank_b": rank_b,
             "ltr_score_a": a.get("ltr_score") if a else None,
             "band_a": band_a, "band_b": band_b,

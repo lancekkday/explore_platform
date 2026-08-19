@@ -15,6 +15,13 @@ _CIRCLED = "①②③④⑤⑥"
 
 
 def _diff_suffix(diff_dims: list[str] | None) -> str:
+    # ⚠ 差異位的「位置」語意不等值 (待 spec §9.1 確認後決定是否加警示色):
+    #   ④ ip — 若確認為使用者地理,是預期中的個性化
+    #   ① 可售 — 可能只是兩個事件的時間差,商品狀態變了
+    #   ②③⑤⑥ — 若這幾位真是 query × 商品相關性,同 query 同商品在兩組間
+    #     不該不同 → 差異落在這裡不是解釋,是異常訊號 (normalized_keyword
+    #     不同 / index shard 傾斜 / 快取陳舊),同時是資料一致性檢查。
+    #   §9.1 沒答案前只渲染、不判讀。
     idx = [RELEVANCE_DIMS.index(d) for d in (diff_dims or []) if d in RELEVANCE_DIMS]
     if not idx:
         return ""

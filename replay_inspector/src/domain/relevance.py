@@ -5,10 +5,13 @@
 """
 from __future__ import annotations
 
-# 由左至右每位的維度 (spec 4.1 表格)。
-# ⚠ 第 4 位 "ip" 的語意待搜尋 RD 確認 (spec 9.1):
-#   - 若為「使用者 IP 地理」→ 六碼中唯一 user × 商品維度,前端獨立標色 (現行做法)
-#   - 若為「IP 聯名內容」→ 改與 theme 同性質,只需改前端配色,本檔不動
+# 由左至右每位的維度。位置序已由 Joyce (rd_data) 2026-08-17 於群組 DM 確認:
+# 可售/地點/類目/IP/主題/文本 — 與 spec 4.1 一致。
+# ⚠ 第 4 位 "ip" 的語意 (spec 9.1) 尚差最後一步:
+#   kkday-search-es-api searches_v3.2.5 release note (DT-6054) 寫
+#   「相容 6 碼 relevance_status_code + 納入『品牌 IP』」→ 強烈指向
+#   「IP 聯名內容」而非使用者地理。若定案為品牌 IP:與 theme 同性質,
+#   前端第 4 格改一般配色、拿掉虛線標記即可,本檔不動。
 RELEVANCE_DIMS = ["sellable", "location", "category", "ip", "theme", "text"]
 
 _CODE_LEN = len(RELEVANCE_DIMS)

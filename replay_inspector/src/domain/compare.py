@@ -91,6 +91,9 @@ def merge_rows(a_prods: list[dict], b_prods: list[dict]) -> list[dict]:
 
         rel_a = decode_relevance(a["relevance_status_code"]) if a else None
         rel_b = decode_relevance(b["relevance_status_code"]) if b else None
+        # 不變量:diff_dims 只在兩側都有六碼時計算 — 資料流層面保證 ui-spec §6.3
+        # 的觸發條件 (only_* 單側缺碼,永遠拿不到差異位後綴;spec 描述的是結果,
+        # 這裡是原因)。
         diff_dims = (
             [d for d in rel_a if rel_a[d] != rel_b[d]] if rel_a and rel_b else []
         )

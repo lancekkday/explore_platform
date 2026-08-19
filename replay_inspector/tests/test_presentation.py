@@ -15,7 +15,11 @@ def test_verdict_text_states():
 
 def test_verdict_text_diff_suffix_on_real_move_and_tie():
     """§6.3 差異位後綴:兩側皆有六碼且碼不同 → 只出現在 real_move 與
-    tie_unresolvable。ip 是第 4 位 → ④。"""
+    tie_unresolvable。ip 是第 4 位 → ④。
+
+    註:②③ 的案例是**純渲染測試** — 若第 2/3 位真是 query × 商品相關性,
+    同 query 同商品在兩組間出現 ②③ 差異語意上可能是不合法的資料組合
+    (異常訊號而非個性化解釋)。這裡只驗編號渲染正確;異常判讀待 §9.1。"""
     assert verdict_text("real_move", 1, 4, ["ip"]) == "跨帶 ↓3 · ④ 差異"
     assert verdict_text("tie_unresolvable", 1, 2, ["location", "category"]) \
         == "同帶內位移 · ②③ 差異"

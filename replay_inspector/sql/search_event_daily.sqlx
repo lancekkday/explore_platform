@@ -31,6 +31,9 @@ WITH content AS (
     cache_hit,                                                   -- 頂層欄位,優先用
     JSON_VALUE(data, '$.source_event_id')      AS source_event_id,
     JSON_VALUE(data, '$.request_type')         AS request_type,
+    -- TODO(verify) ⚠ Kim (rd_data_tech) 2026-08-16 官方取數 SQL 的過濾註解寫
+    --   JSON_VALUE(data, '$.query.kwyword') — 疑為 payload 實際拼字 (kwyword),
+    --   併入前必以實際 payload 確認,拼錯這裡整條 pipeline 的 keyword 全 NULL
     JSON_VALUE(data, '$.query.keyword')        AS keyword,
     JSON_VALUE(data, '$.query.lang')           AS lang,           -- TODO(verify) path
     JSON_VALUE(data, '$.query.locale')         AS locale,         -- TODO(verify) path
@@ -74,11 +77,15 @@ recall AS (
     -- ⚠ NULLIF(..., 'null') 必要:path 不存在時 TO_JSON_STRING(JSON_QUERY(...))
     --   回「字串 'null'」而非 SQL NULL — 不清掉的話下面的 uf_absent /
     --   ltr_features_recovered 旗標永遠不會為 true
-    NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.uf.intent')), 'null')  AS uf_intent,
-    NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.uf.profile')), 'null') AS uf_profile,
-    JSON_VALUE(data, '$.uf.profile_version')         AS uf_profile_version,
-    NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.uf.lbs')), 'null')     AS uf_lbs,   -- 新增:原本未落表
-    NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.ltr_features')), 'null') AS recall_ltr_features
+    -- TODO(verify) ⚠ 巢狀層級:Kim 2026-08-16 官方 SQL 對 recall 事件取的是
+    --   JSON_QUERY(data, '$.data.uf') / '$.data.cf' (雙層 data),v1-spec §2.5 則寫
+    --   單層 $.uf / $.cf。此處先依 Kim 的一手 SQL 用雙層;content 事件 (上方 CTE)
+    --   依同一份 SQL 為單層 ($.prods) — 兩種事件層級不同,併入前務必各自實測。
+    NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.data.uf.intent')), 'null')  AS uf_intent,
+    NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.data.uf.profile')), 'null') AS uf_profile,
+    JSON_VALUE(data, '$.data.uf.profile_version')         AS uf_profile_version,
+    NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.data.uf.lbs')), 'null')     AS uf_lbs,   -- 新增:原本未落表
+    NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.data.ltr_features')), 'null') AS recall_ltr_features
   FROM ${ref("dl_base", "ar-stream_search_record")}
   WHERE event_type IN ('recall', 'recall.cache')
     -- cache 跨日:join 視窗開 [D-1, D] (spec 2.4-1)

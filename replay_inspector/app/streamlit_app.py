@@ -44,7 +44,11 @@ st.markdown("""
   --mono:'IBM Plex Mono',monospace;
 }
 .stApp{background:var(--paper);}
-.block-container{padding-top:1.2rem;max-width:1280px;}
+/* 隱藏 Streamlit 自帶 chrome (Deploy 工具列/選單) — 它是固定定位,會蓋住
+   我們的標題摘要列,看起來像「上面壞掉沒做好」 */
+header[data-testid="stHeader"]{display:none;}
+#MainMenu,footer{visibility:hidden;}
+.block-container{padding-top:1.6rem;max-width:1280px;}
 .ri *{font-variant-numeric:tabular-nums;}
 .ri-title{font:500 15px/1.4 var(--sans);color:var(--ink);}
 .ri-eyebrow{font:500 11px/1.2 var(--cond);letter-spacing:.06em;color:var(--graphite);text-transform:uppercase;}
@@ -179,6 +183,8 @@ with st.expander("條件", expanded=False):
 
 run = st.button("查詢", type="primary")
 if not run and "ran" not in st.session_state:
+    st.markdown("<div class='ri empty-state'>設定條件後按「查詢」開始。"
+                "日期與 keyword 已帶入示範值。</div>", unsafe_allow_html=True)
     st.stop()
 st.session_state["ran"] = True
 

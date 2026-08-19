@@ -28,8 +28,9 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL:-/api}
         VITE_BASE_URL: ${VITE_BASE_URL:-/}
-        # 瀏覽器端要開的回放器 URL — EC2 上設成使用者可達的位址 (host:8301 或反代)
-        VITE_REPLAY_URL: ${VITE_REPLAY_URL:-http://localhost:8301}
+        # 回放器入口。預設同站子路徑 (frontend nginx 反代到 replay-ui),
+        # 正式台即 http://<host>:<port>/explore_platform/replay/,無需另開 port
+        VITE_REPLAY_URL: ${VITE_REPLAY_URL:-/explore_platform/replay/}
     container_name: sip_frontend
     restart: always
     ports:
@@ -64,6 +65,7 @@ services:
     command: >
       streamlit run app/streamlit_app.py
       --server.port 8501 --server.address 0.0.0.0 --server.headless true
+      --server.baseUrlPath /explore_platform/replay
     environment:
       # container-to-container:UI 的後端請求走 compose 內網,不繞出去
       API_BASE: http://replay-api:8000

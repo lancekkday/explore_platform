@@ -23,6 +23,7 @@ USE_FAKE="${USE_FAKE:-}" ./venv/bin/uvicorn src.api.main:app --host 0.0.0.0 --po
 
 echo "[replay] UI   → http://localhost:$REPLAY_UI_PORT"
 API_BASE="http://localhost:$REPLAY_API_PORT" ./venv/bin/streamlit run app/streamlit_app.py \
-  --server.port "$REPLAY_UI_PORT" --server.headless true > replay_ui.log 2>&1 &
+  --server.port "$REPLAY_UI_PORT" --server.headless true \
+  --server.baseUrlPath /explore_platform/replay > replay_ui.log 2>&1 &
 
-echo "[replay] done. 主平台 header 的「回放」入口預設指向 :$REPLAY_UI_PORT (VITE_REPLAY_URL 可改)"
+echo "[replay] done. 入口:主平台 /explore_platform/replay/ (直連: http://localhost:$REPLAY_UI_PORT/explore_platform/replay/)"

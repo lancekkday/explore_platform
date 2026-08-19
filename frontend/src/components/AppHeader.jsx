@@ -37,10 +37,11 @@ export default function AppHeader() {
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-status-blue animate-pulse" />
             )}
           </NavLink>
-          {/* 回放器是獨立技術棧 (Streamlit,repo 內 replay_inspector/) — 只拆入口,
-              外部連結開新分頁;URL 由 build-time env VITE_REPLAY_URL 指定 (dev 預設 8301) */}
+          {/* 回放器是獨立技術棧 (Streamlit,repo 內 replay_inspector/) — 只拆入口。
+              預設同站子路徑 /explore_platform/replay/ (dev 由 Vite proxy、prod 由
+              nginx 反代到 Streamlit);VITE_REPLAY_URL 可覆寫 */}
           <a
-            href={import.meta.env.VITE_REPLAY_URL || 'http://localhost:8301'}
+            href={import.meta.env.VITE_REPLAY_URL || '/explore_platform/replay/'}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1 px-3 py-[5px] rounded-lg text-[12px] transition-colors text-text-secondary hover:text-text-primary"

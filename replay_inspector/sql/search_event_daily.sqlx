@@ -31,9 +31,8 @@ WITH content AS (
     cache_hit,                                                   -- 頂層欄位,優先用
     JSON_VALUE(data, '$.source_event_id')      AS source_event_id,
     JSON_VALUE(data, '$.request_type')         AS request_type,
-    -- TODO(verify) ⚠ Kim (rd_data_tech) 2026-08-16 官方取數 SQL 的過濾註解寫
-    --   JSON_VALUE(data, '$.query.kwyword') — 疑為 payload 實際拼字 (kwyword),
-    --   併入前必以實際 payload 確認,拼錯這裡整條 pipeline 的 keyword 全 NULL
+    -- ✓ RESOLVED 2026-08-19:payload 實際欄位名確認為 keyword
+    --   (Kim 8/16 SQL 註解裡的 kwyword 為手誤,RD 會更正該範例)
     JSON_VALUE(data, '$.query.keyword')        AS keyword,
     JSON_VALUE(data, '$.query.lang')           AS lang,           -- TODO(verify) path
     JSON_VALUE(data, '$.query.locale')         AS locale,         -- TODO(verify) path

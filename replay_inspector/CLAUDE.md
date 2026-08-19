@@ -8,9 +8,13 @@ keyword,treatment 與 control 看到的結果差在哪、為什麼」。唯讀�
 
 ## 紅線(違反即 bug)
 
-1. **任何程式路徑不得查原表** `dw_analysis_record.stream_search_record`(一小時 10.7 GB)。
-   只有 `sql/*.sqlx`(dataform incremental)可以碰。`src/repo/bigquery.py:assert_no_raw_table`
+1. **任何程式路徑不得查原始事件 view** `dw_analysis_record.stream_search_record`
+   (data 欄 JSON 型別,per-path 計費;dry-run 顯示的是整欄上限)。只有 `sql/*.sqlx`
+   (dataform incremental)可以碰。`src/repo/bigquery.py:assert_no_raw_table`
    對每句 SQL 防呆,`tests/test_api.py` 另有靜態掃描。
+   **唯一受控例外**:5.4 完整 cf 查詢 — cf_raw 不落中繼表(單筆 138KB,全量落表
+   日成本數十 GB),改以 `build_cf_live_query` 對 view 單筆回查(`event_id` 等值 +
+   分區窗 + LIMIT 1,單次 ~0.14MB);形狀由 `_assert_cf_probe` 強制,測試把關。
 2. **`event_date` 分區條件必填**:API 層缺 `date` 回 400 且查詢不得送出。
    BigQuery `require_partition_filter` 會穿透 view,不能靠 BQ 擋。
 3. **PII**:`member_uuid` / `user_id` / ip 不進 URL query string(member_uuid

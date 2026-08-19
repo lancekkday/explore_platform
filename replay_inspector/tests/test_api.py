@@ -213,7 +213,8 @@ def test_no_source_file_references_raw_table():
             # 拿掉 guard 自己的 pattern 定義與註解列
             for line in text.splitlines():
                 stripped = line.strip()
-                if stripped.startswith("#") or "_RAW_TABLE_PATTERN" in line or "cost guard" in line:
+                if (stripped.startswith("#") or "_RAW_TABLE_PATTERN" in line
+                        or "cost guard" in line or "cost-guard-exempt" in line):
                     continue
                 if ("ar-stream_search_record" in line or "ar_stream_search_record" in line
                         or "stream_search_record" in line):
@@ -259,6 +260,32 @@ def test_compare_respects_cache_hit_filter(client, repo):
     # B 側 (cache 事件被濾掉) 全部變 only_a
     assert all(row["rank_b"] is None for row in body["rows"])
     assert all(row["verdict"] == "only_a" for row in body["rows"])
+
+
+def test_cf_live_probe_controlled_shape():
+    """5.4 受控例外:cf_raw 不落表,對原始事件 view 只允許「單筆 + event_id +
+    分區窗」這一種查詢形狀;分區窗前展 1 天 (跨日 cache)。"""
+    from src.repo.bigquery import _assert_cf_probe, build_cf_live_query, local_date_to_utc_range
+    sql, params = build_cf_live_query("recall-001", DEMO_DATE)
+    assert "LIMIT 1" in sql and "event_id = @event_id" in sql
+    assert "event_type IN ('recall', 'recall.cache')" in sql
+    assert params["event_id"] == "recall-001"
+    # 分區窗:比一般查詢窗多往前 1 天 (spec 2.4 跨日 cache)
+    normal_start, _ = local_date_to_utc_range(DEMO_DATE)
+    assert (normal_start - params["p_start"]).days == 1
+    # 形狀強制:少任何一個必要片段就炸
+    with pytest.raises(RuntimeError):
+        _assert_cf_probe("SELECT data FROM `x.y.stream_search_record`")
+    with pytest.raises(RuntimeError):
+        _assert_cf_probe(sql.replace("LIMIT 1", ""))
+
+
+def test_raw_view_still_blocked_for_general_queries():
+    """受控例外不弱化紅線:一般查詢建構器摸到原始事件 view 仍被 guard 擋下。"""
+    from src.repo.bigquery import assert_no_raw_table
+    with pytest.raises(RuntimeError):
+        assert_no_raw_table(
+            "SELECT keyword FROM `kkday-data-dap.dw_analysis_record.stream_search_record`")
 
 
 def test_prods_query_can_lock_session():

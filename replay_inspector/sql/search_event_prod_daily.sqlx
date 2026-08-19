@@ -42,7 +42,12 @@ SELECT
   e.page_start + idx + 1                              AS rank,
   JSON_VALUE(p, '$.prod_mid')                         AS prod_mid,
   JSON_VALUE(p, '$.prod_oid')                         AS prod_oid,
-  JSON_VALUE(p, '$.prod_name')                        AS prod_name,      -- TODO(verify) path (畫面要顯示商品名)
+  -- ✓ RESOLVED 2026-08-19:原表實測 prods 元素只有
+  --   {is_ad, ltr_score, prod_mid, prod_oid, relevance_status_code}
+  --   (recall 側另有 ip_ids — 品牌 IP id 陣列,佐證 §9.1;暫未落表)。
+  --   payload 無商品名 → 落 NULL,前端 fallback 以 prod_mid 當連結文字;
+  --   要顯示名稱需 join 商品 dim 表或請 RD 加埋點 (後續票)
+  CAST(NULL AS STRING)                                AS prod_name,
   SAFE_CAST(JSON_VALUE(p, '$.is_ad') AS BOOL)         AS is_ad,          -- TODO(verify) path
   -- 原始為 float32:落表保留 FLOAT64,同分帶判讀在 API 層以 float32 ULP 處理
   SAFE_CAST(JSON_VALUE(p, '$.ltr_score') AS FLOAT64)  AS ltr_score,

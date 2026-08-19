@@ -76,9 +76,15 @@ recall AS (
     -- ⚠ NULLIF(..., 'null') 必要:path 不存在時 TO_JSON_STRING(JSON_QUERY(...))
     --   回「字串 'null'」而非 SQL NULL — 不清掉的話下面的 uf_absent /
     --   ltr_features_recovered 旗標永遠不會為 true
-    -- ✓ RESOLVED 2026-08-19:原表實測 (40 筆抽樣) — recall/recall.cache 的 uf/cf
-    --   為「單層」$.uf / $.cf (uf_single=100%, uf_double=0%);v1-spec §2.5 正確,
-    --   Kim 8/16 範例 SQL 的 $.data.* 雙層寫法不符實際 payload
+    -- ✓ RESOLVED 2026-08-19:本檔的源 dw_analysis_record.stream_search_record
+    --   實測 (40 筆抽樣) — recall 的 uf/cf 為「單層」$.uf / $.cf
+    --   (uf_single=100%, uf_double=0%)。
+    -- ⚠ 換源必改 path:Kim 8/13 的範例 SQL 對 dl_base.ar-stream_search_record
+    --   用的是雙層 $.data.uf / $.data.cf 且單日查詢量僅 125MB (Duncan 實測) —
+    --   推測 dl_base 為原生 JSON 型別 (per-path 計費) 且多包一層 data;
+    --   dw 這份是攤平的 STRING 副本 (無剪枝,單日 ~183GB)。若資料團隊決定
+    --   以 dl_base 為源 (成本可省 3 個數量級),本檔所有 $.xxx 需改 $.data.xxx,
+    --   並請以 dl_base 實際 payload 重驗一次。
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.uf.intent')), 'null')  AS uf_intent,
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.uf.profile')), 'null') AS uf_profile,
     JSON_VALUE(data, '$.uf.profile_version')         AS uf_profile_version,

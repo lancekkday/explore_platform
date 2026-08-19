@@ -1,11 +1,12 @@
 """Streamlit 前端 — 依 spec/ui-spec.md(計量學視覺系統)。
 
-兩種模式(由條件自動切換):
-  對照模式   — 只填 keyword:自動偵測 treatment/control 兩組,A/B 排序對照。
-  單人回放   — 進階條件填了 kkud / member_uuid / session_id:使用者在 AB test
-               只會歸屬一個組別,沒有對照可言 — 呈現「這個人這次搜尋實際看到
-               什麼」(召回/排序回放),事件 metadata (exp/lang/locale/cf) 是
-               這個模式的一級資訊。
+兩種模式(radio 顯式切換,預設單人回放):
+  單人回放   — PM 主用例:某個使用者這次搜尋實際看到什麼(召回/排序回放)。
+               使用者在 AB test 只會歸屬一個組別,沒有 A/B 對照;
+               kkud / member_uuid / session_id 用來縮小事件範圍。
+               事件 metadata (exp / lang·locale / cf) 是一級資訊,逐列顯示。
+  兩組對照   — QA/RD 用例:自動偵測 treatment/control 兩組,A/B 排序對照;
+               事件 metadata 收在身分摘要列。
 
 核心命題:讓人分辨訊號與雜訊 — 顏色只給值得查的事(only_a/b、品質旗標、
 強度警示),不可判讀的東西在視覺上主動退場(ui-spec §1.1)。
@@ -200,6 +201,7 @@ def _score_html(in_scope, sstr, plen) -> str:
 
 if "params" not in st.session_state:
     st.session_state.params = {
+        "mode": "單人回放",   # PM 主用例:查某使用者在線上實際看到的召回結果
         "date": "2026-08-13", "keyword": "福岡", "lang": "", "locale": "",
         "currency": "",
         "kkud": "", "member_uuid": "", "session_id": "", "cache_hit": "(不限)",
@@ -234,11 +236,21 @@ with st.expander("條件", expanded=False):
     P["cache_hit"] = a4.selectbox("cache_hit", ["(不限)", "true", "false"],
                                   index=["(不限)", "true", "false"].index(P["cache_hit"]))
 
-run = st.button("查詢", type="primary")
+mcol, bcol = st.columns([3, 1])
+with mcol:
+    P["mode"] = st.radio(
+        "模式", ["單人回放", "兩組對照"], horizontal=True,
+        index=["單人回放", "兩組對照"].index(P.get("mode", "單人回放")),
+        help="單人回放:某個使用者這次搜尋實際看到什麼 (kkud/member_uuid 可縮小範圍,"
+             "使用者只屬一組,無 A/B)。兩組對照:自動偵測 treatment/control 比排序差異。",
+        label_visibility="collapsed",
+    )
+with bcol:
+    run = st.button("查詢", type="primary", use_container_width=True)
 if not run and "ran" not in st.session_state:
     st.markdown("<div class='ri empty-state'>設定條件後按「查詢」開始。"
-                "日期與 keyword 為必填 (*)。填入 kkud / member_uuid / session_id "
-                "會切到「單人回放」— 查某個使用者在線上實際看到的召回結果。</div>",
+                "日期與 keyword 為必填 (*)。預設「單人回放」— 查使用者在線上實際"
+                "看到的召回結果;切「兩組對照」看 treatment vs control 排序差異。</div>",
                 unsafe_allow_html=True)
     st.stop()
 st.session_state["ran"] = True
@@ -251,8 +263,9 @@ if not P["keyword"]:
     st.markdown("<div class='ri empty-state'>keyword 為必填。</div>", unsafe_allow_html=True)
     st.stop()
 
-# 單人回放模式:使用者在 AB test 只會歸屬一個組別 → 沒有 A/B 對照
-user_mode = bool(P["kkud"] or P["member_uuid"] or P["session_id"])
+# 單人回放模式:使用者在 AB test 只會歸屬一個組別 → 沒有 A/B 對照。
+# 模式由 radio 顯式選擇 (預設單人回放);kkud/member_uuid/session_id 只是縮小範圍
+user_mode = P["mode"] == "單人回放"
 
 resp = requests.post(f"{API_BASE}/api/events/search", json={
     "date": P["date"],
@@ -395,13 +408,13 @@ with left:
             grouped = band is not None and band_sizes.get(band, 0) >= 2
             if not crossed_rerank and p["rank"] > RERANK_BOUNDARY:
                 crossed_rerank = True
-                body.append("<tr class='boundary rerank'><td colspan='6'><div class='line'>"
+                body.append("<tr class='boundary rerank'><td colspan='7'><div class='line'>"
                             "精排邊界 · 第 101 名之後無 ltr_score,個性化不生效</div></td></tr>")
             if band is not None and prev_band is not None and band != prev_band:
                 g = band_gap(prev_score, p.get("ltr_score"))
                 if g and g["ulp"] is not None:
                     body.append(
-                        f"<tr class='boundary'><td colspan='6'><div class='line'>"
+                        f"<tr class='boundary'><td colspan='7'><div class='line'>"
                         f"帶邊界 · Δ{g['gap']:.1e} ≈ {g['ulp']:.0f} ULP</div></td></tr>")
             cls = ["hoverable"]
             if grouped:
@@ -419,7 +432,8 @@ with left:
                 f"<td class='mid'>{_prod_cell(p['prod_mid'], p.get('prod_name'), p.get('is_ad'))}</td>"
                 f"<td class='score num'>{_score_html(p.get('in_rerank_scope'), sstr, plen)}</td>"
                 f"<td class='lamps'>{_lamps(p.get('relevance'), p.get('relevance_status_code') or '')}</td>"
-                f"<td></td></tr>"
+                f"<td class='meta'>{_esc(detail.get('lang') or '?')}·{_esc(detail.get('locale') or '?')}</td>"
+                f"<td class='meta'>{_esc(cf_line)}</td></tr>"
             )
             prev_band = band
             prev_score = p.get("ltr_score") or prev_score
@@ -428,7 +442,8 @@ with left:
             "<div class='rank-wrap'><table class='rank ri'><thead><tr>"
             "<th></th><th scope='col'>名次</th><th scope='col'>商品</th>"
             "<th scope='col' style='text-align:right'>分數</th>"
-            "<th scope='col'>相關性</th><th></th>"
+            "<th scope='col'>相關性</th>"
+            "<th scope='col'>LANG·LOCALE</th><th scope='col'>CONTEXT FEATURE</th>"
             "</tr></thead><tbody>" + "".join(body) + "</tbody></table></div>",
             unsafe_allow_html=True,
         )

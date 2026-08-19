@@ -14,31 +14,37 @@ from .relevance import RELEVANCE_DIMS
 _CIRCLED = "①②③④⑤⑥"
 
 
+def _diff_suffix(diff_dims: list[str] | None) -> str:
+    idx = [RELEVANCE_DIMS.index(d) for d in (diff_dims or []) if d in RELEVANCE_DIMS]
+    if not idx:
+        return ""
+    return " · " + "".join(_CIRCLED[i] for i in sorted(idx)) + " 差異"
+
+
 def verdict_text(verdict: str, rank_a: Optional[int], rank_b: Optional[int],
                  diff_dims: list[str] | None) -> str:
     """ui-spec §6.3 判讀欄文字。
 
+    - 差異位後綴 (` · ④ 差異`) 的觸發條件只有一個:兩側皆有六碼且碼不同,
+      因此只出現在 real_move 與 tie_unresolvable。tie 也接是刻意的 —
+      分數同帶排序不可判讀,但六碼不同代表相關性維度確實不一樣,是唯一
+      「可忽略排序、但不該忽略該列」的情況。
+      (修正註:初版把差異位接在 only_* 上 — 接錯狀態,已修正。)
+    - only_* 文案帶「前 10」限定詞:判定是在 top-10 視窗內做的,不是完整
+      結果集 — 查不到不等於不存在 (可能排在第 340 名)。**不接**差異位,
+      對側沒有六碼,任何補法都是編造 (spec §6.3 / §10 反模式)。
     - real_move 帶幅度:`跨帶 ↓3` (B 名次比 A 大 = 往後掉 = ↓)
-    - only_* 接六碼中實際不同的位置編號 (①–⑥)。
-      註:spec 範例把差異編號放在 only_* 列,但 only_* 的對側沒有六碼可比
-      (商品只出現在一邊) — diff_dims 只有在兩側都有碼時才算得出來,
-      所以 only_* 實務上顯示純「僅 A」;此語意已與 spec §6.3 的
-      「若兩邊六碼相同則只顯示 僅 A」一致化,待與 spec 作者對齊。
-    - tie_unresolvable → 同帶內位移;identical → `—` (不顯示文字,視覺退場)
+    - identical → `—` (不顯示文字,視覺退場)
     """
     if verdict == "identical":
         return "—"
     if verdict == "tie_unresolvable":
-        return "同帶內位移"
+        return "同帶內位移" + _diff_suffix(diff_dims)
     if verdict == "real_move":
         delta = (rank_b or 0) - (rank_a or 0)
         arrow = "↓" if delta > 0 else "↑"
-        return f"跨帶 {arrow}{abs(delta)}"
-    label = "僅 A" if verdict == "only_a" else "僅 B"
-    idx = [RELEVANCE_DIMS.index(d) for d in (diff_dims or []) if d in RELEVANCE_DIMS]
-    if idx:
-        label += " · " + "".join(_CIRCLED[i] for i in sorted(idx)) + " 差異"
-    return label
+        return f"跨帶 {arrow}{abs(delta)}" + _diff_suffix(diff_dims)
+    return "僅 A 前 10" if verdict == "only_a" else "僅 B 前 10"
 
 
 def lamp_level(value: Optional[int]) -> Optional[int]:

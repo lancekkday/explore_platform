@@ -46,9 +46,15 @@ _CODES = {
     "155520": "000000", "162238": "000220", "144906": "000200",
     "188751": "000000", "907001": "000020", "907002": "000200",
 }
+# control 側六碼差異 (ui-spec §6.3 差異位後綴的 demo 素材):
+# 131075 是同分帶互換對,A 側 '000200' vs B 側 '000000' → 第 4 位 (ip) 不同,
+# 應顯示「同帶內位移 · ④ 差異」— 唯一「可忽略排序、不該忽略該列」的情況
+_CODES_B_OVERRIDE = {"131075": "000000"}
 
 
-def _prods(mids: list[str], scores: list[float], session_id: str) -> list[dict]:
+def _prods(mids: list[str], scores: list[float], session_id: str,
+           code_override: dict[str, str] | None = None) -> list[dict]:
+    codes = {**_CODES, **(code_override or {})}
     out = []
     for i, (mid, score) in enumerate(zip(mids, scores)):
         rank = i + 1
@@ -59,7 +65,7 @@ def _prods(mids: list[str], scores: list[float], session_id: str) -> list[dict]:
             "prod_oid": mid,
             "is_ad": (rank == 3),
             "ltr_score": score if rank <= 100 else None,
-            "relevance_status_code": _CODES.get(mid, "000000"),
+            "relevance_status_code": codes.get(mid, "000000"),
             "in_rerank_scope": rank <= 100,
         })
     return out
@@ -157,7 +163,8 @@ _CF_RAW = {
 
 _PRODS = {
     ("福岡", "exp_a"): _prods(_A_MIDS, _A_SCORES, "sess-fukuoka-treatment"),
-    ("福岡", "exp_b"): _prods(_B_MIDS, _B_SCORES, "sess-fukuoka-control"),
+    ("福岡", "exp_b"): _prods(_B_MIDS, _B_SCORES, "sess-fukuoka-control",
+                              code_override=_CODES_B_OVERRIDE),
 }
 
 class FakeEventRepo:

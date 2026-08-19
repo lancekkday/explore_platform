@@ -7,14 +7,25 @@ def test_verdict_text_states():
     assert verdict_text("tie_unresolvable", 1, 2, []) == "同帶內位移"
     assert verdict_text("real_move", 1, 4, []) == "跨帶 ↓3"
     assert verdict_text("real_move", 5, 2, []) == "跨帶 ↑3"
-    assert verdict_text("only_a", 6, None, []) == "僅 A"
-    assert verdict_text("only_b", None, 9, []) == "僅 B"
+    # §6.3:only_* 文案帶「前 10」限定詞 — 判定在 top-10 視窗內,
+    # 寫「僅 A」會讓人誤判成召回端有差
+    assert verdict_text("only_a", 6, None, []) == "僅 A 前 10"
+    assert verdict_text("only_b", None, 9, []) == "僅 B 前 10"
 
 
-def test_verdict_text_only_with_diff_dims():
-    # ip 是第 4 位 → ④
-    assert verdict_text("only_a", 6, None, ["ip"]) == "僅 A · ④ 差異"
-    assert verdict_text("only_b", None, 9, ["location", "category"]) == "僅 B · ②③ 差異"
+def test_verdict_text_diff_suffix_on_real_move_and_tie():
+    """§6.3 差異位後綴:兩側皆有六碼且碼不同 → 只出現在 real_move 與
+    tie_unresolvable。ip 是第 4 位 → ④。"""
+    assert verdict_text("real_move", 1, 4, ["ip"]) == "跨帶 ↓3 · ④ 差異"
+    assert verdict_text("tie_unresolvable", 1, 2, ["location", "category"]) \
+        == "同帶內位移 · ②③ 差異"
+
+
+def test_verdict_text_only_never_gets_diff_suffix():
+    """§10 反模式:only_* 列補出差異位 = 編造 — 對側沒有六碼,即使呼叫端
+    誤傳 diff_dims 也不得顯示 (驗收 1)。"""
+    assert verdict_text("only_a", 6, None, ["ip"]) == "僅 A 前 10"
+    assert verdict_text("only_b", None, 9, ["theme"]) == "僅 B 前 10"
 
 
 def test_lamp_level_mapping():

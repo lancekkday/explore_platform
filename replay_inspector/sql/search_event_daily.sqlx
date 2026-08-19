@@ -49,14 +49,8 @@ WITH content AS (
     SAFE_CAST(JSON_VALUE(data, '$.pagination.count') AS INT64)       AS page_count,
     SAFE_CAST(JSON_VALUE(data, '$.pagination.total_count') AS INT64) AS total_count,
     ARRAY_LENGTH(JSON_QUERY_ARRAY(data, '$.prods'))                  AS prod_cnt,   -- TODO(verify) path
-    -- cf 拆欄:cf_raw 單筆 ~138KB,只有 5.4 端點會 SELECT 它
-    JSON_VALUE(data, '$.cf.platform')          AS cf_platform,
-    SAFE_CAST(JSON_VALUE(data, '$.cf.hour') AS INT64)    AS cf_hour,
-    SAFE_CAST(JSON_VALUE(data, '$.cf.weekday') AS INT64) AS cf_weekday,
-    JSON_VALUE(data, '$.cf.query.final')       AS cf_query_final,
-    ARRAY(SELECT JSON_VALUE(t) FROM UNNEST(
-      JSON_QUERY_ARRAY(data, '$.cf.query.tokens')) t)    AS cf_query_tokens,
-    NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.cf')), 'null')           AS cf_raw,
+    -- ✗ 2026-08-19 實測修正:content 事件「沒有」cf (cf_single=0/11) —
+    --   cf 一律來自 recall 側 (見下方 recall CTE),在 content 抽會全 NULL
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.ltr_features')), 'null') AS ltr_features
   FROM ${ref("dw_analysis_record", "stream_search_record")}
   WHERE event_type IN ('content', 'content.cache')
@@ -79,16 +73,27 @@ recall AS (
     -- ✓ RESOLVED 2026-08-19:本檔的源 dw_analysis_record.stream_search_record
     --   實測 (40 筆抽樣) — recall 的 uf/cf 為「單層」$.uf / $.cf
     --   (uf_single=100%, uf_double=0%)。
-    -- ⚠ 換源必改 path:Kim 8/13 的範例 SQL 對 dl_base.ar-stream_search_record
-    --   用的是雙層 $.data.uf / $.data.cf 且單日查詢量僅 125MB (Duncan 實測) —
-    --   推測 dl_base 為原生 JSON 型別 (per-path 計費) 且多包一層 data;
-    --   dw 這份是攤平的 STRING 副本 (無剪枝,單日 ~183GB)。若資料團隊決定
-    --   以 dl_base 為源 (成本可省 3 個數量級),本檔所有 $.xxx 需改 $.data.xxx,
-    --   並請以 dl_base 實際 payload 重驗一次。
+    -- ✓ 成本定案 2026-08-19:dw_analysis_record.stream_search_record 是 VIEW,
+    --   data 欄為「原生 JSON 型別」→ per-path 計費有效 (實測 1hr 窗:
+    --   dry-run 估 9.17GB、實際計費 12.6MB,728 倍差)。直接以本 view 為源即可,
+    --   不需 staging、不需換源 dl_base;dry-run 數字僅為上限,成本以實跑為準。
+    --   (dl_base 本尊多包一層 $.data.*,Kim 範例 SQL 是對 dl_base 寫的 — 若未來
+    --   換源記得改 path。)
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.uf.intent')), 'null')  AS uf_intent,
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.uf.profile')), 'null') AS uf_profile,
     JSON_VALUE(data, '$.uf.profile_version')         AS uf_profile_version,
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.uf.lbs')), 'null')     AS uf_lbs,   -- 新增:原本未落表
+    -- cf 拆欄 (實測:cf 只在 recall 側)。⚠ cf_raw 單筆 ~138KB — data 欄為
+    -- JSON 型別 per-path 計費,落 cf_raw 全量的日成本 ≈ 每日 recall 筆數 × 138KB,
+    -- 可能達數十 GB/日;是否落表待與資料團隊定 (替代案:中繼表不落 cf_raw,
+    -- 5.4 端點以 event_id + 分區日即時單筆回查 view,每次僅 ~0.14MB)
+    JSON_VALUE(data, '$.cf.platform')          AS cf_platform,
+    SAFE_CAST(JSON_VALUE(data, '$.cf.hour') AS INT64)    AS cf_hour,
+    SAFE_CAST(JSON_VALUE(data, '$.cf.weekday') AS INT64) AS cf_weekday,
+    JSON_VALUE(data, '$.cf.query.final')       AS cf_query_final,
+    ARRAY(SELECT JSON_VALUE(t) FROM UNNEST(
+      JSON_QUERY_ARRAY(data, '$.cf.query.tokens')) t)    AS cf_query_tokens,
+    NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.cf')), 'null')           AS cf_raw,
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.ltr_features')), 'null') AS recall_ltr_features
   FROM ${ref("dw_analysis_record", "stream_search_record")}
   WHERE event_type IN ('recall', 'recall.cache')

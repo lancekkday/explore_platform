@@ -483,3 +483,14 @@ search-replay-inspector/
 **Code review 補強（同日）**：缺 `prod_mid` 的列改用 `.get()` 避免 `KeyError` 500；「查詢失敗」（timeout/5xx/429 重試用盡）跟「確認查無」（全部 locale 都確定 404）分開快取 —— 前者用短 TTL（`failure_ttl_sec`，預設 5 分鐘），後者才用長 TTL（24h），避免一次線上暫時性故障被誤記成「沒名字」記滿一天；single-flight waiter 的逾時值也改成算入 fallback 鏈的最差總時長，避免 owner 還在跑 fallback 時等待中的 caller 提早拿到 `None`。
 
 **待資料團隊確認的長期解法**（若這個 scrape 方案的延遲/穩定性不夠用時考慮）：是否存在通用商品維度表（`dim_product`/`dm_product` 等）可 join，或建議在 `stream_search_record_flat` 產出時順手 join 商品名稱進 `prods` JSON。已知的窄覆蓋替代方案（`dm_search_keyword.kkday_search_keyword_{precise,broad}`）只覆蓋巡檢關鍵字的 top1/2/top10，蓋不到任意 `prod_mid`，未採用。
+
+### 9.7 `CONTEXT FEATURE`（`cf`）是否漏了「召回管道/訊號」
+
+畫面上 `CONTEXT FEATURE` 欄目前顯示 `platform·hour·weekday`（如 `web·7時·週三`），資料來自原始事件 `data.cf.{platform,hour,weekday,query.final,query.tokens}`（見 `sql/search_event_daily.sqlx`），跟 spec 原始設計（`spec/ui-spec.md` §3 草圖 `cf web·15時·週四`）一致，不是實作走樣。
+
+**待確認**：使用者記得當初跟資料 RD 溝通時，這個商品記錄應該要能看出「根據哪些搜索管道/訊號被召回」，但目前 `cf` 欄位語意是「請求發生當下的環境情境」，不是「商品透過哪個召回管道命中」。全 repo（spec + sql + code）搜尋不到 `recall_channel`/`recall_source`/召回策略這類欄位存在過的痕跡；跟召回較相關的 `uf_intent`（用戶意圖）、`uf_profile`（用戶輪廓）也是個性化訊號，不是召回管道標籤。
+
+需要跟 RD 確認：
+1. 系統本來就沒有記錄「召回管道/訊號」這個欄位，還是有但目前的 `stream_search_record_flat`/`search_event_daily.sqlx` 沒有 join 進來？
+2. 如果有，欄位叫什麼、掛在哪個原始事件底下（recall？recall.cache？其他？）？
+3. 如果沒有，使用者記憶中的說法是否其實是在講「`cf`/`uf` 只掛在 recall 事件上，需要 join 才拿得到」這個技術細節，被口頭轉述成「這欄位在講召回」而混淆了？

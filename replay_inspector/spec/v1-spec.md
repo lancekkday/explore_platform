@@ -473,3 +473,11 @@ search-replay-inspector/
 - 強度 0% 且 `applied = false` → 只是沒觸發
 
 這一個欄位可砍掉約一半的誤報，是最值得爭取的項目。
+
+### 9.6 商品名稱（`prod_name`）— 已用 og:title 補值（2026-08-26）
+
+`stream_search_record_flat.prods` payload 本身沒有商品名稱欄位。**已實作短期解法**：`src/repo/product_name_lookup.py`（`ProductNameLookup`，TTL cache 24h + single-flight，仿 `backend/stage_product_check.py`）在 API 層（`event_detail` / `compare`）補上缺值的 `prod_name`，抓 `www.kkday.com` 商品頁公開的 `og:title` meta tag，不需登入。
+
+**locale fallback**（實測發現)：zh-tw 404 常常不是「商品下架」，是「這個商品沒有 zh-tw 語言版本」（案例：`119751`/`164116` 在 zh-tw/zh-cn/zh-hk 皆 404，但 en-us/ja/ko 都有內容）。查不到 zh-tw 時依序試 `en-us → ja-jp → ko-kr → zh-cn → zh-hk`，拿到第一個成功的名稱即可（可能非中文，但比裸 mid 有用）；全部 locale 都 404 才真正視為下架/不存在。
+
+**待資料團隊確認的長期解法**（若這個 scrape 方案的延遲/穩定性不夠用時考慮）：是否存在通用商品維度表（`dim_product`/`dm_product` 等）可 join，或建議在 `stream_search_record_flat` 產出時順手 join 商品名稱進 `prods` JSON。已知的窄覆蓋替代方案（`dm_search_keyword.kkday_search_keyword_{precise,broad}`）只覆蓋巡檢關鍵字的 top1/2/top10，蓋不到任意 `prod_mid`，未採用。

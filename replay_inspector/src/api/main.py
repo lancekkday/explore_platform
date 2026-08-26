@@ -28,6 +28,7 @@ from src.repo.bigquery import (
     local_date_to_utc_range,
     mask_ip_to_24,
 )
+from src.repo.product_name_lookup import ProductNameLookup, product_name_lookup
 
 TZ_TAIPEI = timezone(timedelta(hours=8))
 
@@ -69,6 +70,23 @@ def _listed(row: dict) -> dict:
     ts = out.pop("event_date", None)
     out["event_date_local"] = _to_local_iso(ts)
     return out
+
+
+def get_product_name_lookup() -> ProductNameLookup:
+    return product_name_lookup
+
+
+def _enrich_prod_names(prods: list[dict], lookup: ProductNameLookup) -> list[dict]:
+    """spec §9.6:flat 表 payload 沒有商品名稱 — 缺的用 og:title 公開頁面補,
+    已有名稱(如 demo fixture)的不重查,避免不必要的 HTTP 呼叫。"""
+    missing_mids = [p["prod_mid"] for p in prods if not p.get("prod_name") and p.get("prod_mid")]
+    if not missing_mids:
+        return prods
+    names = lookup.lookup_many(missing_mids)
+    return [
+        {**p, "prod_name": names.get(p["prod_mid"])} if not p.get("prod_name") else p
+        for p in prods
+    ]
 
 
 # ── 5.2 GET /api/events(非 PII 過濾)──────────────────────────────────────────
@@ -150,6 +168,7 @@ def event_detail(
     exp_version: Optional[str] = None,
     locale: Optional[str] = None,
     repo: EventRepo = Depends(get_repo),
+    name_lookup: ProductNameLookup = Depends(get_product_name_lookup),
 ):
     _reject_pii_in_query_string(request)
     date = _require_date(date)
@@ -161,6 +180,7 @@ def event_detail(
     # 鎖定本事件的商品列 — 同天同 keyword+exp 可能有多個 session (spec 3.2 FK)
     prods = repo.get_prods(date, ev["keyword"], ev.get("locale"), ev["exp_version"],
                            session_id=session_id)
+    prods = _enrich_prod_names(prods, name_lookup)
     scores = [p.get("ltr_score") for p in prods]
     bands = assign_tie_bands(scores)
     prod_rows = [
@@ -264,6 +284,7 @@ def compare(
     exp_b: Optional[str] = None,   # control
     cache_hit: Optional[bool] = None,
     repo: EventRepo = Depends(get_repo),
+    name_lookup: ProductNameLookup = Depends(get_product_name_lookup),
 ):
     _reject_pii_in_query_string(request)
     date = _require_date(date)
@@ -307,6 +328,7 @@ def compare(
             return [], None
         prods = repo.get_prods(date, keyword, locale, exp,
                                session_id=ev["session_id"])
+        prods = _enrich_prod_names(prods, name_lookup)
         detail = repo.get_event(ev["session_id"], date, keyword=keyword,
                                 exp_version=exp, locale=ev.get("locale"))
         # 表格內每列要能呈現來源側的 exp / lang / locale / cf (事件層級 metadata)

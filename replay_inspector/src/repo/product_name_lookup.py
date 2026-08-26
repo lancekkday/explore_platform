@@ -11,6 +11,13 @@ single-flight,讓 FastAPI 多個 request 共用,同一個 mid 不會被同時查
     from src.repo.product_name_lookup import product_name_lookup
     product_name_lookup.lookup_many(["131075", "205881"])
     # -> {"131075": "福岡塔門票|即買即用電子票", "205881": "..."}
+
+Code review 補強 (2026-08-26):
+- 「查無此商品」(全部 locale 都確定 404 / 無 og:title) 跟「查詢失敗」
+  (timeout / 5xx / 429 重試用盡) 分開快取,失敗用短 TTL (預設 5 分鐘),
+  避免一次線上暫時性故障被記成「沒名字」記滿 24 小時。
+- single-flight waiter 逾時值算入 fallback locale 鏈的最差總時長,避免
+  owner 還在跑 fallback 時,等待中的 caller 提早拿到 None。
 """
 from __future__ import annotations
 
@@ -59,16 +66,20 @@ class ProductNameLookup:
     def __init__(
         self,
         ttl_sec: int = 86400,
+        failure_ttl_sec: int = 300,
         timeout: float = 6.0,
         retries: int = 1,
         enabled: bool = True,
         user_agent: str = _DEFAULT_UA,
     ):
         self.ttl_sec = ttl_sec
+        self.failure_ttl_sec = failure_ttl_sec
         self.timeout = timeout
         self.retries = retries
         self.enabled = enabled
-        self._cache: dict[str, tuple[Optional[str], float]] = {}
+        # value: (name_or_None, cached_at, confirmed) — confirmed=False 代表
+        #「查詢失敗,不代表商品真的沒有這個名稱」,只能用短 TTL
+        self._cache: dict[str, tuple[Optional[str], float, bool]] = {}
         # single-flight:同個 mid 同時被多個 request 查時,只有 owner 實際發
         # HTTP,其他人等 owner 寫完 cache 再讀 (避免多個回放 session 同時展開
         # 同一批熱門商品時重複打 kkday.com)
@@ -80,47 +91,62 @@ class ProductNameLookup:
             "Accept-Language": "zh-TW,zh;q=0.9",
         })
 
-    def _fetch(self, url: str, retries: int, timeout: float) -> Optional[str]:
+    def _fetch(self, url: str, retries: int, timeout: float) -> tuple[Optional[str], bool]:
+        """回傳 (name, confirmed)。confirmed=True 代表拿到明確答案(有名字 /
+        確定 404 / 200 但無 og:title),confirmed=False 代表查詢失敗,不能
+        代表商品真的沒有這個名稱(重試用盡的 5xx/429/連線錯誤/非預期狀態碼)。"""
         for attempt in range(retries + 1):
             try:
                 resp = self._session.get(url, timeout=timeout, allow_redirects=True)
                 if resp.status_code == 404:
-                    return None
+                    return None, True
                 if resp.status_code >= 500 or resp.status_code == 429:
                     time.sleep(0.4 * (attempt + 1))
                     continue
                 if resp.status_code != 200:
-                    return None
-                return _extract_og_title(resp.text)
+                    return None, False
+                return _extract_og_title(resp.text), True
             except requests.RequestException:
                 time.sleep(0.4 * (attempt + 1))
-        return None
+        return None, False
 
-    def _do_lookup(self, mid: str) -> Optional[str]:
-        name = self._fetch(PRODUCT_URL.format(mid=mid), self.retries, self.timeout)
+    def _do_lookup(self, mid: str) -> tuple[Optional[str], bool]:
+        name, confirmed = self._fetch(PRODUCT_URL.format(mid=mid), self.retries, self.timeout)
         if name:
-            return name
+            return name, True
+        any_unconfirmed = not confirmed
         # zh-tw 沒有 → 依序試其他 locale (不重試,timeout 縮短,壓住全下架商品的最差延遲)
         for locale in FALLBACK_LOCALES:
-            name = self._fetch(
+            name, confirmed = self._fetch(
                 FALLBACK_LOCALE_URL.format(locale=locale, mid=mid),
                 retries=0, timeout=min(self.timeout, 4.0),
             )
             if name:
-                return name
-        return None
+                return name, True
+            if not confirmed:
+                any_unconfirmed = True
+        # 全部 locale 都試過:只有沒有任何一輪查詢失敗,才算「確認查無此商品」
+        return None, not any_unconfirmed
 
     def _own_fetch(self, mid: str) -> Optional[str]:
         name: Optional[str] = None
+        confirmed = False
         try:
-            name = self._do_lookup(mid)
+            name, confirmed = self._do_lookup(mid)
         finally:
             with self._lock:
-                self._cache[mid] = (name, time.time())
+                self._cache[mid] = (name, time.time(), confirmed)
                 event = self._inflight.pop(mid, None)
             if event is not None:
                 event.set()
         return name
+
+    def _waiter_timeout(self) -> float:
+        # 跟 owner 實際最差耗時對齊:zh-tw 的 retries+1 次 + 重試間隔,
+        # 加上全部 fallback locale (各 1 次,不重試) 的最差時長。
+        primary_worst = self.timeout * (self.retries + 1) + 0.4 * self.retries
+        fallback_worst = len(FALLBACK_LOCALES) * min(self.timeout, 4.0)
+        return primary_worst + fallback_worst + 5.0
 
     def lookup_many(self, mids: list[str], workers: int = 8) -> dict[str, Optional[str]]:
         clean_mids = [str(m) for m in dict.fromkeys(mids) if m is not None]
@@ -137,9 +163,12 @@ class ProductNameLookup:
         with self._lock:
             for m in clean_mids:
                 cached = self._cache.get(m)
-                if cached and now - cached[1] < self.ttl_sec:
-                    results[m] = cached[0]
-                    continue
+                if cached:
+                    name, cached_at, confirmed = cached
+                    ttl = self.ttl_sec if confirmed else self.failure_ttl_sec
+                    if now - cached_at < ttl:
+                        results[m] = name
+                        continue
                 event = self._inflight.get(m)
                 if event is not None:
                     to_wait.append((m, event))
@@ -156,7 +185,7 @@ class ProductNameLookup:
                         results[mid] = name
 
         if to_wait:
-            bounded_timeout = self.timeout * (self.retries + 1) + 5.0
+            bounded_timeout = self._waiter_timeout()
             for m, ev in to_wait:
                 ev.wait(timeout=bounded_timeout)
                 with self._lock:
@@ -176,6 +205,7 @@ class ProductNameLookup:
 def _make_default_lookup() -> ProductNameLookup:
     return ProductNameLookup(
         ttl_sec=int(os.environ.get("PRODUCT_NAME_LOOKUP_TTL_SEC", "86400")),
+        failure_ttl_sec=int(os.environ.get("PRODUCT_NAME_LOOKUP_FAILURE_TTL_SEC", "300")),
         timeout=float(os.environ.get("PRODUCT_NAME_LOOKUP_TIMEOUT", "6")),
         retries=int(os.environ.get("PRODUCT_NAME_LOOKUP_RETRIES", "1")),
         enabled=_env_bool("PRODUCT_NAME_LOOKUP_ENABLED", True),

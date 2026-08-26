@@ -480,4 +480,6 @@ search-replay-inspector/
 
 **locale fallback**（實測發現)：zh-tw 404 常常不是「商品下架」，是「這個商品沒有 zh-tw 語言版本」（案例：`119751`/`164116` 在 zh-tw/zh-cn/zh-hk 皆 404，但 en-us/ja/ko 都有內容）。查不到 zh-tw 時依序試 `en-us → ja-jp → ko-kr → zh-cn → zh-hk`，拿到第一個成功的名稱即可（可能非中文，但比裸 mid 有用）；全部 locale 都 404 才真正視為下架/不存在。
 
+**Code review 補強（同日）**：缺 `prod_mid` 的列改用 `.get()` 避免 `KeyError` 500；「查詢失敗」（timeout/5xx/429 重試用盡）跟「確認查無」（全部 locale 都確定 404）分開快取 —— 前者用短 TTL（`failure_ttl_sec`，預設 5 分鐘），後者才用長 TTL（24h），避免一次線上暫時性故障被誤記成「沒名字」記滿一天；single-flight waiter 的逾時值也改成算入 fallback 鏈的最差總時長，避免 owner 還在跑 fallback 時等待中的 caller 提早拿到 `None`。
+
 **待資料團隊確認的長期解法**（若這個 scrape 方案的延遲/穩定性不夠用時考慮）：是否存在通用商品維度表（`dim_product`/`dm_product` 等）可 join，或建議在 `stream_search_record_flat` 產出時順手 join 商品名稱進 `prods` JSON。已知的窄覆蓋替代方案（`dm_search_keyword.kkday_search_keyword_{precise,broad}`）只覆蓋巡檢關鍵字的 top1/2/top10，蓋不到任意 `prod_mid`，未採用。

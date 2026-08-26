@@ -139,3 +139,57 @@ def test_single_flight_concurrent_calls_hit_http_once():
 
 def test_builds_expected_url():
     assert PRODUCT_URL.format(mid="131075") == "https://www.kkday.com/zh-tw/product/131075"
+
+
+# ── code review 補強:失敗 vs 確認查無,分開 TTL ────────────────────────────
+
+def test_transient_failure_uses_short_ttl_and_is_retried_sooner(monkeypatch):
+    """5xx 重試用盡是「查詢失敗」,不是「確認查無」,不該記滿 24h —
+    只要過了短的 failure_ttl_sec 就該重新查。"""
+    fake_now = {"t": 1000.0}
+    monkeypatch.setattr(time, "time", lambda: fake_now["t"])
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    lookup = ProductNameLookup(
+        enabled=True, ttl_sec=86400, failure_ttl_sec=10, retries=0, timeout=1,
+    )
+    mock_get = MagicMock(return_value=_resp(500, ""))
+    with patch.object(lookup._session, "get", mock_get):
+        lookup.lookup_many(["777777"])
+    after_first = mock_get.call_count
+
+    fake_now["t"] += 5  # 還沒過 failure_ttl_sec → 走 cache
+    with patch.object(lookup._session, "get", mock_get):
+        lookup.lookup_many(["777777"])
+    assert mock_get.call_count == after_first
+
+    fake_now["t"] += 10  # 過了 failure_ttl_sec → 重新查
+    with patch.object(lookup._session, "get", mock_get):
+        lookup.lookup_many(["777777"])
+    assert mock_get.call_count > after_first
+
+
+def test_confirmed_absent_uses_long_ttl_not_failure_ttl(monkeypatch):
+    """全部 locale 都確定 404 (非查詢失敗) 要用長 TTL,過了 failure_ttl_sec
+    也不該重查,否則跟查詢失敗的情境混在一起,失去分開快取的意義。"""
+    fake_now = {"t": 1000.0}
+    monkeypatch.setattr(time, "time", lambda: fake_now["t"])
+    lookup = ProductNameLookup(enabled=True, ttl_sec=86400, failure_ttl_sec=10)
+    mock_get = MagicMock(return_value=_resp(404, ""))
+    with patch.object(lookup._session, "get", mock_get):
+        lookup.lookup_many(["888888"])
+    after_first = mock_get.call_count
+
+    fake_now["t"] += 20  # 遠超過 failure_ttl_sec,但遠低於 ttl_sec
+    with patch.object(lookup._session, "get", mock_get):
+        lookup.lookup_many(["888888"])
+    assert mock_get.call_count == after_first
+
+
+# ── code review 補強:waiter 逾時要算進 fallback 鏈的最差時長 ───────────────
+
+def test_waiter_timeout_accounts_for_full_fallback_chain():
+    lookup = ProductNameLookup(timeout=6.0, retries=1)
+    primary_worst = 6.0 * (1 + 1) + 0.4 * 1
+    fallback_worst = len(FALLBACK_LOCALES) * min(6.0, 4.0)
+    expected = primary_worst + fallback_worst + 5.0
+    assert lookup._waiter_timeout() == pytest.approx(expected)

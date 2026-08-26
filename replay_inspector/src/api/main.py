@@ -79,13 +79,14 @@ def get_product_name_lookup() -> ProductNameLookup:
 def _enrich_prod_names(prods: list[dict], lookup: ProductNameLookup) -> list[dict]:
     """spec §9.6:flat 表 payload 沒有商品名稱 — 缺的用 og:title 公開頁面補,
     已有名稱(如 demo fixture)的不重查,避免不必要的 HTTP 呼叫。"""
-    missing_mids = [p["prod_mid"] for p in prods if not p.get("prod_name") and p.get("prod_mid")]
-    if not missing_mids:
+    needs_name = [not p.get("prod_name") for p in prods]
+    if not any(needs_name):
         return prods
+    missing_mids = [p["prod_mid"] for p, need in zip(prods, needs_name) if need and p.get("prod_mid")]
     names = lookup.lookup_many(missing_mids)
     return [
-        {**p, "prod_name": names.get(p.get("prod_mid"))} if not p.get("prod_name") else p
-        for p in prods
+        {**p, "prod_name": names.get(p.get("prod_mid"))} if need else p
+        for p, need in zip(prods, needs_name)
     ]
 
 

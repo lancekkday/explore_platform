@@ -134,7 +134,7 @@ class ProductNameLookup:
             )
             if name:
                 return self._tag_host(name, host_idx), True
-            any_unconfirmed = not confirmed
+            any_confirmed = confirmed
             # zh-tw 沒有 → 依序試其他 locale (不重試,timeout 縮短,壓住全下架商品的最差延遲)
             for locale in FALLBACK_LOCALES:
                 name, confirmed = self._fetch(
@@ -143,13 +143,14 @@ class ProductNameLookup:
                 )
                 if name:
                     return self._tag_host(name, host_idx), True
-                if not confirmed:
-                    any_unconfirmed = True
-            if not any_unconfirmed:
-                # 這個 host 全部 locale 都「確認」查無 → 已是明確答案,
-                # 不用為了保險再換 host 多掃一輪(乾淨 404 不是網路問題)。
+                any_confirmed = any_confirmed or confirmed
+            if any_confirmed:
+                # 這個 host 至少有一次拿到明確答案(有名字或乾淨 404),代表
+                # host 本身連得通 —— 沒找到名字就是真的沒有,不用為了單一次
+                # 孤立的逾時/5xx 就整輪重打下一個 host(那樣才是浪費呼叫)。
                 return None, True
-            # 這個 host 有查詢失敗(非乾淨 404)→ 換下一個 host,可能是網路擋住了
+            # 這個 host 6 次(zh-tw + 5 fallback locale)全部查詢失敗,一次明確
+            # 答案都沒拿到 → 判定整個 host 連不上,換下一個 host 試。
         return None, False
 
     def _own_fetch(self, mid: str) -> Optional[str]:

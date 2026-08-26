@@ -274,3 +274,26 @@ def test_confirmed_absent_on_prod_skips_stage_host():
 def test_product_hosts_prod_first_then_stage():
     assert PRODUCT_HOSTS[0] == "https://www.kkday.com"
     assert "stage" in PRODUCT_HOSTS[1]
+
+
+def test_single_transient_blip_among_clean_404s_does_not_trigger_stage(monkeypatch):
+    """re-review 抓到的 bug:prod host 6 次嘗試裡只要有 1 次 timeout/5xx,
+    即使其餘 5 次都是乾淨 404(證明 host 明明連得上),舊邏輯仍會整輪重打
+    stage —— 這正是 spec §9.6 第 3 點說的「避免浪費呼叫」要擋掉的情況。
+    只有整個 host 完全連不上(6 次全部失敗)才該換 host。"""
+    lookup = ProductNameLookup(enabled=True, retries=0, timeout=1)
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    stage_calls = {"n": 0}
+
+    def fake_get(url, **kw):
+        if "stage.kkday.com" in url:
+            stage_calls["n"] += 1
+            return _resp(404, "")
+        if "/en-us/" in url:
+            raise requests.ConnectionError("one-off blip")
+        return _resp(404, "")  # zh-tw + 其他 4 個 fallback locale 都乾淨 404
+
+    with patch.object(lookup._session, "get", side_effect=fake_get):
+        result = lookup.lookup_many(["555000"])
+    assert result["555000"] is None
+    assert stage_calls["n"] == 0

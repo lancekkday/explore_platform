@@ -486,6 +486,8 @@ search-replay-inspector/
 
 **Re-review 補強**：`_waiter_timeout()` 公式先前漏算「最後一次重試也要 sleep 才回傳」，改成三角數算式並抽成 `_retry_worst_case()`（primary + fallback + 現在的兩個 host 共用同一條）；兩個新測試原本是假陽性（一個提早 return 沒跑到修的那行、一個直接抄 production 算式驗自己），已改成會真的抓到 bug 的寫法。
 
+**第三輪 review 補強**：host escalation 判斷條件原本是「6 次嘗試(zh-tw+5 fallback locale)裡任一次查詢失敗」就整輪重打 stage，這跟「只在整個 host 真的連不上時才換」的設計意圖不符 —— 混在一堆已證實可連通的乾淨 404 之間的單一次孤立逾時，不代表 host 不可達，卻會浪費一整輪 stage 掃描(正是 spec 本身想避免的「浪費呼叫」)。改成「這個 host 6 次全部都查詢失敗，一次明確答案都沒拿到」才判定 host 不可達並換下一個。
+
 **待資料團隊確認的長期解法**（若這個 scrape 方案的延遲/穩定性不夠用時考慮）：是否存在通用商品維度表（`dim_product`/`dm_product` 等）可 join，或建議在 `stream_search_record_flat` 產出時順手 join 商品名稱進 `prods` JSON。已知的窄覆蓋替代方案（`dm_search_keyword.kkday_search_keyword_{precise,broad}`）只覆蓋巡檢關鍵字的 top1/2/top10，蓋不到任意 `prod_mid`，未採用。
 
 ### 9.7 `CONTEXT FEATURE`（`cf`）是否漏了「召回管道/訊號」

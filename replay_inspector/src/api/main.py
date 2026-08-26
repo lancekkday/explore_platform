@@ -21,6 +21,7 @@ from src.domain.tie_band import assign_tie_bands, dispersion_stats
 from src.repo.bigquery import (
     RERANK_BOUNDARY,
     UF_COVERAGE_BASELINE,
+    ClusterKeyRequired,
     EventRepo,
     MissingPartitionDate,
     get_repo,
@@ -93,13 +94,16 @@ def list_events(
         "exp_version": exp_version, "locale": locale, "lang": lang,
         "currency": currency, "cache_hit": cache_hit, "member_uuid": None,
     }
-    if not any(filters[k] for k in ("keyword", "kkud", "session_id")):
+    if not filters.get("keyword") and not filters.get("kkud"):
         raise HTTPException(
             status_code=400,
-            detail="at least one of keyword / kkud / session_id is required "
-                   "(member_uuid: use POST /api/events/search)",
+            detail="keyword 或 kkud 至少一項必填 (flat 表叢集鍵,缺了會掃全天分區;"
+                   "member_uuid 過濾走 POST /api/events/search 且仍需搭配 keyword/kkud)",
         )
-    return {"rows": [_listed(r) for r in repo.list_events(date, filters)]}
+    try:
+        return {"rows": [_listed(r) for r in repo.list_events(date, filters)]}
+    except ClusterKeyRequired as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ── 5.2' POST /api/events/search(含 member_uuid 的過濾走 body)────────────────
@@ -121,12 +125,16 @@ class EventSearchBody(BaseModel):
 def search_events(body: EventSearchBody, repo: EventRepo = Depends(get_repo)):
     date = _require_date(body.date)
     filters = body.model_dump(exclude={"date"})
-    if not any(filters.get(k) for k in ("keyword", "kkud", "member_uuid", "session_id")):
+    if not filters.get("keyword") and not filters.get("kkud"):
         raise HTTPException(
             status_code=400,
-            detail="at least one of keyword / kkud / member_uuid / session_id is required",
+            detail="keyword 或 kkud 至少一項必填 (flat 表叢集鍵,缺了會掃全天分區);"
+                   "member_uuid / session_id 可作為附加過濾",
         )
-    return {"rows": [_listed(r) for r in repo.list_events(date, filters)]}
+    try:
+        return {"rows": [_listed(r) for r in repo.list_events(date, filters)]}
+    except ClusterKeyRequired as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ── 5.3 GET /api/events/{session_id} 單筆明細 ─────────────────────────────────

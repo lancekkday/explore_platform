@@ -1,3 +1,8 @@
+-- ⚠ SUPERSEDED 2026-08-26:資料團隊已自建 flat 中繼表
+--   `dw_analysis_record.stream_search_record_flat` (每日 D-1,分區 event_date,
+--   叢集 event_type/kkud/query_keyword,content 列預 join uf) — 平台已直接改用它,
+--   本檔不再需要併入 dataform,保留作 schema 對映參考。
+
 config {
   type: "incremental",
   schema: "dw_analysis_record",

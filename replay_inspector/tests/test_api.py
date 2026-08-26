@@ -74,10 +74,15 @@ def test_pii_in_query_string_rejected_on_all_get_endpoints(client, repo):
     assert repo.query_count == 0
 
 
-def test_member_uuid_via_post_body_ok(client):
+def test_member_uuid_via_post_body_needs_cluster_key(client):
+    """member_uuid 只能當附加過濾 — 單獨用會缺叢集鍵 (掃全天分區) → 400;
+    搭配 keyword 即合法。"""
     r = client.post("/api/events/search", json={"date": DEMO_DATE, "member_uuid": "m-123"})
-    assert r.status_code == 200      # 查無資料也回 200 空列表
-    assert r.json()["rows"] == []
+    assert r.status_code == 400
+    r2 = client.post("/api/events/search",
+                     json={"date": DEMO_DATE, "keyword": "福岡", "member_uuid": "m-123"})
+    assert r2.status_code == 200     # 查無資料也回 200 空列表
+    assert r2.json()["rows"] == []
 
 
 # ── 驗收 7:列表無 cf_raw、ip 僅 /24 ──────────────────────────────────────────
@@ -216,6 +221,8 @@ def test_no_source_file_references_raw_table():
                 if (stripped.startswith("#") or "_RAW_TABLE_PATTERN" in line
                         or "cost guard" in line):
                     continue
+                if "stream_search_record_flat" in line:
+                    continue   # flat 中繼表是平台的合法資料源
                 if ("ar-stream_search_record" in line or "ar_stream_search_record" in line
                         or "stream_search_record" in line):
                     offenders.append(f"{p}: {stripped[:80]}")
@@ -232,20 +239,20 @@ def test_local_date_to_utc_range_buffer():
     assert end.isoformat() == "2026-08-14T00:00:00+00:00"
 
 
-def test_point_queries_carry_cluster_hints():
-    """detail / cf 點查必須能帶叢集鍵 (keyword, exp_version, locale) —
-    只用 session_id 會繞過 cluster pruning 掃整個分區窗,成本紅線失守。"""
-    from src.repo.bigquery import build_cf_query, build_detail_query
-    for builder in (build_detail_query, build_cf_query):
-        sql, params = builder("sess-x", DEMO_DATE,
-                              keyword="福岡", exp_version="exp_a", locale="tw")
-        assert "keyword = @hint_keyword" in sql
-        assert "exp_version = @hint_exp_version" in sql
-        assert "locale = @hint_locale" in sql
-        assert params["hint_keyword"] == "福岡"
-        # 不帶 hint 時仍可查 (fallback,正確性不變)
-        sql2, _ = builder("sess-x", DEMO_DATE)
-        assert "hint_keyword" not in sql2
+def test_point_queries_require_cluster_key():
+    """flat 表叢集鍵 (event_type, kkud, query_keyword):detail 點查缺 keyword
+    直接丟 ClusterKeyRequired — event_id-only 會掃全天分區 (實測 21GB)。"""
+    from src.repo.bigquery import ClusterKeyRequired, build_detail_query, build_recall_query
+    sql, params = build_detail_query("sess-x", DEMO_DATE,
+                                     keyword="福岡", exp_version="exp_a", locale="tw")
+    assert "query_keyword = @keyword" in sql and "event_id = @session_id" in sql
+    assert params["keyword"] == "福岡"
+    with pytest.raises(ClusterKeyRequired):
+        build_detail_query("sess-x", DEMO_DATE)   # 缺 keyword → 不准出查詢
+    # recall 回查:kkud + keyword 雙叢集鍵 + event_id 結果過濾 (實測 10.5MB)
+    sql2, _ = build_recall_query("recall-1", DEMO_DATE, kkud="k-1", keyword="福岡")
+    assert "kkud = @kkud" in sql2 and "query_keyword = @keyword" in sql2
+    assert "event_id = @event_id" in sql2 and "LIMIT 1" in sql2
 
 
 def test_compare_respects_cache_hit_filter(client, repo):
@@ -262,26 +269,36 @@ def test_compare_respects_cache_hit_filter(client, repo):
     assert all(row["verdict"] == "only_a" for row in body["rows"])
 
 
-def test_raw_view_blocked_without_exception():
-    """紅線無例外:平台任何查詢摸到原始事件 view 一律被 guard 擋下。
-    (2026-08-19 教訓:per-path 計費 = path × 掃過的分區,「單筆」回查 prods/uf
-    實測計費 14~18GB — 平台端沒有便宜的直查形狀,cf_raw 一律走中繼表。)"""
-    from src.repo.bigquery import assert_no_raw_table, build_cf_query
+def test_raw_stream_blocked_flat_allowed():
+    """紅線:原始事件流 (無 _flat) 一律擋;stream_search_record_flat 是
+    合法叢集中繼表放行。(2026-08 教訓:原始流 per-path 計費 = path × 分區,
+    「單筆」回查實測 14~36GB。)"""
+    from src.repo.bigquery import assert_no_raw_table
     with pytest.raises(RuntimeError):
         assert_no_raw_table(
             "SELECT keyword FROM `kkday-data-dap.dw_analysis_record.stream_search_record`")
-    # 5.4 讀的是中繼表的 cf_raw 欄
-    sql, _ = build_cf_query("sess-x", DEMO_DATE)
-    assert "cf_raw" in sql and "search_event_daily" in sql
+    with pytest.raises(RuntimeError):
+        assert_no_raw_table("SELECT * FROM `kkday-data-dap.dl_base.ar-stream_search_record`")
+    assert_no_raw_table(
+        "SELECT 1 FROM `kkday-data-dap.dw_analysis_record.stream_search_record_flat`")
 
 
 def test_prods_query_can_lock_session():
-    """同天同 keyword+exp 可能多個 session — prod 查詢必須能鎖定單一事件。"""
-    from src.repo.bigquery import build_prods_query
+    """同天同 keyword+exp 可能多個 session — prod 查詢必須能鎖定單一事件;
+    prods 是 content 列的 JSON 欄,取單列由 parse_prods 展開。"""
+    from src.repo.bigquery import build_prods_query, parse_prods
     sql, params = build_prods_query(DEMO_DATE, "福岡", None, "exp_a",
                                     session_id="sess-x")
-    assert "session_id = @session_id" in sql
+    assert "event_id = @session_id" in sql
+    assert "query_keyword = @keyword" in sql and "prods" in sql
     assert params["session_id"] == "sess-x"
+    # parse_prods:rank = pagination_start + offset + 1;payload 無商品名
+    prods = parse_prods(
+        '[{"prod_mid":"123","prod_oid":"123","is_ad":false,'
+        '"ltr_score":110.5,"relevance_status_code":"000200"}]', 10)
+    assert prods[0]["rank"] == 11 and prods[0]["prod_mid"] == "123"
+    assert prods[0]["prod_name"] is None and prods[0]["in_rerank_scope"] is True
+    assert parse_prods(None, 0) == [] and parse_prods("not json", 0) == []
 
 
 def test_detail_prods_scoped_to_session(client, repo):

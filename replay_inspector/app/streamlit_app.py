@@ -513,9 +513,23 @@ with left:
                 unsafe_allow_html=True)
 
     else:
-        # ── 對照模式:自動偵測 treatment/control 兩組 ─────────────────────────
+        # ── 對照模式:兩組實驗選擇 ─────────────────────────────────────────────
+        # 真實資料同時有多個 exp 在跑 (實測單日 5+ 組) — 從事件列表偵測到的
+        # exp 清單讓使用者選,預設升冪前二 (對齊 100000/100001 編號慣例)
+        exp_opts = sorted({e["exp_version"] for e in events if e.get("exp_version")})
+        if len(exp_opts) >= 2:
+            s1, s2 = st.columns(2)
+            exp_a_sel = s1.selectbox("A (treatment)", exp_opts, index=0)
+            exp_b_sel = s2.selectbox("B (control)", exp_opts,
+                                     index=1 if len(exp_opts) > 1 else 0)
+        else:
+            exp_a_sel = exp_b_sel = None   # 交給 API 回報「找不到兩組」
+
         cmp_params = {"date": P["date"], "keyword": P["keyword"],
                       "locale": P["locale"] or None}
+        if exp_a_sel and exp_b_sel and exp_a_sel != exp_b_sel:
+            cmp_params["exp_a"] = exp_a_sel
+            cmp_params["exp_b"] = exp_b_sel
         if P["cache_hit"] != "(不限)":
             cmp_params["cache_hit"] = P["cache_hit"]
         cmp_data, cmp_err = _get("/api/compare", cmp_params)

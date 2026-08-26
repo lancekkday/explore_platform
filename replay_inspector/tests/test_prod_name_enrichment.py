@@ -101,3 +101,14 @@ def test_detail_lookup_miss_leaves_name_none(client_with_stub):
     mock.lookup_many.return_value = {"999001": None}
     r = client.get("/api/events/sess-noname", params={"date": "2026-08-25"})
     assert r.json()["prods"][0]["prod_name"] is None
+
+
+def test_enrich_prod_names_tolerates_missing_prod_mid():
+    """防迴歸:少了 prod_mid 的列不該讓整支端點噴 500(code review 抓到的 bracket-index 風險)。"""
+    from src.api.main import _enrich_prod_names
+
+    lookup = MagicMock()
+    lookup.lookup_many.return_value = {}
+    prods = [{"rank": 1, "prod_name": None}]  # 缺 prod_mid
+    result = _enrich_prod_names(prods, lookup)
+    assert result == [{"rank": 1, "prod_name": None}]

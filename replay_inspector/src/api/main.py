@@ -84,7 +84,7 @@ def _enrich_prod_names(prods: list[dict], lookup: ProductNameLookup) -> list[dic
         return prods
     names = lookup.lookup_many(missing_mids)
     return [
-        {**p, "prod_name": names.get(p["prod_mid"])} if not p.get("prod_name") else p
+        {**p, "prod_name": names.get(p.get("prod_mid"))} if not p.get("prod_name") else p
         for p in prods
     ]
 

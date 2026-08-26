@@ -482,6 +482,10 @@ search-replay-inspector/
 
 **Code review 補強（同日）**：缺 `prod_mid` 的列改用 `.get()` 避免 `KeyError` 500；「查詢失敗」（timeout/5xx/429 重試用盡）跟「確認查無」（全部 locale 都確定 404）分開快取 —— 前者用短 TTL（`failure_ttl_sec`，預設 5 分鐘），後者才用長 TTL（24h），避免一次線上暫時性故障被誤記成「沒名字」記滿一天；single-flight waiter 的逾時值也改成算入 fallback 鏈的最差總時長，避免 owner 還在跑 fallback 時等待中的 caller 提早拿到 `None`。
 
+**Stage host fallback（同日）**：部署主機若防火牆只放行 stage、沒開對外網路，`www.kkday.com` 整個 host 會連不上（不是 404，是連線失敗）。這種情況（`PRODUCT_HOSTS` 第一個 host 查詢失敗，非乾淨 404）改打 `www.stage.kkday.com`；實測同一批 mid 在 prod/stage 的 `og:title` 一致（商品目錄同步），名稱前綴 `(Stage) ` 標記來源，方便日後目錄不同步時排查。乾淨 404（確認查無）不會多打一輪 stage，只有「查詢失敗」才換 host。
+
+**Re-review 補強**：`_waiter_timeout()` 公式先前漏算「最後一次重試也要 sleep 才回傳」，改成三角數算式並抽成 `_retry_worst_case()`（primary + fallback + 現在的兩個 host 共用同一條）；兩個新測試原本是假陽性（一個提早 return 沒跑到修的那行、一個直接抄 production 算式驗自己），已改成會真的抓到 bug 的寫法。
+
 **待資料團隊確認的長期解法**（若這個 scrape 方案的延遲/穩定性不夠用時考慮）：是否存在通用商品維度表（`dim_product`/`dm_product` 等）可 join，或建議在 `stream_search_record_flat` 產出時順手 join 商品名稱進 `prods` JSON。已知的窄覆蓋替代方案（`dm_search_keyword.kkday_search_keyword_{precise,broad}`）只覆蓋巡檢關鍵字的 top1/2/top10，蓋不到任意 `prod_mid`，未採用。
 
 ### 9.7 `CONTEXT FEATURE`（`cf`）是否漏了「召回管道/訊號」

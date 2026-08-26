@@ -6,8 +6,14 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
-from src.repo.product_name_lookup import FALLBACK_LOCALES, PRODUCT_URL, ProductNameLookup
+from src.repo.product_name_lookup import (
+    FALLBACK_LOCALES,
+    LOCALE_URL,
+    PRODUCT_HOSTS,
+    ProductNameLookup,
+)
 
 
 def _resp(status_code=200, text=""):
@@ -46,8 +52,9 @@ def test_5xx_retries_then_none(monkeypatch):
     with patch.object(lookup._session, "get", side_effect=fake_get):
         result = lookup.lookup_many(["555555"])
     assert result["555555"] is None
-    # zh-tw:1 次原始 + 1 次重試,再 5 個 fallback locale (各 retries=0) = 7
-    assert calls["n"] == 2 + len(FALLBACK_LOCALES)
+    # 每個 host:zh-tw(1 次原始 + 1 次重試)+ 5 個 fallback locale(各 retries=0)= 7,
+    # 5xx 全部查詢失敗(非乾淨 404)→ 兩個 host 都會試過 = 14
+    assert calls["n"] == len(PRODUCT_HOSTS) * (2 + len(FALLBACK_LOCALES))
 
 
 def test_zh_tw_404_falls_back_to_other_locale():
@@ -138,7 +145,8 @@ def test_single_flight_concurrent_calls_hit_http_once():
 
 
 def test_builds_expected_url():
-    assert PRODUCT_URL.format(mid="131075") == "https://www.kkday.com/zh-tw/product/131075"
+    url = LOCALE_URL.format(host=PRODUCT_HOSTS[0], locale="zh-tw", mid="131075")
+    assert url == "https://www.kkday.com/zh-tw/product/131075"
 
 
 # ── code review 補強:失敗 vs 確認查無,分開 TTL ────────────────────────────
@@ -214,3 +222,55 @@ def test_retry_worst_case_counts_sleep_after_final_attempt():
     # 舊算式(0.4*retries = 0.8)會少算 1.6 秒 — 確保新算式沒有退化回去
     old_formula_value = timeout * attempts + 0.4 * retries
     assert ProductNameLookup._retry_worst_case(retries, timeout) > old_formula_value
+
+
+# ── stage host fallback:prod 網路不通時才換 host,乾淨 404 不用換 ──────────
+
+def test_falls_back_to_stage_host_when_prod_unreachable(monkeypatch):
+    """prod host 全部 locale 都連線失敗(非 404)→ 換 stage host 試,
+    stage 找到名字就用(前綴 `(Stage)` 標記來源,不是 prod 拿到的)—— 實測
+    stage/prod 商品目錄同步,名稱一致。"""
+    lookup = ProductNameLookup(enabled=True, retries=0, timeout=1)
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    name = "台灣eSIM｜每日流量與總量流量套餐推薦"
+    html = f'<html><head><meta property="og:title" content="{name}"/></head></html>'
+
+    def fake_get(url, **kw):
+        if "stage.kkday.com" in url:
+            return _resp(200, html) if "/zh-tw/" in url else _resp(404, "")
+        raise requests.ConnectionError("prod unreachable")
+
+    with patch.object(lookup._session, "get", side_effect=fake_get):
+        result = lookup.lookup_many(["162522"])
+    assert result["162522"] == f"(Stage) {name}"
+
+
+def test_prod_hit_is_not_tagged():
+    lookup = ProductNameLookup(enabled=True)
+    name = "福岡塔門票｜即買即用電子票"
+    html = f'<html><head><meta property="og:title" content="{name}"/></head></html>'
+    with patch.object(lookup._session, "get", return_value=_resp(200, html)):
+        result = lookup.lookup_many(["131075"])
+    assert result["131075"] == name  # 沒有 "(Stage)" 前綴
+
+
+def test_confirmed_absent_on_prod_skips_stage_host():
+    """prod 全部 locale 都是乾淨 404(非連線失敗)→ 已經是明確答案,
+    不用浪費一次 stage host 的完整 locale 掃描。"""
+    lookup = ProductNameLookup(enabled=True)
+    stage_calls = {"n": 0}
+
+    def fake_get(url, **kw):
+        if "stage.kkday.com" in url:
+            stage_calls["n"] += 1
+        return _resp(404, "")
+
+    with patch.object(lookup._session, "get", side_effect=fake_get):
+        result = lookup.lookup_many(["000000"])
+    assert result["000000"] is None
+    assert stage_calls["n"] == 0
+
+
+def test_product_hosts_prod_first_then_stage():
+    assert PRODUCT_HOSTS[0] == "https://www.kkday.com"
+    assert "stage" in PRODUCT_HOSTS[1]

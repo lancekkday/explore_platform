@@ -18,6 +18,12 @@ Code review 補強 (2026-08-26):
   避免一次線上暫時性故障被記成「沒名字」記滿 24 小時。
 - single-flight waiter 逾時值算入 fallback locale 鏈的最差總時長,避免
   owner 還在跑 fallback 時,等待中的 caller 提早拿到 None。
+
+Stage host fallback (2026-08-26):部署主機若只放行 stage、沒開對外網路,
+`www.kkday.com` 整個 host 都連不上(不是 404,是連線失敗)—— 這種情況換打
+`www.stage.kkday.com`。實測同一個 mid 在 prod/stage 的 og:title 一致
+(商品目錄同步),名稱前綴 `(Stage) ` 標記來源,方便日後目錄不同步時排查。
+只在 prod host 查詢失敗時才換 host;乾淨 404 已是明確答案,不用多打一輪。
 """
 from __future__ import annotations
 
@@ -30,8 +36,12 @@ from typing import Optional
 
 import requests
 
-PRODUCT_URL = "https://www.kkday.com/zh-tw/product/{mid}"
-FALLBACK_LOCALE_URL = "https://www.kkday.com/{locale}/product/{mid}"
+LOCALE_URL = "{host}/{locale}/product/{mid}"
+# prod 打不通(部署主機防火牆只放行 stage,沒開對外網路)時換 stage 商品頁 —
+# 實測同一個 mid 在 prod/stage 的 og:title 內容一致(商品目錄同步),不是猜測。
+# 只在 prod 那個 host「查詢失敗」(非乾淨 404)時才換,乾淨 404 已經是明確
+# 答案,不用多花一輪 stage 的完整 locale 掃描。
+PRODUCT_HOSTS = ["https://www.kkday.com", "https://www.stage.kkday.com"]
 # 404 在 zh-tw 常常不是「商品下架」,是「這個商品沒有 zh-tw 語言版本」
 # (實測:119751/164116 在 zh-tw/zh-cn/zh-hk 404,但 en-us/ja/ko 都存在且有名稱)。
 # zh-tw 失敗後依序試這些 locale,拿到名字就算數,比顯示裸 mid 有用。
@@ -110,23 +120,37 @@ class ProductNameLookup:
                 time.sleep(0.4 * (attempt + 1))
         return None, False
 
+    @staticmethod
+    def _tag_host(name: str, host_idx: int) -> str:
+        # host_idx 0 = prod(不標記);非 0 = fallback host(目前只有 stage),
+        # 標出來提醒使用者這筆名稱不是從 prod 拿到的,萬一哪天目錄不同步好排查。
+        return name if host_idx == 0 else f"(Stage) {name}"
+
     def _do_lookup(self, mid: str) -> tuple[Optional[str], bool]:
-        name, confirmed = self._fetch(PRODUCT_URL.format(mid=mid), self.retries, self.timeout)
-        if name:
-            return name, True
-        any_unconfirmed = not confirmed
-        # zh-tw 沒有 → 依序試其他 locale (不重試,timeout 縮短,壓住全下架商品的最差延遲)
-        for locale in FALLBACK_LOCALES:
+        for host_idx, host in enumerate(PRODUCT_HOSTS):
             name, confirmed = self._fetch(
-                FALLBACK_LOCALE_URL.format(locale=locale, mid=mid),
-                retries=0, timeout=min(self.timeout, 4.0),
+                LOCALE_URL.format(host=host, locale="zh-tw", mid=mid),
+                self.retries, self.timeout,
             )
             if name:
-                return name, True
-            if not confirmed:
-                any_unconfirmed = True
-        # 全部 locale 都試過:只有沒有任何一輪查詢失敗,才算「確認查無此商品」
-        return None, not any_unconfirmed
+                return self._tag_host(name, host_idx), True
+            any_unconfirmed = not confirmed
+            # zh-tw 沒有 → 依序試其他 locale (不重試,timeout 縮短,壓住全下架商品的最差延遲)
+            for locale in FALLBACK_LOCALES:
+                name, confirmed = self._fetch(
+                    LOCALE_URL.format(host=host, locale=locale, mid=mid),
+                    retries=0, timeout=min(self.timeout, 4.0),
+                )
+                if name:
+                    return self._tag_host(name, host_idx), True
+                if not confirmed:
+                    any_unconfirmed = True
+            if not any_unconfirmed:
+                # 這個 host 全部 locale 都「確認」查無 → 已是明確答案,
+                # 不用為了保險再換 host 多掃一輪(乾淨 404 不是網路問題)。
+                return None, True
+            # 這個 host 有查詢失敗(非乾淨 404)→ 換下一個 host,可能是網路擋住了
+        return None, False
 
     def _own_fetch(self, mid: str) -> Optional[str]:
         name: Optional[str] = None
@@ -153,12 +177,14 @@ class ProductNameLookup:
         return timeout * attempts + total_sleep
 
     def _waiter_timeout(self) -> float:
-        # 跟 owner 實際最差耗時對齊:zh-tw 那一輪 + 全部 fallback locale
-        # (各 1 次,不重試) 的最差時長,兩邊都用同一個 worst-case 算式。
+        # 跟 owner 實際最差耗時對齊:單一 host 是 zh-tw 那一輪 + 全部 fallback
+        # locale(各 1 次,不重試)的最差時長;owner 最差情況是兩個 host 都
+        # 查詢失敗、整輪都跑完(prod 網路不通才會走到 stage,見 _do_lookup)。
         primary_worst = self._retry_worst_case(self.retries, self.timeout)
         fallback_timeout = min(self.timeout, 4.0)
         fallback_worst = len(FALLBACK_LOCALES) * self._retry_worst_case(0, fallback_timeout)
-        return primary_worst + fallback_worst + 5.0
+        per_host_worst = primary_worst + fallback_worst
+        return len(PRODUCT_HOSTS) * per_host_worst + 5.0
 
     def lookup_many(self, mids: list[str], workers: int = 8) -> dict[str, Optional[str]]:
         clean_mids = [str(m) for m in dict.fromkeys(mids) if m is not None]

@@ -186,10 +186,31 @@ def test_confirmed_absent_uses_long_ttl_not_failure_ttl(monkeypatch):
 
 
 # ── code review 補強:waiter 逾時要算進 fallback 鏈的最差時長 ───────────────
+#
+# 這裡刻意不重算 production 用的同一條算式再比對相等 —— 那種寫法只會驗證
+# 「_waiter_timeout() 的實作沒被手滑改掉」,連 production 算式本身漏算最後
+# 一次重試的 sleep(第一版就是這樣,兩邊都少 0.4*(retries+1)(retries+2)/2 - 0.4*retries
+# 那一截,測試照樣通過)都抓不到。改成量測 _do_lookup 全部失敗時的「真實」
+# 執行時間,直接驗證 waiter 逾時值真的蓋得住 owner 的最差耗時這個不變量。
 
-def test_waiter_timeout_accounts_for_full_fallback_chain():
-    lookup = ProductNameLookup(timeout=6.0, retries=1)
-    primary_worst = 6.0 * (1 + 1) + 0.4 * 1
-    fallback_worst = len(FALLBACK_LOCALES) * min(6.0, 4.0)
-    expected = primary_worst + fallback_worst + 5.0
-    assert lookup._waiter_timeout() == pytest.approx(expected)
+def test_waiter_timeout_covers_measured_worst_case_do_lookup_duration():
+    lookup = ProductNameLookup(timeout=0.05, retries=1)
+    with patch.object(lookup._session, "get", return_value=_resp(500, "")):
+        start = time.perf_counter()
+        lookup._do_lookup("999999")
+        elapsed = time.perf_counter() - start
+    assert elapsed <= lookup._waiter_timeout()
+
+
+def test_retry_worst_case_counts_sleep_after_final_attempt():
+    """_fetch 對「最後一次」失敗嘗試也會 sleep 才 fall through 回傳 —
+    worst-case 算式的 sleep 總和該是三角數,不是 0.4*retries(少算最後一次)。"""
+    retries, timeout = 2, 1.0
+    attempts = retries + 1
+    expected_sleep = 0.4 * attempts * (attempts + 1) / 2  # 0.4+0.8+1.2 = 2.4
+    assert ProductNameLookup._retry_worst_case(retries, timeout) == pytest.approx(
+        timeout * attempts + expected_sleep
+    )
+    # 舊算式(0.4*retries = 0.8)會少算 1.6 秒 — 確保新算式沒有退化回去
+    old_formula_value = timeout * attempts + 0.4 * retries
+    assert ProductNameLookup._retry_worst_case(retries, timeout) > old_formula_value

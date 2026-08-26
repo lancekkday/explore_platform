@@ -141,11 +141,23 @@ class ProductNameLookup:
                 event.set()
         return name
 
+    @staticmethod
+    def _retry_worst_case(retries: int, timeout: float) -> float:
+        """_fetch 的單一 URL 最差耗時:retries+1 次嘗試,每次最多 timeout 秒,
+        且每次失敗(含最後一次)都還會 `time.sleep(0.4*(attempt+1))` 才回傳
+        (見 _fetch 的 for 迴圈 — 最後一次也會 sleep 才 fall through)。
+        sleep 總和是三角數 0.4 * attempts*(attempts+1)/2,不是 0.4*retries
+        (少算最後一次;之前的版本就是漏了這裡,兩位數 retries 時誤差會二次方放大)。"""
+        attempts = retries + 1
+        total_sleep = 0.4 * attempts * (attempts + 1) / 2
+        return timeout * attempts + total_sleep
+
     def _waiter_timeout(self) -> float:
-        # 跟 owner 實際最差耗時對齊:zh-tw 的 retries+1 次 + 重試間隔,
-        # 加上全部 fallback locale (各 1 次,不重試) 的最差時長。
-        primary_worst = self.timeout * (self.retries + 1) + 0.4 * self.retries
-        fallback_worst = len(FALLBACK_LOCALES) * min(self.timeout, 4.0)
+        # 跟 owner 實際最差耗時對齊:zh-tw 那一輪 + 全部 fallback locale
+        # (各 1 次,不重試) 的最差時長,兩邊都用同一個 worst-case 算式。
+        primary_worst = self._retry_worst_case(self.retries, self.timeout)
+        fallback_timeout = min(self.timeout, 4.0)
+        fallback_worst = len(FALLBACK_LOCALES) * self._retry_worst_case(0, fallback_timeout)
         return primary_worst + fallback_worst + 5.0
 
     def lookup_many(self, mids: list[str], workers: int = 8) -> dict[str, Optional[str]]:

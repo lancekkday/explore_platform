@@ -104,11 +104,21 @@ def test_detail_lookup_miss_leaves_name_none(client_with_stub):
 
 
 def test_enrich_prod_names_tolerates_missing_prod_mid():
-    """防迴歸:少了 prod_mid 的列不該讓整支端點噴 500(code review 抓到的 bracket-index 風險)。"""
+    """防迴歸:少了 prod_mid 的列不該讓整支端點噴 500(code review 抓到的 bracket-index 風險)。
+
+    重點是要有「另一列」帶合法 prod_mid 且缺名 —— 否則 missing_mids 整批是空的,
+    函式在 `if not missing_mids: return prods` 就提早回傳,根本不會跑到當初
+    壞掉的那行 `names.get(p["prod_mid"])`,測試會對舊的 bug 版本一樣通過
+    (第一版就是這樣,沒抓到重點)。"""
     from src.api.main import _enrich_prod_names
 
     lookup = MagicMock()
-    lookup.lookup_many.return_value = {}
-    prods = [{"rank": 1, "prod_name": None}]  # 缺 prod_mid
+    lookup.lookup_many.return_value = {"111": "有名字的商品"}
+    prods = [
+        {"prod_mid": "111", "prod_name": None},
+        {"rank": 2, "prod_name": None},  # 缺 prod_mid,且不是唯一一列
+    ]
     result = _enrich_prod_names(prods, lookup)
-    assert result == [{"rank": 1, "prod_name": None}]
+    assert result[0]["prod_name"] == "有名字的商品"
+    assert result[1] == {"rank": 2, "prod_name": None}
+    lookup.lookup_many.assert_called_once_with(["111"])

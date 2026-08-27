@@ -86,3 +86,10 @@ docker compose up -d replay-api replay-ui
 - FakeEventRepo 的分數用「升冪累加 gap 再 reverse」建構 — 要讓前段同帶,
   小 gap 要放在升冪序列**尾端**
 - sqlx 內 JSON path 標 `TODO(verify)` 處未經實測,以資料團隊 review 為準
+- **`BQ_PROJECT_ID` 跟主平台 `backend` 撞名**(2026-08-27 SIT 部署踩到):`docker-compose.yml`
+  的 `backend`/`replay-api` 兩個 service 共用同一份 `.env`,但兩邊需要指到不同 BQ 專案
+  (backend 的 baseline view 在 `kkday-data-dap-sit`;這裡的事件表在 `kkday-data-dap`,
+  沒有 `-sit`)。`.env` 裡給主平台設的 `BQ_PROJECT_ID=kkday-data-dap-sit` 會洩漏進
+  replay-api 容器蓋掉它自己的程式碼預設值,導致查詢對到錯的專案回 `NotFound`(表在
+  正確專案裡確實存在,只是查錯專案)。`docker-compose.yml` 的 `replay-api` service 已加
+  `environment: BQ_PROJECT_ID: kkday-data-dap` 覆寫解掉,不用改 `.env` 本身。

@@ -204,6 +204,139 @@ def test_raw_table_is_query_source():
     assert bigquery.BQ_BILLING_PROJECT == "kkday-data-dap-ui"
 
 
+# ── repo 層例外一律轉 400,不得漏接變成未處理的 500(2026-08-27 code review)──
+# 起因:event_detail/event_cf 原本各自寫 try/except 只接 QueryTooExpensive,
+# 漏了 ClusterKeyRequired;main._repo_call 統一處理後在此鎖住四個端點,
+# 避免以後又有端點漏接其中一種。
+
+class _RaisingRepo:
+    """故意讓每個方法丟指定例外的 stub — 只驗證 main.py 的例外轉換,
+    不需要真的連 BigQuery。"""
+
+    def __init__(self, exc):
+        self._exc = exc
+
+    def list_events(self, date, filters):
+        raise self._exc
+
+    def get_event(self, session_id, date, keyword=None, exp_version=None, locale=None):
+        raise self._exc
+
+    def get_cf_raw(self, session_id, date, keyword=None, exp_version=None, locale=None):
+        raise self._exc
+
+    def get_prods(self, date, keyword, locale, exp_version, session_id=None):
+        raise self._exc
+
+    def last_query_bytes(self):
+        return 0
+
+
+@pytest.fixture(params=["cluster_key", "too_expensive"])
+def raising_client(request):
+    from src.repo.bigquery import ClusterKeyRequired, QueryTooExpensive
+    exc = (ClusterKeyRequired("missing keyword") if request.param == "cluster_key"
+           else QueryTooExpensive("scan too large"))
+    app.dependency_overrides[get_repo] = lambda: _RaisingRepo(exc)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def test_list_events_repo_exceptions_become_400(raising_client):
+    r = raising_client.get("/api/events", params={"date": DEMO_DATE, "keyword": "福岡"})
+    assert r.status_code == 400
+
+
+def test_event_detail_repo_exceptions_become_400(raising_client):
+    r = raising_client.get("/api/events/sess-x", params={"date": DEMO_DATE})
+    assert r.status_code == 400
+
+
+def test_event_cf_repo_exceptions_become_400(raising_client):
+    r = raising_client.get("/api/events/sess-x/cf", params={"date": DEMO_DATE})
+    assert r.status_code == 400
+
+
+class _RepoMissingProds:
+    """EventRepo.get_event() 契約要求回傳 dict 必須含 "prods" key(見
+    bigquery.EventRepo.get_event docstring)——這支 stub 故意漏掉,驗證
+    event_detail 對這種情境的實際行為(2026-08-27 code review 抓到:
+    這個「必須含 prods」的隱性契約完全沒有測試逼過,忘記塞的話會靜默
+    回空清單,跟「這個事件真的沒有商品」無法區分)。"""
+
+    def get_event(self, session_id, date, keyword=None, exp_version=None, locale=None):
+        return {
+            "session_id": session_id, "event_date": None, "event_type": "content",
+            "cache_hit": False, "keyword": "測試詞", "normalized_keyword": "測試詞",
+            "lang": "zh-tw", "locale": "tw", "currency": "TWD", "exp_version": "exp_a",
+            "source": "web", "kkud": "kkud-x", "ip_masked": None,
+            "page_start": 0, "page_count": 10, "total_count": 10, "prod_cnt": 10,
+            "uf_intent": None, "uf_profile": None, "uf_profile_version": None,
+            "uf_lbs": None, "cf_platform": None, "cf_hour": None, "cf_weekday": None,
+            "cf_query_final": None, "cf_query_tokens": None,
+            "join_failed": False, "uf_absent": False, "ltr_features_recovered": False,
+            # 故意不帶 "prods" key
+        }
+
+    def get_cf_raw(self, *a, **kw):
+        return None
+
+    def get_prods(self, *a, **kw):
+        return []
+
+    def last_query_bytes(self):
+        return 0
+
+
+def test_event_detail_tolerates_repo_missing_prods_key():
+    """記錄現況行為:回傳空商品列表 + 200,不是報錯。這是刻意接受的
+    contract 缺口(見 EventRepo.get_event docstring)—— 這個測試存在的
+    目的不是宣告這個行為理想,是確保有人改動時看得到「原本會靜默改變」。"""
+    app.dependency_overrides[get_repo] = lambda: _RepoMissingProds()
+    try:
+        c = TestClient(app)
+        r = c.get("/api/events/sess-x", params={"date": DEMO_DATE})
+        assert r.status_code == 200
+        assert r.json()["prods"] == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_compare_repo_exceptions_become_400(raising_client):
+    r = raising_client.get("/api/compare", params={
+        "date": DEMO_DATE, "keyword": "福岡", "exp_a": "a", "exp_b": "b",
+    })
+    assert r.status_code == 400
+
+
+def test_is_bytes_billed_limit_error_reads_structured_reason():
+    """實測 (2026-08-27) google-api-core 對這個錯誤的真實形狀:
+    InternalServerError.errors == [{'reason': 'bytesBilledLimitExceeded', ...}]。
+    結構化欄位優先於字串比對(code review 抓到原本只做字串比對,SDK 措辭一變
+    就會悄悄失效)。"""
+    from src.repo.bigquery import _is_bytes_billed_limit_error
+
+    class _FakeApiError(Exception):
+        def __init__(self, errors):
+            super().__init__("some wording that does not mention bytes at all")
+            self.errors = errors
+
+    hit = _FakeApiError([{"reason": "bytesBilledLimitExceeded", "message": "..."}])
+    assert _is_bytes_billed_limit_error(hit) is True
+
+    miss = _FakeApiError([{"reason": "invalidQuery", "message": "..."}])
+    assert _is_bytes_billed_limit_error(miss) is False
+
+
+def test_is_bytes_billed_limit_error_falls_back_to_string_match():
+    """沒有 .errors 屬性(例如非 GoogleAPICallError 的一般例外)時,
+    退回字串比對當備援,不要整個判斷失效。"""
+    from src.repo.bigquery import _is_bytes_billed_limit_error
+
+    assert _is_bytes_billed_limit_error(RuntimeError("Query exceeded limit for bytes billed")) is True
+    assert _is_bytes_billed_limit_error(RuntimeError("connection reset")) is False
+
+
 # ── 分區時間窗換算 (5.1) ──────────────────────────────────────────────────────
 
 def test_local_date_to_utc_range_buffer():

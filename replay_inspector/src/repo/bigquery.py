@@ -92,8 +92,22 @@ class ClusterKeyRequired(ValueError):
 
 
 class QueryTooExpensive(RuntimeError):
-    """單次查詢預估位元組數超過 MAX_BYTES_BILLED_PER_QUERY(預設 20GB),
-    BigQuery 直接拒絕執行。API 層轉 400。"""
+    """單次查詢預估位元組數超過 MAX_BYTES_BILLED_PER_QUERY(預設 300GB,
+    只當失控防線 — 見該常數註解),BigQuery 直接拒絕執行。API 層轉 400。"""
+
+
+def _is_bytes_billed_limit_error(e: Exception) -> bool:
+    """判斷 BigQuery 例外是不是 maximum_bytes_billed 超標 —— 優先讀
+    google.api_core.exceptions.GoogleAPICallError.errors 裡結構化的
+    reason == 'bytesBilledLimitExceeded'(實測 2026-08-27:
+    google.api_core.exceptions.InternalServerError,errors=[{'reason':
+    'bytesBilledLimitExceeded', ...}]),字串比對只當這個屬性不存在時的
+    備援(2026-08-27 code review 抓到:原本只做字串比對,SDK 措辭一變
+    就會悄悄失效)。"""
+    for err in getattr(e, "errors", None) or []:
+        if isinstance(err, dict) and err.get("reason") == "bytesBilledLimitExceeded":
+            return True
+    return "bytes billed" in str(e).lower()
 
 
 def local_date_to_utc_range(date_str: str) -> tuple[datetime, datetime]:
@@ -128,7 +142,14 @@ class EventRepo(Protocol):
     def list_events(self, date: str, filters: dict[str, Any]) -> list[dict]: ...
     def get_event(self, session_id: str, date: str,
                   keyword: Optional[str] = None, exp_version: Optional[str] = None,
-                  locale: Optional[str] = None) -> Optional[dict]: ...
+                  locale: Optional[str] = None) -> Optional[dict]:
+        """回傳的 dict 必須含 `"prods"`(parse_prods() 格式的 list[dict],
+        找不到就給 `[]`,不可省略此 key)—— 2026-08-27 起 main.py::event_detail
+        直接讀 `ev.get("prods")`,不再另外呼叫 get_prods()(省一支重複查詢,
+        原本的 build_prods_query() 掃的是同一列資料)。任何實作(含測試用
+        stub/fake)忘記塞這個 key,event_detail 會靜默回空商品列表,不會報錯
+        —— 見 tests/test_api.py 的 FakeEventRepo/stub 都必須帶上這個 key。"""
+        ...
     def get_cf_raw(self, session_id: str, date: str,
                    keyword: Optional[str] = None, exp_version: Optional[str] = None,
                    locale: Optional[str] = None) -> Optional[str]: ...
@@ -392,7 +413,7 @@ class BigQueryEventRepo:
             job = self._bq().query(sql, job_config=job_config)
             rows = [dict(row) for row in job.result()]
         except Exception as e:
-            if "bytes billed" in str(e).lower():
+            if _is_bytes_billed_limit_error(e):
                 raise QueryTooExpensive(
                     f"單次查詢預估掃描量超過上限 "
                     f"({MAX_BYTES_BILLED_PER_QUERY / 1024 ** 3:.0f}GB),"

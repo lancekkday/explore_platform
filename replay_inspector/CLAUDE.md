@@ -53,9 +53,13 @@ keyword,treatment 與 control 看到的結果差在哪、為什麼」。唯讀�
    (預設 300GB,不當日常用量控管),真正的用量顯示改成事後量測
    (`BigQueryEventRepo.last_query_bytes()`,API 回應帶 `bytes_billed`,
    Streamlit 顯示「用量 X GB」)。
-   **真實用量參考值**(2026-08-24,keyword=福岡,單一使用者的單人回放明細,
-   含 content+recall+prods 三支查詢加總):**約 85GB**;純列表查詢(不含明細)
-   單次約 20GB。這遠比原本設想的「一次查詢幾百 MB」高很多,值得知道。
+   **真實用量參考值**(2026-08-24,keyword=福岡):純列表查詢(不含明細)單次
+   約 20GB;單人回放明細原本(content+recall+prods 三支查詢加總)約 85GB。
+   `build_detail_query()` 把 prods 併進 content 查詢後(event_id 已鎖定同一列,
+   跟原本另開一支 `build_prods_query()` 掃的是同一天同一列資料,只是抓的欄位
+   不同,見該函式註解),省掉一支重複查詢,同一筆事件降到**約 65GB**
+   (content+recall 兩支;用 BigQuery job 記錄交叉驗證過,64.62GB)。這遠比
+   原本設想的「一次查詢幾百 MB」高很多,值得知道。
    另外發現並修掉一個放大成本的 bug:Streamlit 每個互動(切事件下拉選單、
    開合特徵面板)都會把整份腳本重跑,原本沒快取的話同一份資料會被重複打好
    幾次 BQ——`app/streamlit_app.py` 的 `_get()` / `_search_events()` 已加
@@ -112,6 +116,7 @@ docker compose up -d replay-api replay-ui
 | `BQ_PROJECT_ID` | `kkday-data-dap` | BQ 專案(資料所在專案,原始表位置) |
 | `BQ_DATASET` | `dw_analysis_record` | dataset (2026-08-19 更正,spec 早版寫 dl_qa) |
 | `BQ_BILLING_PROJECT` | `kkday-data-dap-ui` | 查詢帳單 project(2026-08-27 改回直查原始表時定案,跟主平台 backend 用的 `-sit` 隔開) |
+| `BQ_MAX_BYTES_BILLED` | `300` GB(位元組) | 單次查詢 `maximum_bytes_billed` 上限,只當失控防線,不是日常用量控管(見紅線 4) |
 | `API_BASE` | `http://localhost:8300` | Streamlit 打的 API 位址 |
 | `MAIN_APP_URL` | `http://localhost:5888/explore_platform/` | 畫面右上角「搜尋巡檢平台 ↗」連結目標(跟主平台 AppHeader 的「回放」連結是反方向)。docker-compose 的 `replay-ui` service 已覆寫成相對路徑 `/explore_platform/`(同源 nginx 反代下適用) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | 真 BQ 模式必填 |

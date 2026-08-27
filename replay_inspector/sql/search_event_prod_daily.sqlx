@@ -33,7 +33,9 @@ WITH events AS (
     JSON_QUERY_ARRAY(data, '$.prods')            AS prods          -- TODO(verify) path
   FROM ${ref("dw_analysis_record", "stream_search_record")}
   WHERE event_type IN ('content', 'content.cache')
-    AND JSON_VALUE(data, '$.request_type') = 'product.list'
+    -- ✗ 實測推翻 2026-08-27:$.request_type 這個欄位在真實 payload 裡根本
+    --   不存在,原本這行過濾條件會把所有結果濾光,已移除(見
+    --   search_event_daily.sqlx 同款修正的完整說明)。
     ${when(incremental(),
       `AND event_date >= TIMESTAMP(DATAFORM_VAR_RUN_DATE)
        AND event_date <  TIMESTAMP_ADD(TIMESTAMP(DATAFORM_VAR_RUN_DATE), INTERVAL 1 DAY)`)}

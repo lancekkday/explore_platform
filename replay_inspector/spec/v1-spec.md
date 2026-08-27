@@ -109,7 +109,7 @@ dw_analysis_record.stream_search_record (VIEW,原始表)
 | `event_type` | STRING | `content` / `content.cache` |
 | `cache_hit` | BOOL | 頂層欄位，非 JSON。優先用此欄判斷快取 |
 | `source_event_id` | STRING | 對應的 recall event_id |
-| `request_type` | STRING | 固定 `product.list`（V1 只處理這個） |
+| ~~`request_type`~~ | ~~STRING~~ | ~~固定 `product.list`（V1 只處理這個）~~ **✗ 實測推翻(2026-08-27)**:這個欄位在真實 payload 裡根本不存在,見 §2.1。原本設計是拿它過濾 V1 範圍,現在單純用 `event_type IN ('content','content.cache')` 界定,不需要這欄 |
 | `keyword` | STRING | `data.query.keyword`。**cluster key** |
 | `normalized_keyword` | STRING | 來自 recall 的 `query_understanding.normalized_keyword` |
 | `lang` / `locale` / `currency` | STRING | 多語系維度 |

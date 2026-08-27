@@ -50,6 +50,12 @@ services:
     restart: always
     env_file:
       - ./.env
+    environment:
+      # backend 的 baseline 抓取跟這裡共用同一份 .env,兩邊都叫 BQ_PROJECT_ID
+      # 但要指到不同專案 (backend 用 kkday-data-dap-sit 存 baseline view,
+      # 回放器的事件表在 kkday-data-dap,沒有 -sit) —— 用 environment: 覆寫
+      # 蓋掉從 .env 洩漏進來的值,不用動 .env 本身也不用改共用變數名稱
+      BQ_PROJECT_ID: kkday-data-dap
     volumes:
       # 與 backend 同一招:SA JSON 掛同路徑,GOOGLE_APPLICATION_CREDENTIALS 直接解析
       - ${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:ro

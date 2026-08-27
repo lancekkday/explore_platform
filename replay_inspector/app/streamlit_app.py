@@ -361,9 +361,14 @@ list_bytes = _resp_json.get("bytes_billed", 0)
 if not events:
     loc = P["locale"] or "任一 locale"
     who = "(含使用者條件)" if user_mode else ""
+    # 日期預設值是今天(見上方 session_state 初始化)—— 當天事件可能還在
+    # 累積中,查無結果時給個更具體的下一步,不是只丟「換一天」讓人自己猜
+    # (2026-08-27 PR review 建議)
+    today_hint = ("今天的事件可能還在累積中,可以先試昨天 (D-1)。"
+                  if P["date"] == datetime.date.today().isoformat() else "")
     st.markdown(
         f"<div class='ri empty-state'>{_esc(P['date'][5:])} 的「{_esc(P['keyword'])}」在 "
-        f"{_esc(loc)} 沒有 content 事件{who}。試著放寬 locale,或換一天。</div>",
+        f"{_esc(loc)} 沒有 content 事件{who}。{today_hint}試著放寬 locale,或換一天。</div>",
         unsafe_allow_html=True)
     st.stop()
 

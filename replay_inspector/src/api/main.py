@@ -346,13 +346,14 @@ def compare(
         ev = _latest_session(exp)
         if not ev:
             return [], None
-        prods = _repo_call(repo.get_prods, date, keyword, locale, exp,
-                           session_id=ev["session_id"])
-        cost += repo.last_query_bytes()
-        prods = _enrich_prod_names(prods, name_lookup)
+        # prods 已併在 get_event() 裡一起抽(2026-08-27 PR review 抓到:這裡跟
+        # event_detail 是同一種重複查詢,原本各自呼叫 get_prods() + get_event()
+        # 分兩支查詢掃同一列資料 —— 比照 event_detail 的作法併成一支,A/B 兩側
+        # 各省一次查詢)
         detail = _repo_call(repo.get_event, ev["session_id"], date, keyword=keyword,
                             exp_version=exp, locale=ev.get("locale"))
         cost += repo.last_query_bytes()
+        prods = _enrich_prod_names((detail or {}).get("prods") or [], name_lookup)
         # 表格內每列要能呈現來源側的 exp / lang / locale / cf (事件層級 metadata)
         meta = {
             "exp_version": exp,

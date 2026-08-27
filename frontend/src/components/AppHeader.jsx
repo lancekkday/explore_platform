@@ -37,6 +37,18 @@ export default function AppHeader() {
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-status-blue animate-pulse" />
             )}
           </NavLink>
+          {/* 回放器是獨立技術棧 (Streamlit,repo 內 replay_inspector/) — 只拆入口。
+              預設同站子路徑 /explore_platform/replay/ (dev 由 Vite proxy、prod 由
+              nginx 反代到 Streamlit);VITE_REPLAY_URL 可覆寫 */}
+          <a
+            href={import.meta.env.VITE_REPLAY_URL || '/explore_platform/replay/'}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 px-3 py-[5px] rounded-lg text-[12px] transition-colors text-text-secondary hover:text-text-primary"
+            title="個性化搜尋事件回放器 (另開新分頁)"
+          >
+            回放 <span className="text-[9px] opacity-60">↗</span>
+          </a>
         </nav>
 
         <div className="flex items-center gap-1.5">

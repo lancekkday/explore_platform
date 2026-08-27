@@ -21,6 +21,12 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (path) => path.replace(new RegExp(`^${apiUrl}`), '/api'),
         },
+        // 回放器 (Streamlit) 同站子路徑;ws:true 是必要的 (_stcore/stream)
+        '/explore_platform/replay': {
+          target: env.VITE_REPLAY_TARGET || 'http://localhost:8301',
+          changeOrigin: true,
+          ws: true,
+        },
       },
     },
   }

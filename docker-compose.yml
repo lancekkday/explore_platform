@@ -28,12 +28,51 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL:-/api}
         VITE_BASE_URL: ${VITE_BASE_URL:-/}
+        # 回放器入口。預設同站子路徑 (frontend nginx 反代到 replay-ui),
+        # 正式台即 http://<host>:<port>/explore_platform/replay/,無需另開 port
+        VITE_REPLAY_URL: ${VITE_REPLAY_URL:-/explore_platform/replay/}
     container_name: sip_frontend
     restart: always
     ports:
       - "${FRONTEND_PORT:-8086}:80"
     depends_on:
       - backend
+
+  # ── 個性化搜尋事件回放器 (replay_inspector/) ────────────────────────────────
+  # 同一個 image 起兩個 service;replay-ui 透過 compose 內網打 replay-api。
+  # USE_FAKE=1 (寫在 .env) = demo 模式,BQ 表 (dl_qa.search_event_*) 由 dataform
+  # 產出前都用這個。
+  replay-api:
+    build:
+      context: ./replay_inspector
+      dockerfile: Dockerfile
+    container_name: sip_replay_api
+    restart: always
+    env_file:
+      - ./.env
+    volumes:
+      # 與 backend 同一招:SA JSON 掛同路徑,GOOGLE_APPLICATION_CREDENTIALS 直接解析
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:ro
+    ports:
+      - "${REPLAY_API_PORT:-8300}:8000"
+
+  replay-ui:
+    build:
+      context: ./replay_inspector
+      dockerfile: Dockerfile
+    container_name: sip_replay_ui
+    restart: always
+    command: >
+      streamlit run app/streamlit_app.py
+      --server.port 8501 --server.address 0.0.0.0 --server.headless true
+      --server.baseUrlPath /explore_platform/replay
+    environment:
+      # container-to-container:UI 的後端請求走 compose 內網,不繞出去
+      API_BASE: http://replay-api:8000
+    ports:
+      - "${REPLAY_UI_PORT:-8301}:8501"
+    depends_on:
+      - replay-api
 
 volumes:
   sip_data:

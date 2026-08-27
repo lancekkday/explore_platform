@@ -1,0 +1,63 @@
+-- ⚠ SUPERSEDED 2026-08-26:資料團隊已自建 flat 中繼表
+--   `dw_analysis_record.stream_search_record_flat` (每日 D-1,分區 event_date,
+--   叢集 event_type/kkud/query_keyword,content 列預 join uf) — 平台已直接改用它,
+--   本檔不再需要併入 dataform,保留作 schema 對映參考。
+
+config {
+  type: "incremental",
+  schema: "dw_analysis_record",
+  name: "search_event_prod_daily",
+  bigquery: {
+    partitionBy: "TIMESTAMP_TRUNC(event_date, DAY)",
+    clusterBy: ["keyword", "exp_version"],
+    requirePartitionFilter: true
+  },
+  description: "搜尋事件回放器 prod 層:一列一個事件中的一個商品。排序畫面主要來源。keyword/locale/exp_version 為冗餘欄,查排序不需 join。"
+}
+
+-- =============================================================================
+-- ⚠ 交付初稿:給資料團隊 review。由 event 層 UNNEST 產出 (spec 3.2/3.3)。
+--   prods JSON path 標 TODO(verify) — 以實際 payload 為準。
+-- =============================================================================
+
+WITH events AS (
+  SELECT
+    event_id AS session_id,
+    event_date,
+    JSON_VALUE(data, '$.query.keyword')          AS keyword,
+    JSON_VALUE(data, '$.query.locale')           AS locale,        -- TODO(verify) path
+    JSON_VALUE(data, '$.experiment.exp_version') AS exp_version,
+    SAFE_CAST(JSON_VALUE(data, '$.pagination.start') AS INT64) AS page_start,
+    JSON_QUERY_ARRAY(data, '$.prods')            AS prods          -- TODO(verify) path
+  FROM ${ref("dw_analysis_record", "stream_search_record")}
+  WHERE event_type IN ('content', 'content.cache')
+    AND JSON_VALUE(data, '$.request_type') = 'product.list'
+    ${when(incremental(),
+      `AND event_date >= TIMESTAMP(DATAFORM_VAR_RUN_DATE)
+       AND event_date <  TIMESTAMP_ADD(TIMESTAMP(DATAFORM_VAR_RUN_DATE), INTERVAL 1 DAY)`)}
+)
+
+SELECT
+  e.session_id,
+  e.event_date,
+  e.keyword,
+  e.locale,
+  e.exp_version,
+  -- 全域排名 = page_start + 頁內 offset + 1 (spec 3.2)
+  e.page_start + idx + 1                              AS rank,
+  JSON_VALUE(p, '$.prod_mid')                         AS prod_mid,
+  JSON_VALUE(p, '$.prod_oid')                         AS prod_oid,
+  -- ✓ RESOLVED 2026-08-19:原表實測 prods 元素只有
+  --   {is_ad, ltr_score, prod_mid, prod_oid, relevance_status_code}
+  --   (recall 側另有 ip_ids — 品牌 IP id 陣列,佐證 §9.1;暫未落表)。
+  --   payload 無商品名 → 落 NULL,前端 fallback 以 prod_mid 當連結文字;
+  --   要顯示名稱需 join 商品 dim 表或請 RD 加埋點 (後續票)
+  CAST(NULL AS STRING)                                AS prod_name,
+  SAFE_CAST(JSON_VALUE(p, '$.is_ad') AS BOOL)         AS is_ad,          -- TODO(verify) path
+  -- 原始為 float32:落表保留 FLOAT64,同分帶判讀在 API 層以 float32 ULP 處理
+  SAFE_CAST(JSON_VALUE(p, '$.ltr_score') AS FLOAT64)  AS ltr_score,
+  -- 六碼保留字串,以免掉前導零 (spec 3.2)
+  JSON_VALUE(p, '$.relevance_status_code')            AS relevance_status_code,
+  (e.page_start + idx + 1) <= 100                     AS in_rerank_scope  -- spec 4.4
+FROM events e,
+UNNEST(e.prods) AS p WITH OFFSET AS idx

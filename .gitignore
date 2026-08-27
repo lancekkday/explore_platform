@@ -35,3 +35,11 @@ handoff/_secrets/
 
 # structured Kibana event logs
 backend/logs/
+
+# 驗證用截圖 / 瀏覽器暫存 / 本機工作目錄 — 永不入版控
+/*.png
+/*.zip
+.playwright-mcp/
+.claude/
+# repo 根目錄 data/ 放本機憑證與工作檔 (含 SA JSON),嚴禁 git add
+/data/

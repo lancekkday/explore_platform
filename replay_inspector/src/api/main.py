@@ -24,6 +24,7 @@ from src.repo.bigquery import (
     ClusterKeyRequired,
     EventRepo,
     MissingPartitionDate,
+    QueryTooExpensive,
     get_repo,
     local_date_to_utc_range,
     mask_ip_to_24,
@@ -120,8 +121,11 @@ def list_events(
                    "member_uuid 過濾走 POST /api/events/search 且仍需搭配 keyword/kkud)",
         )
     try:
-        return {"rows": [_listed(r) for r in repo.list_events(date, filters)]}
+        rows = [_listed(r) for r in repo.list_events(date, filters)]
+        return {"rows": rows, "bytes_billed": repo.last_query_bytes()}
     except ClusterKeyRequired as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except QueryTooExpensive as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -151,8 +155,11 @@ def search_events(body: EventSearchBody, repo: EventRepo = Depends(get_repo)):
                    "member_uuid / session_id 可作為附加過濾",
         )
     try:
-        return {"rows": [_listed(r) for r in repo.list_events(date, filters)]}
+        rows = [_listed(r) for r in repo.list_events(date, filters)]
+        return {"rows": rows, "bytes_billed": repo.last_query_bytes()}
     except ClusterKeyRequired as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except QueryTooExpensive as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -173,15 +180,18 @@ def event_detail(
 ):
     _reject_pii_in_query_string(request)
     date = _require_date(date)
-    ev = repo.get_event(session_id, date, keyword=keyword,
-                        exp_version=exp_version, locale=locale)
+    try:
+        ev = repo.get_event(session_id, date, keyword=keyword,
+                            exp_version=exp_version, locale=locale)
+    except QueryTooExpensive as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not ev:
         raise HTTPException(status_code=404, detail=f"session_id not found: {session_id}")
+    bytes_billed = repo.last_query_bytes()
 
-    # 鎖定本事件的商品列 — 同天同 keyword+exp 可能有多個 session (spec 3.2 FK)
-    prods = repo.get_prods(date, ev["keyword"], ev.get("locale"), ev["exp_version"],
-                           session_id=session_id)
-    prods = _enrich_prod_names(prods, name_lookup)
+    # 商品列已併在 get_event() 裡一起抽(2026-08-27 省成本:同一個 event_id
+    # 鎖定的是同一列資料,不用再開一支查詢重掃一次,見 bigquery.py 註解)
+    prods = _enrich_prod_names(ev.get("prods") or [], name_lookup)
     scores = [p.get("ltr_score") for p in prods]
     bands = assign_tie_bands(scores)
     prod_rows = [
@@ -210,6 +220,7 @@ def event_detail(
 
     return {
         "session_id": ev["session_id"],
+        "bytes_billed": bytes_billed,   # 這次查詢 (content+recall+prods) 累積計費位元組數
         "event_date_local": _to_local_iso(ev.get("event_date")),
         "event_type": ev.get("event_type"),
         "cache_hit": ev.get("cache_hit"),
@@ -266,11 +277,14 @@ def event_cf(
 ):
     _reject_pii_in_query_string(request)
     date = _require_date(date)
-    cf = repo.get_cf_raw(session_id, date, keyword=keyword,
-                         exp_version=exp_version, locale=locale)
+    try:
+        cf = repo.get_cf_raw(session_id, date, keyword=keyword,
+                             exp_version=exp_version, locale=locale)
+    except QueryTooExpensive as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if cf is None:
         raise HTTPException(status_code=404, detail="cf not found")
-    return {"session_id": session_id, "cf_raw": cf}
+    return {"session_id": session_id, "cf_raw": cf, "bytes_billed": repo.last_query_bytes()}
 
 
 # ── 5.5 GET /api/compare ──────────────────────────────────────────────────────
@@ -292,63 +306,75 @@ def compare(
     if not keyword:
         raise HTTPException(status_code=400, detail="keyword is required")
 
-    # exp_a/exp_b 可省略 — 自動從當日該 keyword 的事件偵測兩個實驗組
-    # (RD:個性化實驗階段 control 組就是非個性化 baseline 組)。升冪排序取前二,
-    # 對齊 ui-spec §4 範例「A treatment 100000 ↔ B control 100001」的編號慣例;
-    # 顯式帶入仍可覆寫。
-    if not exp_a or not exp_b:
-        seen: list[str] = []
-        for ev in repo.list_events(date, {"keyword": keyword, "locale": locale,
-                                          "cache_hit": cache_hit}):
-            v = ev.get("exp_version")
-            if v and v not in seen:
-                seen.append(v)
-        seen.sort()
-        if len(seen) < 2:
-            raise HTTPException(
-                status_code=404,
-                detail="找不到兩個實驗組事件,無法對照 — 可放寬 locale / cache_hit,"
-                       "或以 exp_a/exp_b 明確指定",
-            )
-        exp_a, exp_b = seen[0], seen[1]
+    cost = [0]   # 累積這次 /api/compare 打了幾次 repo、共花多少計費位元組數
 
-    def _latest_session(exp: str) -> Optional[dict]:
-        # 同天同 keyword+exp 可能有多個 session — 各側取最新一個事件,
-        # 不鎖 session 的話多個事件的 rank 會混在同一張排序表 (spec 3.2 FK)。
-        # cache_hit 必須跟著帶:使用者明選 cache_hit=false 要看 live 排序時,
-        # 不帶會抓到 cache 事件,比對對象錯置。
-        events = repo.list_events(date, {
-            "keyword": keyword, "exp_version": exp, "locale": locale,
-            "cache_hit": cache_hit,
-        })
-        return events[0] if events else None
+    def _tracked_list_events(filters: dict) -> list[dict]:
+        rows = repo.list_events(date, filters)
+        cost[0] += repo.last_query_bytes()
+        return rows
 
-    def _side(exp: str) -> tuple[list[dict], Optional[dict]]:
-        ev = _latest_session(exp)
-        if not ev:
-            return [], None
-        prods = repo.get_prods(date, keyword, locale, exp,
-                               session_id=ev["session_id"])
-        prods = _enrich_prod_names(prods, name_lookup)
-        detail = repo.get_event(ev["session_id"], date, keyword=keyword,
-                                exp_version=exp, locale=ev.get("locale"))
-        # 表格內每列要能呈現來源側的 exp / lang / locale / cf (事件層級 metadata)
-        meta = {
-            "exp_version": exp,
-            "session_id": ev["session_id"],
-            "lang": (detail or {}).get("lang"),
-            "locale": (detail or {}).get("locale") or ev.get("locale"),
-            "currency": (detail or {}).get("currency"),
-            "cf": {
-                "platform": (detail or {}).get("cf_platform"),
-                "hour": (detail or {}).get("cf_hour"),
-                "weekday": (detail or {}).get("cf_weekday"),
-            },
-        }
-        return prods, meta
+    try:
+        # exp_a/exp_b 可省略 — 自動從當日該 keyword 的事件偵測兩個實驗組
+        # (RD:個性化實驗階段 control 組就是非個性化 baseline 組)。升冪排序取前二,
+        # 對齊 ui-spec §4 範例「A treatment 100000 ↔ B control 100001」的編號慣例;
+        # 顯式帶入仍可覆寫。
+        if not exp_a or not exp_b:
+            seen: list[str] = []
+            for ev in _tracked_list_events({"keyword": keyword, "locale": locale,
+                                            "cache_hit": cache_hit}):
+                v = ev.get("exp_version")
+                if v and v not in seen:
+                    seen.append(v)
+            seen.sort()
+            if len(seen) < 2:
+                raise HTTPException(
+                    status_code=404,
+                    detail="找不到兩個實驗組事件,無法對照 — 可放寬 locale / cache_hit,"
+                           "或以 exp_a/exp_b 明確指定",
+                )
+            exp_a, exp_b = seen[0], seen[1]
 
-    a_prods, a_meta = _side(exp_a)
-    b_prods, b_meta = _side(exp_b)
+        def _latest_session(exp: str) -> Optional[dict]:
+            # 同天同 keyword+exp 可能有多個 session — 各側取最新一個事件,
+            # 不鎖 session 的話多個事件的 rank 會混在同一張排序表 (spec 3.2 FK)。
+            # cache_hit 必須跟著帶:使用者明選 cache_hit=false 要看 live 排序時,
+            # 不帶會抓到 cache 事件,比對對象錯置。
+            events = _tracked_list_events({
+                "keyword": keyword, "exp_version": exp, "locale": locale,
+                "cache_hit": cache_hit,
+            })
+            return events[0] if events else None
+
+        def _side(exp: str) -> tuple[list[dict], Optional[dict]]:
+            ev = _latest_session(exp)
+            if not ev:
+                return [], None
+            prods = repo.get_prods(date, keyword, locale, exp,
+                                   session_id=ev["session_id"])
+            cost[0] += repo.last_query_bytes()
+            prods = _enrich_prod_names(prods, name_lookup)
+            detail = repo.get_event(ev["session_id"], date, keyword=keyword,
+                                    exp_version=exp, locale=ev.get("locale"))
+            cost[0] += repo.last_query_bytes()
+            # 表格內每列要能呈現來源側的 exp / lang / locale / cf (事件層級 metadata)
+            meta = {
+                "exp_version": exp,
+                "session_id": ev["session_id"],
+                "lang": (detail or {}).get("lang"),
+                "locale": (detail or {}).get("locale") or ev.get("locale"),
+                "currency": (detail or {}).get("currency"),
+                "cf": {
+                    "platform": (detail or {}).get("cf_platform"),
+                    "hour": (detail or {}).get("cf_hour"),
+                    "weekday": (detail or {}).get("cf_weekday"),
+                },
+            }
+            return prods, meta
+
+        a_prods, a_meta = _side(exp_a)
+        b_prods, b_meta = _side(exp_b)
+    except QueryTooExpensive as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not a_prods and not b_prods:
         raise HTTPException(status_code=404, detail="no prods for either experiment")
 
@@ -382,4 +408,5 @@ def compare(
         "dispersion_a": dispersion_stats([p.get("ltr_score") for p in a_prods]),
         "dispersion_b": dispersion_stats([p.get("ltr_score") for p in b_prods]),
         "rows": rows,
+        "bytes_billed": cost[0],
     }

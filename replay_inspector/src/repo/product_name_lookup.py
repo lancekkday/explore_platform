@@ -1,7 +1,7 @@
 """商品名稱查詢 (runtime,thread-safe,TTL cached)
 =================================================================
 
-spec §9.6:`stream_search_record_flat.prods` 沒有 prod_name 欄位。這裡用
+spec §9.6:`stream_search_record.prods` 沒有 prod_name 欄位。這裡用
 `www.kkday.com` 商品頁公開的 `og:title` meta tag 補這個缺口 —— 不需要登入、
 不需要 API key,商品名稱幾乎不變動,用長 TTL cache 大幅降低重複請求。
 

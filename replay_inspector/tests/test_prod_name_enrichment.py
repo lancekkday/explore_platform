@@ -37,6 +37,9 @@ class _StubRepo:
             "uf_lbs": None, "cf_platform": None, "cf_hour": None, "cf_weekday": None,
             "cf_query_final": None, "cf_query_tokens": None,
             "join_failed": False, "uf_absent": False, "ltr_features_recovered": False,
+            # 2026-08-27:main.py 的 event_detail 改吃 get_event() 回傳的 prods,
+            # 不再另外呼叫 get_prods()(省一支重複查詢,見 bigquery.py 同款改動)
+            "prods": [dict(p) for p in self._prods],
         }
 
     def get_cf_raw(self, session_id, date, keyword=None, exp_version=None, locale=None):
@@ -46,6 +49,9 @@ class _StubRepo:
     def get_prods(self, date, keyword, locale, exp_version, session_id=None):
         self.query_count += 1
         return [dict(p) for p in self._prods]
+
+    def last_query_bytes(self):
+        return 0
 
 
 @pytest.fixture()

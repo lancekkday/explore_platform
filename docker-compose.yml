@@ -40,8 +40,9 @@ services:
 
   # ── 個性化搜尋事件回放器 (replay_inspector/) ────────────────────────────────
   # 同一個 image 起兩個 service;replay-ui 透過 compose 內網打 replay-api。
-  # USE_FAKE=1 (寫在 .env) = demo 模式,BQ 表 (dl_qa.search_event_*) 由 dataform
-  # 產出前都用這個。
+  # USE_FAKE=1 (寫在 .env) = demo 模式;真 BQ 模式直查
+  # dw_analysis_record.stream_search_record 原始表 (2026-08-27 定案,見
+  # replay_inspector/CLAUDE.md 紅線 1)。
   replay-api:
     build:
       context: ./replay_inspector
@@ -75,6 +76,9 @@ services:
     environment:
       # container-to-container:UI 的後端請求走 compose 內網,不繞出去
       API_BASE: http://replay-api:8000
+      # 跟主平台互開新分頁按鈕的目標網址;同源 nginx 反代下用相對路徑即可
+      # (code 預設是本機 start_replay.sh 直跑用的絕對網址,這裡覆寫)
+      MAIN_APP_URL: /explore_platform/
     ports:
       - "${REPLAY_UI_PORT:-8301}:8501"
     depends_on:

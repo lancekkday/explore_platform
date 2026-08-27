@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import datetime
 import html
 import os
 import sys
@@ -29,9 +30,18 @@ from src.domain.presentation import (  # noqa: E402  (ui-spec §9.2 共用純函
     verdict_text,
 )
 from src.domain.relevance import RELEVANCE_DIMS  # noqa: E402
+from src.repo.bigquery import (  # noqa: E402
+    BQ_BILLING_PROJECT,        # 帳單 project,固定顯示在畫面上(2026-08-27 使用者要求)
+    MAX_BYTES_BILLED_PER_QUERY,  # 單次查詢上限,顯示用
+)
 
 API_BASE = os.getenv("API_BASE", "http://localhost:8300")
+# 跟主平台互開新分頁的入口(AppHeader.jsx 的「回放」連結是反方向)。
+# 本機 start_replay.sh 直跑(無 nginx)時預設指 Vite dev server 絕對網址;
+# docker/SIT 同源反代時,replay-ui service 的 environment 覆寫成相對路徑 /explore_platform/。
+MAIN_APP_URL = os.getenv("MAIN_APP_URL", "http://localhost:5888/explore_platform/")
 RERANK_BOUNDARY = 100
+MAX_BYTES_BILLED_PER_QUERY_GB = MAX_BYTES_BILLED_PER_QUERY / 1024 ** 3
 
 st.set_page_config(page_title="個性化搜尋事件回放器", layout="wide")
 
@@ -57,6 +67,13 @@ header[data-testid="stHeader"]{display:none;}
 .ri-title{font:500 15px/1.4 var(--sans);color:var(--ink);}
 .ri-eyebrow{font:500 11px/1.2 var(--cond);letter-spacing:.06em;color:var(--graphite);text-transform:uppercase;}
 .ri-note{font:400 10.5px/1.3 var(--cond);color:var(--graphite);}
+/* 跨頁導覽連結(標題列右上,跟主平台互開新分頁)— 刻意跟 .pname 的資料格連結
+   (dotted underline)區隔開,這是導覽用的按鈕感連結,不是資料值 */
+.ri-navlink{display:inline-flex;align-items:center;gap:3px;font:500 11px/1.2 var(--cond);
+  letter-spacing:.02em;color:var(--graphite);text-decoration:none;
+  padding:5px 10px;border-radius:6px;transition:background-color .15s,color .15s;}
+.ri-navlink:hover{background:var(--tolerance);color:var(--ink);}
+.ri-navlink .arrow{font-size:9px;opacity:.55;}
 /* 讀數列 (§5) */
 .readout{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--rule);
   border:.5px solid var(--rule);border-radius:6px;overflow:hidden;margin:10px 0 14px;}
@@ -165,7 +182,21 @@ def _esc(v) -> str:
     return html.escape(str(v))
 
 
+def _humanize_bytes(n: int | None) -> str:
+    """BQ 計費位元組數 → 人類可讀單位(2026-08-27 使用者要求顯示資料量)。"""
+    n = n or 0
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+
+
+@st.cache_data(ttl=600, show_spinner=False)
 def _get(path: str, params: dict):
+    """快取 10 分鐘(2026-08-27 實測發現:單次 keyword 查詢真實計費約 20GB —
+    Streamlit 每個互動,如切換特徵面板開關、切事件下拉選單,都會整份腳本重跑;
+    沒快取的話同一份資料會被重複打好幾次 BQ,同一次查看一個 session 就可能
+    翻倍付好幾次 20GB。快取後只有真的換條件才會重新計費)。"""
     r = requests.get(f"{API_BASE}{path}", params=params, timeout=30)
     if r.status_code in (400, 404):
         return None, r.json().get("detail", "")
@@ -226,7 +257,7 @@ def _score_html(in_scope, sstr, plen) -> str:
 if "params" not in st.session_state:
     st.session_state.params = {
         "mode": "單人回放",   # PM 主用例:查某使用者在線上實際看到的召回結果
-        "date": "2026-08-13", "keyword": "福岡", "lang": "", "locale": "",
+        "date": datetime.date.today().isoformat(), "keyword": "福岡", "lang": "", "locale": "",
         "currency": "",
         "kkud": "", "member_uuid": "", "session_id": "", "cache_hit": "(不限)",
     }
@@ -237,15 +268,26 @@ if P["lang"] or P["locale"]:
     summary_bits.append(f"{_esc(P['lang'] or '?')} · {_esc(P['locale'] or '?')}")
 summary_bits.append(f"{_esc(P['date'])} <span class='ri-note'>(UTC+8)</span>")
 st.markdown(
-    f"<div class='ri' style='display:flex;justify-content:space-between;align-items:baseline'>"
+    f"<div class='ri' style='display:flex;justify-content:space-between;align-items:center'>"
     f"<div class='ri-title'>{'&ensp;'.join(summary_bits)}</div>"
-    f"<div class='ri-eyebrow'>搜尋事件回放</div></div>",
+    f"<div style='display:flex;align-items:center;gap:10px'>"
+    f"<a href='{_esc(MAIN_APP_URL)}' target='_blank' rel='noreferrer' class='ri-navlink' "
+    f"title='開啟搜尋巡檢平台 (另開新分頁)'>搜尋巡檢平台<span class='arrow'>↗</span></a>"
+    f"<span class='ri-note' title='這個工具打 BigQuery 的計費 project — 每次查詢的"
+    f"用量都算在這個 project 底下,不是主平台 backend 用的 -sit'>Query Project "
+    f"{_esc(BQ_BILLING_PROJECT)}</span>"
+    f"<div class='ri-eyebrow'>搜尋事件回放</div></div></div>",
     unsafe_allow_html=True,
 )
 
 with st.expander("條件", expanded=False):
     c1, c2, c3, c4, c5 = st.columns([1.2, 1.6, 0.8, 0.8, 0.8])
-    P["date"] = c1.text_input("日期 (UTC+8) *", value=P["date"])
+    try:
+        _default_date = datetime.date.fromisoformat(P["date"])
+    except (ValueError, TypeError):
+        _default_date = datetime.date.today()
+    _picked_date = c1.date_input("日期 (UTC+8) *", value=_default_date, format="YYYY-MM-DD")
+    P["date"] = _picked_date.isoformat() if _picked_date else ""
     P["keyword"] = c2.text_input("keyword *", value=P["keyword"])
     P["lang"] = c3.text_input("lang", value=P["lang"])
     P["locale"] = c4.text_input("locale", value=P["locale"])
@@ -291,19 +333,31 @@ if not P["keyword"]:
 # 模式由 radio 顯式選擇 (預設單人回放);kkud/member_uuid/session_id 只是縮小範圍
 user_mode = P["mode"] == "單人回放"
 
-resp = requests.post(f"{API_BASE}/api/events/search", json={
+@st.cache_data(ttl=600, show_spinner=False)
+def _search_events(payload: dict):
+    """快取 10 分鐘 — 理由同 _get():這是最貴的一支查詢(實測約 20GB/次),
+    不快取的話換頁籤、開合特徵面板都會在使用者沒察覺的情況下重打一次。"""
+    r = requests.post(f"{API_BASE}/api/events/search", json=payload, timeout=30)
+    if r.status_code == 400:
+        return {"error": r.json().get("detail")}
+    r.raise_for_status()
+    return r.json()
+
+
+_resp_json = _search_events({
     "date": P["date"],
     "keyword": P["keyword"] or None, "kkud": P["kkud"] or None,
     "member_uuid": P["member_uuid"] or None, "session_id": P["session_id"] or None,
     "locale": P["locale"] or None, "lang": P["lang"] or None,
     "currency": P["currency"] or None,
     "cache_hit": None if P["cache_hit"] == "(不限)" else P["cache_hit"] == "true",
-}, timeout=30)
-if resp.status_code == 400:
-    st.markdown(f"<div class='ri empty-state'>{_esc(resp.json().get('detail'))}</div>",
+})
+if "error" in _resp_json:
+    st.markdown(f"<div class='ri empty-state'>{_esc(_resp_json['error'])}</div>",
                 unsafe_allow_html=True)
     st.stop()
-events = resp.json()["rows"]
+events = _resp_json["rows"]
+list_bytes = _resp_json.get("bytes_billed", 0)
 if not events:
     loc = P["locale"] or "任一 locale"
     who = "(含使用者條件)" if user_mode else ""
@@ -313,45 +367,41 @@ if not events:
         unsafe_allow_html=True)
     st.stop()
 
-# 特徵面板可收折到最右邊 (收合時排序表滿版;事件選擇記在 session,資料照常載入)
-if "panel_open" not in st.session_state:
-    st.session_state.panel_open = False   # 預設收合 — 排序表滿版,要看特徵再點右緣 tab
-
-
-def _toggle_panel():
-    st.session_state.panel_open = not st.session_state.panel_open
-
-
-if st.session_state.panel_open:
-    left, right, tabcol = st.columns([26, 10, 1.3], gap="small")
-else:
-    left, tabcol = st.columns([36, 1.3], gap="small")
-    right = st.container()   # 收合時面板不渲染;資料流 (事件選擇/明細載入) 照走
-
-with tabcol:
-    if st.session_state.panel_open:
-        st.button("特徵面板", key="panel_tab_open", on_click=_toggle_panel,
-                  help="收合特徵面板,排序表滿版")
-    else:
-        st.button("特徵面板", key="panel_tab_closed", on_click=_toggle_panel,
-                  help="展開特徵面板")
-
-# ══ 右欄先執行:事件選擇 + 特徵面板 (§7,兩種模式共用) ══════════════════════════
-with right:
+if user_mode:
+    # ══ 事件選擇(§7)— 提到最上面、跟「特徵面板」開關脫鉤 ═══════════════════════
+    # 原本藏在收合的側欄 container 裡,Streamlit container 定位規則會把它排到
+    # 整張排序表「下面」,使用者要滑到頁尾才看得到、也不知道有其他分頁可選
+    # (2026-08-27 UX 問題:492 筆全量裡,回放器只看得到真的被請求過的那幾頁,
+    # 但選單找不到的話等於這個功能不存在)。現在固定顯示在查詢按鈕正下方。
     _ids = [e["session_id"] for e in events]
-    if st.session_state.panel_open:
+
+    def _event_label(s: str) -> str:
+        """每段都標籤化,原本 `130010 · #1~10 · content · c687e3b5-2330-4f60`
+        看不出哪段是什麼(2026-08-27 使用者反饋);cache_hit 改用頁面其他地方
+        已經在用的 live/cache 詞彙,不要 content/content.cache 這種原始值。"""
+        e = next(e for e in events if e["session_id"] == s)
+        start = e.get("page_start") or 0
+        cnt = e.get("prod_cnt") or 0
+        rank_range = f"#{start + 1}~{start + cnt}" if cnt else f"#{start + 1}~"
+        cache_txt = "cache" if e.get("cache_hit") else "live"
+        time_txt = (e.get("event_date_local") or "")[11:16]   # HH:MM (UTC+8)
+        return (f"exp {e['exp_version']} · 排名 {rank_range} · {cache_txt}"
+                f" · {time_txt} · {e['session_id'][:8]}")
+
+    ecol, _spacer = st.columns([2.2, 1.4])
+    with ecol:
         pick = st.selectbox(
-            "事件", _ids,
+            "事件(不同分頁的真實請求,若使用者當時有往下滑會看到多筆)", _ids,
             index=_ids.index(st.session_state["picked_session"])
             if st.session_state.get("picked_session") in _ids else 0,
-            format_func=lambda s: next(
-                f"{e['exp_version']} · {e['event_type']} · {e['session_id'][:18]}"
-                for e in events if e["session_id"] == s),
+            format_func=_event_label,
+            help="每個選項是一次真實發生的搜尋請求。格式:exp 實驗版本 · 該頁涵蓋的排名"
+                 "區間(如 #71~80)· live(即時)/cache(快取)· 事件發生時間(UTC+8)"
+                 " · session_id 前 8 碼。回放器只能看到使用者實際請求過的分頁 ——"
+                 "若使用者只翻到第一頁,全量裡剩下的無法從這裡看到"
+                 "(唯讀回放,不是即時打 API)。",
         )
-        st.session_state["picked_session"] = pick
-    else:
-        stored = st.session_state.get("picked_session")
-        pick = stored if stored in _ids else _ids[0]
+    st.session_state["picked_session"] = pick
     picked_ev = next(e for e in events if e["session_id"] == pick)
     hints = {"keyword": picked_ev.get("keyword"),
              "exp_version": picked_ev.get("exp_version"),
@@ -361,65 +411,91 @@ with right:
         st.markdown(f"<div class='ri empty-state'>{_esc(derr)}</div>", unsafe_allow_html=True)
         st.stop()
 
-    flags = detail["quality_flags"]
-    joined_ok = not flags["join_failed"]
-    cf = detail["cf_summary"]
+    # 特徵面板可收折到最右邊 (收合時排序表滿版)
+    if "panel_open" not in st.session_state:
+        st.session_state.panel_open = False   # 預設收合 — 排序表滿版,要看特徵再點右緣 tab
+
+    def _toggle_panel():
+        st.session_state.panel_open = not st.session_state.panel_open
+
     if st.session_state.panel_open:
-        f_join = ("<span class='flag-ok'>✓ recall 已串接</span>" if joined_ok
-                  else "<span class='flag-alert'>✕ 串不回 recall</span>")
-        f_uf = ("<span class='flag-warn'>⚠ 上游未推 uf</span>" if flags["uf_absent"]
-                else "<span class='flag-ok'>✓ uf 存在</span>")
-        f_ltr = ("<span class='flag-warn'>⚠ ltr 由 cache 回收</span>"
-                 if flags["ltr_features_recovered"] else "<span class='flag-ok'>✓ ltr 原生</span>")
-        join_note = ("" if joined_ok else
-                     "<div class='ri-note' style='margin-top:4px'>串不回 recall 事件,"
-                     "因此沒有特徵資料。排序仍可判讀。</div>")
-        st.markdown(f"<div class='ri panel'><div class='ri-eyebrow' style='margin-bottom:6px'>串接品質</div>"
-                    f"<div class='flags'>{f_join}{f_uf}{f_ltr}</div>{join_note}</div>",
-                    unsafe_allow_html=True)
+        left, right, tabcol = st.columns([26, 10, 1.3], gap="small")
+    else:
+        left, tabcol = st.columns([36, 1.3], gap="small")
+        right = st.container()
 
-        cov = detail["coverage_baseline"]
-        uf = detail["uf"]
-        uf_rows_html = ""
-        for name, cov_key, field in [("INTENT", "uf_intent", "intent"),
-                                     ("PROFILE", "uf_profile", "profile"),
-                                     ("LBS", "uf_lbs", "lbs")]:
-            pct = cov[cov_key]
-            low = " ○" if pct < 0.30 else ""   # §7.2 低覆蓋提示
-            val = uf[field]
-            val_html = (f"<span class='uf-val'>{_esc(val)}</span>" if val is not None
-                        else "<span class='uf-val empty'>本筆無資料</span>")
-            uf_rows_html += (f"<div class='uf-row'><span class='uf-name'>{name}</span>"
-                             f"<span class='uf-cov'>{pct:.1%}{low}</span>{val_html}</div>")
+    with tabcol:
+        if st.session_state.panel_open:
+            st.button("特徵面板", key="panel_tab_open", on_click=_toggle_panel,
+                      help="收合特徵面板,排序表滿版")
+        else:
+            st.button("特徵面板", key="panel_tab_closed", on_click=_toggle_panel,
+                      help="展開特徵面板")
 
+    with right:
+        flags = detail["quality_flags"]
+        joined_ok = not flags["join_failed"]
         cf = detail["cf_summary"]
-        chips = ""
-        for label, v in [("", cf["platform"]),
-                         ("", f"{cf['hour']}時" if cf["hour"] is not None else None),
-                         ("", f"週{_WD[cf['weekday'] - 1]}"
-                          if isinstance(cf.get("weekday"), int) and 1 <= cf["weekday"] <= 7 else None),
-                         ("query.final ", cf["query_final"]),
-                         ("tokens ", cf["query_tokens"])]:
-            if v is not None:
-                chips += f"<span>{_esc(label)}{_esc(v)}</span>"
+        if st.session_state.panel_open:
+            f_join = ("<span class='flag-ok'>✓ recall 已串接</span>" if joined_ok
+                      else "<span class='flag-alert'>✕ 串不回 recall</span>")
+            f_uf = ("<span class='flag-warn'>⚠ 上游未推 uf</span>" if flags["uf_absent"]
+                    else "<span class='flag-ok'>✓ uf 存在</span>")
+            f_ltr = ("<span class='flag-warn'>⚠ ltr 由 cache 回收</span>"
+                     if flags["ltr_features_recovered"] else "<span class='flag-ok'>✓ ltr 原生</span>")
+            join_note = ("" if joined_ok else
+                         "<div class='ri-note' style='margin-top:4px'>串不回 recall 事件,"
+                         "因此沒有特徵資料。排序仍可判讀。</div>")
+            st.markdown(f"<div class='ri panel'><div class='ri-eyebrow' style='margin-bottom:6px'>串接品質</div>"
+                        f"<div class='flags'>{f_join}{f_uf}{f_ltr}</div>{join_note}</div>",
+                        unsafe_allow_html=True)
 
-        dim_cls = "" if joined_ok else " dim"
-        st.markdown(
-            f"<div class='ri panel{dim_cls}' style='margin-top:8px'>"
-            f"<div class='ri-eyebrow'>USER FEATURE</div>{uf_rows_html}"
-            f"<div class='ri-eyebrow' style='margin:10px 0 6px'>CONTEXT FEATURE"
-            f" <span class='uf-cov'>{cov['cf']:.0%}</span></div>"
-            f"<div class='chips'>{chips}</div></div>",
-            unsafe_allow_html=True,
-        )
+            cov = detail["coverage_baseline"]
+            uf = detail["uf"]
+            uf_rows_html = ""
+            for name, cov_key, field in [("INTENT", "uf_intent", "intent"),
+                                         ("PROFILE", "uf_profile", "profile"),
+                                         ("LBS", "uf_lbs", "lbs")]:
+                pct = cov[cov_key]
+                low = " ○" if pct < 0.30 else ""   # §7.2 低覆蓋提示
+                val = uf[field]
+                val_html = (f"<span class='uf-val'>{_esc(val)}</span>" if val is not None
+                            else "<span class='uf-val empty'>本筆無資料</span>")
+                uf_rows_html += (f"<div class='uf-row'><span class='uf-name'>{name}</span>"
+                                 f"<span class='uf-cov'>{pct:.1%}{low}</span>{val_html}</div>")
 
-        if joined_ok and st.button("展開完整 cf(138 KB)"):
-            cf_full, cerr = _get(f"/api/events/{pick}/cf", {"date": P["date"], **hints})
-            if cf_full:
-                st.json(cf_full["cf_raw"])
-            else:
-                st.markdown(f"<div class='ri empty-state'>{_esc(cerr)}</div>",
-                            unsafe_allow_html=True)
+            cf = detail["cf_summary"]
+            chips = ""
+            for label, v in [("", cf["platform"]),
+                             ("", f"{cf['hour']}時" if cf["hour"] is not None else None),
+                             ("", f"週{_WD[cf['weekday'] - 1]}"
+                              if isinstance(cf.get("weekday"), int) and 1 <= cf["weekday"] <= 7 else None),
+                             ("query.final ", cf["query_final"]),
+                             ("tokens ", cf["query_tokens"])]:
+                if v is not None:
+                    chips += f"<span>{_esc(label)}{_esc(v)}</span>"
+
+            dim_cls = "" if joined_ok else " dim"
+            st.markdown(
+                f"<div class='ri panel{dim_cls}' style='margin-top:8px'>"
+                f"<div class='ri-eyebrow'>USER FEATURE</div>{uf_rows_html}"
+                f"<div class='ri-eyebrow' style='margin:10px 0 6px'>CONTEXT FEATURE"
+                f" <span class='uf-cov'>{cov['cf']:.0%}</span></div>"
+                f"<div class='chips'>{chips}</div></div>",
+                unsafe_allow_html=True,
+            )
+
+            if joined_ok and st.button("展開完整 cf(138 KB)"):
+                cf_full, cerr = _get(f"/api/events/{pick}/cf", {"date": P["date"], **hints})
+                if cf_full:
+                    st.json(cf_full["cf_raw"])
+                else:
+                    st.markdown(f"<div class='ri empty-state'>{_esc(cerr)}</div>",
+                                unsafe_allow_html=True)
+else:
+    # 兩組對照不需要單一事件選擇/特徵面板 (§7 只服務單人回放),滿版顯示對照表;
+    # 這裡刻意不呼叫 /api/events/{id},省一次不會被用到的 BigQuery 查詢
+    left = st.container()
 
 
 # ══ 左欄:單人回放 或 兩組對照 ═════════════════════════════════════════════════
@@ -440,7 +516,11 @@ with left:
             f" · {login} · {cache_txt} · {_esc(detail.get('event_date_local') or '')}</span>"
             f"<div class='ri-note' style='margin-top:2px'>單人回放 — 使用者只歸屬一個實驗組,"
             f"無 A/B 對照;本頁 {pg.get('prod_cnt') or 0} 筆 · 全量 {pg.get('total_count') or '—'} 筆"
-            f" · rank ≤ {pg.get('rerank_boundary')} 進精排</div></div>",
+            f" · rank ≤ {pg.get('rerank_boundary')} 進精排"
+            f" · <span title='這次查詢(事件選單 + 明細 + 商品列)BigQuery 計費用量,"
+            f"單次上限 {MAX_BYTES_BILLED_PER_QUERY_GB:.0f}GB'>用量 "
+            f"{_esc(_humanize_bytes(list_bytes + (detail.get('bytes_billed') or 0)))}</span>"
+            f"</div></div>",
             unsafe_allow_html=True,
         )
 
@@ -554,11 +634,15 @@ with left:
                 return (f"<span style='color:{color};font-weight:500'>{tag} "
                         f"{_esc(mm.get('exp_version'))}</span>"
                         f"<span class='ri-note'> ({_esc(loc)} · {_esc(_cf_txt(mm.get('cf')))})</span>")
+            total_bytes = list_bytes + (cmp_data.get("bytes_billed") or 0)
             st.markdown(
                 f"<div class='ri' style='margin-top:6px'>"
                 f"{_side_desc('A treatment', 'var(--measure)', a_meta)}"
                 f"<span style='color:var(--graphite)'> ↔ </span>"
-                f"{_side_desc('B control', 'var(--counter)', b_meta)}</div>",
+                f"{_side_desc('B control', 'var(--counter)', b_meta)}"
+                f"<span class='ri-note' title='這次查詢(事件偵測 + A/B 兩側明細)BigQuery "
+                f"計費用量,單次上限 {MAX_BYTES_BILLED_PER_QUERY_GB:.0f}GB'> · 用量 "
+                f"{_esc(_humanize_bytes(total_bytes))}</span></div>",
                 unsafe_allow_html=True,
             )
 

@@ -35,30 +35,47 @@
 
 ## 2. 資料來源與成本紅線
 
-### 2.1 硬性限制
+### 2.1 硬性限制(2026-08-27 更新)
 
-原表 `kkday-data-dap.dl_base.ar-stream_search_record`：
+> **狀態變更記錄**:本節原版本（早期草案）評估 `dl_base.ar-stream_search_record`
+> 一天全表掃描約 193GB，超過 75GB 紅線，因此定案「前端/API 一律不得查原表」。
+> 2026-08-19 改查正確表名 `dw_analysis_record.stream_search_record`（VIEW），
+> 2026-08-26 一度改用資料團隊自建的 `stream_search_record_flat` 中繼表。
+> **2026-08-27 跟 RD 討論後改回直查原表**，理由：
+> - 該表是 VIEW 且 `data` 為原生 JSON 型別 → per-path 計費有效，dry-run 顯示的
+>   是整欄上限，不是實際帳單（`sql/*.sqlx` 實測：1hr 窗 dry-run 估 9.17GB、
+>   實際計費 12.6MB）
+> - Slack 討論（2026-08-26）實測 kkud/event_id 等值過濾會到 12.9~35.7GB，
+>   RD（Duncan）澄清這是「過程查詢量」（bytes processed 計費），不是硬碟
+>   （storage）占用，不會累積成本
+> - 帳單 project 改指到 `kkday-data-dap-ui`，跟主平台 backend 用的 `-sit` 隔開
+> 上面「193GB / 75GB 紅線」是早期用錯表名時的估算，並非本表的實測數字，
+> 保留在此僅供歷史脈絡；當前的成本認知以本段上方三點為準。
 
-- `data` 欄位是 JSON 大欄位，**無法子欄位剪枝**
-- 一小時 ≈ **10.7 GB**，一整天 ≈ **193 GB**（超過 75 GB 紅線）
+現行表：`kkday-data-dap.dw_analysis_record.stream_search_record`（VIEW）：
 
-**前端與 API 一律不得查詢原表。** 只有 dataform incremental job 可以碰原表，一天付一次成本。
+- `data` 欄位是 JSON，逐 path 抽取計費（per-path billing）
+- `event_date` 分區條件必填（見紅線 2）；`keyword` / `kkud` 至少一項必填
+  （見 `ClusterKeyRequired`）—— 此表無實體叢集，這條規則是正確性考量
+  （鎖定唯一事件），不是省成本
 
-> 若在程式碼中看到直接查 `dl_base.ar-stream_search_record` 的路徑，視為 bug。
+> 若在程式碼中看到查詢缺 `event_date` 分區條件、或缺 keyword/kkud 直接
+> event_id 點查，視為 bug。
 
 ### 2.2 資料流
 
 ```
-ar-stream_search_record          ← 僅 dataform incremental 讀取
+dw_analysis_record.stream_search_record (VIEW,原始表)
         │
-        ├─→ dl_qa.search_event_daily        （event 層，已 join uf/cf）
-        └─→ dl_qa.search_event_prod_daily   （prod 層，一列一商品）
-                    │
-                    ↓
-              FastAPI 服務層
-                    ↓
-              Streamlit 前端
+        ↓  src/repo/bigquery.py 直接 JSON_VALUE/JSON_QUERY 抽取(不經 dataform)
+        │
+  FastAPI 服務層
+        ↓
+  Streamlit 前端
 ```
+
+`sql/*.sqlx`（dataform 初稿，2026-08-26 曾用來餵 flat 中繼表）目前不接線，
+保留作 JSON path 對映參考——`src/repo/bigquery.py` 的欄位抽取邏輯即依此對映。
 
 ### 2.3 為什麼必須 join recall
 
@@ -92,7 +109,7 @@ ar-stream_search_record          ← 僅 dataform incremental 讀取
 | `event_type` | STRING | `content` / `content.cache` |
 | `cache_hit` | BOOL | 頂層欄位，非 JSON。優先用此欄判斷快取 |
 | `source_event_id` | STRING | 對應的 recall event_id |
-| `request_type` | STRING | 固定 `product.list`（V1 只處理這個） |
+| ~~`request_type`~~ | ~~STRING~~ | ~~固定 `product.list`（V1 只處理這個）~~ **✗ 實測推翻(2026-08-27)**:這個欄位在真實 payload 裡根本不存在,見 §2.1。原本設計是拿它過濾 V1 範圍,現在單純用 `event_type IN ('content','content.cache')` 界定,不需要這欄 |
 | `keyword` | STRING | `data.query.keyword`。**cluster key** |
 | `normalized_keyword` | STRING | 來自 recall 的 `query_understanding.normalized_keyword` |
 | `lang` / `locale` / `currency` | STRING | 多語系維度 |
@@ -423,7 +440,9 @@ search-replay-inspector/
 
 ## 8. 驗收條件
 
-1. 全程無任何查詢打到 `dl_base.ar-stream_search_record`
+1. ~~全程無任何查詢打到 `dl_base.ar-stream_search_record`~~（此條已隨 2.1 的
+   2026-08-27 決策失效——`dl_base.ar-stream_search_record` 是早期用錯的表名，
+   平台現在直查 `dw_analysis_record.stream_search_record`，見 2.1）
 2. 缺 `event_date` 的 API 呼叫回 400，不會送出查詢
 3. 輸入 `keyword=福岡` 能同時取得 treatment 與 control 並算出強度
 4. 前十筆同分的情境下，判讀欄顯示「同分帶，不可判讀」而非 `Δ = -1`
@@ -476,7 +495,7 @@ search-replay-inspector/
 
 ### 9.6 商品名稱（`prod_name`）— 已用 og:title 補值（2026-08-26）
 
-`stream_search_record_flat.prods` payload 本身沒有商品名稱欄位。**已實作短期解法**：`src/repo/product_name_lookup.py`（`ProductNameLookup`，TTL cache 24h + single-flight，仿 `backend/stage_product_check.py`）在 API 層（`event_detail` / `compare`）補上缺值的 `prod_name`，抓 `www.kkday.com` 商品頁公開的 `og:title` meta tag，不需登入。
+`stream_search_record.prods` payload 本身沒有商品名稱欄位（2026-08-27 改回直查原表後同樣成立，見 2.1）。**已實作短期解法**：`src/repo/product_name_lookup.py`（`ProductNameLookup`，TTL cache 24h + single-flight，仿 `backend/stage_product_check.py`）在 API 層（`event_detail` / `compare`）補上缺值的 `prod_name`，抓 `www.kkday.com` 商品頁公開的 `og:title` meta tag，不需登入。
 
 **locale fallback**（實測發現)：zh-tw 404 常常不是「商品下架」，是「這個商品沒有 zh-tw 語言版本」（案例：`119751`/`164116` 在 zh-tw/zh-cn/zh-hk 皆 404，但 en-us/ja/ko 都有內容）。查不到 zh-tw 時依序試 `en-us → ja-jp → ko-kr → zh-cn → zh-hk`，拿到第一個成功的名稱即可（可能非中文，但比裸 mid 有用）；全部 locale 都 404 才真正視為下架/不存在。
 
@@ -488,7 +507,7 @@ search-replay-inspector/
 
 **第三輪 review 補強**：host escalation 判斷條件原本是「6 次嘗試(zh-tw+5 fallback locale)裡任一次查詢失敗」就整輪重打 stage，這跟「只在整個 host 真的連不上時才換」的設計意圖不符 —— 混在一堆已證實可連通的乾淨 404 之間的單一次孤立逾時，不代表 host 不可達，卻會浪費一整輪 stage 掃描(正是 spec 本身想避免的「浪費呼叫」)。改成「這個 host 6 次全部都查詢失敗，一次明確答案都沒拿到」才判定 host 不可達並換下一個。
 
-**待資料團隊確認的長期解法**（若這個 scrape 方案的延遲/穩定性不夠用時考慮）：是否存在通用商品維度表（`dim_product`/`dm_product` 等）可 join，或建議在 `stream_search_record_flat` 產出時順手 join 商品名稱進 `prods` JSON。已知的窄覆蓋替代方案（`dm_search_keyword.kkday_search_keyword_{precise,broad}`）只覆蓋巡檢關鍵字的 top1/2/top10，蓋不到任意 `prod_mid`，未採用。
+**待資料團隊確認的長期解法**（若這個 scrape 方案的延遲/穩定性不夠用時考慮）：是否存在通用商品維度表（`dim_product`/`dm_product` 等）可 join，或建議在 `stream_search_record` 落表時順手 join 商品名稱進 `prods` JSON。已知的窄覆蓋替代方案（`dm_search_keyword.kkday_search_keyword_{precise,broad}`）只覆蓋巡檢關鍵字的 top1/2/top10，蓋不到任意 `prod_mid`，未採用。
 
 ### 9.7 `CONTEXT FEATURE`（`cf`）是否漏了「召回管道/訊號」
 
@@ -497,6 +516,6 @@ search-replay-inspector/
 **待確認**：使用者記得當初跟資料 RD 溝通時，這個商品記錄應該要能看出「根據哪些搜索管道/訊號被召回」，但目前 `cf` 欄位語意是「請求發生當下的環境情境」，不是「商品透過哪個召回管道命中」。全 repo（spec + sql + code）搜尋不到 `recall_channel`/`recall_source`/召回策略這類欄位存在過的痕跡；跟召回較相關的 `uf_intent`（用戶意圖）、`uf_profile`（用戶輪廓）也是個性化訊號，不是召回管道標籤。
 
 需要跟 RD 確認：
-1. 系統本來就沒有記錄「召回管道/訊號」這個欄位，還是有但目前的 `stream_search_record_flat`/`search_event_daily.sqlx` 沒有 join 進來？
+1. 系統本來就沒有記錄「召回管道/訊號」這個欄位，還是有但目前的 `stream_search_record`/`search_event_daily.sqlx` 沒有 join 進來？
 2. 如果有，欄位叫什麼、掛在哪個原始事件底下（recall？recall.cache？其他？）？
 3. 如果沒有，使用者記憶中的說法是否其實是在講「`cf`/`uf` 只掛在 recall 事件上，需要 join 才拿得到」這個技術細節，被口頭轉述成「這欄位在講召回」而混淆了？

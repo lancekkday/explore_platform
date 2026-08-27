@@ -24,6 +24,7 @@ from src.repo.bigquery import (
     ClusterKeyRequired,
     EventRepo,
     MissingPartitionDate,
+    QueryTooExpensive,
     get_repo,
     local_date_to_utc_range,
     mask_ip_to_24,
@@ -46,6 +47,18 @@ def _reject_pii_in_query_string(request: Request) -> None:
             detail=f"PII field(s) {sorted(hit)} must not appear in URL query string; "
                    f"use POST /api/events/search with a JSON body",
         )
+
+
+def _repo_call(fn, *args, **kwargs):
+    """統一把 repo 層的 ClusterKeyRequired / QueryTooExpensive 轉成 400。
+    2026-08-27 code review 抓到:event_detail/event_cf 原本各自 try/except
+    只接 QueryTooExpensive,漏了 ClusterKeyRequired(keyword 缺值時仍可能
+    從 _require_cluster_key 冒出來)—— 缺 keyword 會變成未處理的 500,
+    跟其他端點不一致。集中一處處理,不用每個端點各自記得接兩種例外。"""
+    try:
+        return fn(*args, **kwargs)
+    except (ClusterKeyRequired, QueryTooExpensive) as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 def _require_date(date: Optional[str]) -> str:
@@ -119,10 +132,8 @@ def list_events(
             detail="keyword 或 kkud 至少一項必填 (flat 表叢集鍵,缺了會掃全天分區;"
                    "member_uuid 過濾走 POST /api/events/search 且仍需搭配 keyword/kkud)",
         )
-    try:
-        return {"rows": [_listed(r) for r in repo.list_events(date, filters)]}
-    except ClusterKeyRequired as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    rows = [_listed(r) for r in _repo_call(repo.list_events, date, filters)]
+    return {"rows": rows, "bytes_billed": repo.last_query_bytes()}
 
 
 # ── 5.2' POST /api/events/search(含 member_uuid 的過濾走 body)────────────────
@@ -150,10 +161,8 @@ def search_events(body: EventSearchBody, repo: EventRepo = Depends(get_repo)):
             detail="keyword 或 kkud 至少一項必填 (flat 表叢集鍵,缺了會掃全天分區);"
                    "member_uuid / session_id 可作為附加過濾",
         )
-    try:
-        return {"rows": [_listed(r) for r in repo.list_events(date, filters)]}
-    except ClusterKeyRequired as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    rows = [_listed(r) for r in _repo_call(repo.list_events, date, filters)]
+    return {"rows": rows, "bytes_billed": repo.last_query_bytes()}
 
 
 # ── 5.3 GET /api/events/{session_id} 單筆明細 ─────────────────────────────────
@@ -173,15 +182,15 @@ def event_detail(
 ):
     _reject_pii_in_query_string(request)
     date = _require_date(date)
-    ev = repo.get_event(session_id, date, keyword=keyword,
-                        exp_version=exp_version, locale=locale)
+    ev = _repo_call(repo.get_event, session_id, date, keyword=keyword,
+                    exp_version=exp_version, locale=locale)
     if not ev:
         raise HTTPException(status_code=404, detail=f"session_id not found: {session_id}")
+    bytes_billed = repo.last_query_bytes()
 
-    # 鎖定本事件的商品列 — 同天同 keyword+exp 可能有多個 session (spec 3.2 FK)
-    prods = repo.get_prods(date, ev["keyword"], ev.get("locale"), ev["exp_version"],
-                           session_id=session_id)
-    prods = _enrich_prod_names(prods, name_lookup)
+    # 商品列已併在 get_event() 裡一起抽(2026-08-27 省成本:同一個 event_id
+    # 鎖定的是同一列資料,不用再開一支查詢重掃一次,見 bigquery.py 註解)
+    prods = _enrich_prod_names(ev.get("prods") or [], name_lookup)
     scores = [p.get("ltr_score") for p in prods]
     bands = assign_tie_bands(scores)
     prod_rows = [
@@ -210,6 +219,7 @@ def event_detail(
 
     return {
         "session_id": ev["session_id"],
+        "bytes_billed": bytes_billed,   # 這次查詢 (content+recall+prods) 累積計費位元組數
         "event_date_local": _to_local_iso(ev.get("event_date")),
         "event_type": ev.get("event_type"),
         "cache_hit": ev.get("cache_hit"),
@@ -266,11 +276,11 @@ def event_cf(
 ):
     _reject_pii_in_query_string(request)
     date = _require_date(date)
-    cf = repo.get_cf_raw(session_id, date, keyword=keyword,
-                         exp_version=exp_version, locale=locale)
+    cf = _repo_call(repo.get_cf_raw, session_id, date, keyword=keyword,
+                    exp_version=exp_version, locale=locale)
     if cf is None:
         raise HTTPException(status_code=404, detail="cf not found")
-    return {"session_id": session_id, "cf_raw": cf}
+    return {"session_id": session_id, "cf_raw": cf, "bytes_billed": repo.last_query_bytes()}
 
 
 # ── 5.5 GET /api/compare ──────────────────────────────────────────────────────
@@ -292,14 +302,22 @@ def compare(
     if not keyword:
         raise HTTPException(status_code=400, detail="keyword is required")
 
+    cost = 0   # 累積這次 /api/compare 打了幾次 repo、共花多少計費位元組數
+
+    def _tracked_list_events(filters: dict) -> list[dict]:
+        nonlocal cost
+        rows = _repo_call(repo.list_events, date, filters)
+        cost += repo.last_query_bytes()
+        return rows
+
     # exp_a/exp_b 可省略 — 自動從當日該 keyword 的事件偵測兩個實驗組
     # (RD:個性化實驗階段 control 組就是非個性化 baseline 組)。升冪排序取前二,
     # 對齊 ui-spec §4 範例「A treatment 100000 ↔ B control 100001」的編號慣例;
     # 顯式帶入仍可覆寫。
     if not exp_a or not exp_b:
         seen: list[str] = []
-        for ev in repo.list_events(date, {"keyword": keyword, "locale": locale,
-                                          "cache_hit": cache_hit}):
+        for ev in _tracked_list_events({"keyword": keyword, "locale": locale,
+                                        "cache_hit": cache_hit}):
             v = ev.get("exp_version")
             if v and v not in seen:
                 seen.append(v)
@@ -317,21 +335,25 @@ def compare(
         # 不鎖 session 的話多個事件的 rank 會混在同一張排序表 (spec 3.2 FK)。
         # cache_hit 必須跟著帶:使用者明選 cache_hit=false 要看 live 排序時,
         # 不帶會抓到 cache 事件,比對對象錯置。
-        events = repo.list_events(date, {
+        events = _tracked_list_events({
             "keyword": keyword, "exp_version": exp, "locale": locale,
             "cache_hit": cache_hit,
         })
         return events[0] if events else None
 
     def _side(exp: str) -> tuple[list[dict], Optional[dict]]:
+        nonlocal cost
         ev = _latest_session(exp)
         if not ev:
             return [], None
-        prods = repo.get_prods(date, keyword, locale, exp,
-                               session_id=ev["session_id"])
-        prods = _enrich_prod_names(prods, name_lookup)
-        detail = repo.get_event(ev["session_id"], date, keyword=keyword,
-                                exp_version=exp, locale=ev.get("locale"))
+        # prods 已併在 get_event() 裡一起抽(2026-08-27 PR review 抓到:這裡跟
+        # event_detail 是同一種重複查詢,原本各自呼叫 get_prods() + get_event()
+        # 分兩支查詢掃同一列資料 —— 比照 event_detail 的作法併成一支,A/B 兩側
+        # 各省一次查詢)
+        detail = _repo_call(repo.get_event, ev["session_id"], date, keyword=keyword,
+                            exp_version=exp, locale=ev.get("locale"))
+        cost += repo.last_query_bytes()
+        prods = _enrich_prod_names((detail or {}).get("prods") or [], name_lookup)
         # 表格內每列要能呈現來源側的 exp / lang / locale / cf (事件層級 metadata)
         meta = {
             "exp_version": exp,
@@ -382,4 +404,5 @@ def compare(
         "dispersion_a": dispersion_stats([p.get("ltr_score") for p in a_prods]),
         "dispersion_b": dispersion_stats([p.get("ltr_score") for p in b_prods]),
         "rows": rows,
+        "bytes_billed": cost,
     }

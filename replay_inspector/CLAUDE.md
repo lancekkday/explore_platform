@@ -8,31 +8,78 @@ keyword,treatment 與 control 看到的結果差在哪、為什麼」。唯讀�
 
 ## 紅線(違反即 bug)
 
-1. **任何程式路徑不得查原始事件 view** `dw_analysis_record.stream_search_record`
-   (data 欄 JSON 型別,per-path 計費;dry-run 顯示的是整欄上限)。只有 `sql/*.sqlx`
-   (dataform incremental)可以碰。`src/repo/bigquery.py:assert_no_raw_table`
-   對每句 SQL 防呆,`tests/test_api.py` 另有靜態掃描。
-   **無例外** — 2026-08-19 教訓:per-path 計費是「path 大小 × 掃過的分區」,
-   不是按命中列算;實測對 view「單筆」回查 prods/uf 實際計費 14~18GB,
-   $.cf 更大 → 平台端不存在便宜的直查形狀。cf_raw 落中繼表,
-   大 path 的成本統一在 dataform 每日單次掃描付 (spec 原設計)。
+1. ~~任何程式路徑不得查原始事件 view~~ —— **2026-08-27 撤除,改回直查**
+   `dw_analysis_record.stream_search_record`(跟 RD 討論後定案)。原因:
+   - 該表是 VIEW 且 `data` 為原生 JSON 型別 → per-path 計費有效(`sql/*.sqlx`
+     內註記:1hr 窗 dry-run 估 9.17GB、實際計費 12.6MB,728 倍差;
+     dry-run 數字僅為上限,不是實際帳單)
+   - Slack 討論(2026-08-26,D07NAF7UGKH)實測:kkud/event_id 等值過濾會拉到
+     12.9~35.7GB;RD(Duncan)澄清這是「過程查詢量」(bytes processed 計費),
+     不是硬碟(storage)占用,不會累積成本
+   - 帳單 project 指到 `kkday-data-dap-ui`(見下方環境變數表),跟主平台
+     backend 用的 `-sit` 隔開
+   `src/repo/bigquery.py` 的 JSON path 對映以 `sql/*.sqlx`(資料團隊 review 過
+   的 dataform 初稿)為準;標 TODO(verify) 的路徑尚未逐一實測(對照
+   `kkday-data-dap-ui` 帳單 project 實跑,event_date=2026-08-24,keyword=福岡)。
+   **已用真資料驗證並修正 3 個 sqlx 原稿寫錯的路徑**(2026-08-27):
+   - `$.request_type` 欄位在真實 payload 裡根本不存在(完整 dump 過的 content
+     事件沒這個 key)——原本的 `request_type='product.list'` 過濾條件會把
+     所有列表濾光,已移除
+   - `cf.hour` / `cf.weekday` 不存在,實際巢狀在 `cf.time_context.hour` /
+     `cf.time_context.weekday` 底下
+   - `uf.user_type` / `uf.membership_tier` 不是獨立欄位,是 `uf.profile`
+     這個 `{feature_name:{d,v,t}}` 扁平特徵表裡兩個具名 feature 的值,要用
+     `$.uf.profile.uf_user_type.d` / `$.uf.profile.uf_membership_tier.d`
+     (第一輪隨機抽樣剛好抽到都沒算出這兩個特徵的使用者,一度誤判成「欄位
+     不存在」,換一個有訂單歷史的使用者重測才驗到)
+   其餘 `TODO(verify)` 路徑(`query.lang/locale/currency`、`kkud`、`source`、
+   `member_uuid`、`ip`)已用同一筆真資料核對過,皆正確。
 2. **`event_date` 分區條件必填**:API 層缺 `date` 回 400 且查詢不得送出。
    BigQuery `require_partition_filter` 會穿透 view,不能靠 BQ 擋。
 3. **PII**:`member_uuid` / `user_id` / ip 不進 URL query string(member_uuid
    過濾走 `POST /api/events/search` body);ip 僅以 /24 出現;列表回應永不含 `cf_raw`。
+4. **`maximum_bytes_billed` 不能當這張表的成本護欄**(2026-08-27 實測推翻)——
+   使用者原本要求「單次查詢 20GB 硬上限」,設下去後連平常 keyword-only 的單人
+   回放查詢都被 BigQuery 直接拒絕執行(job 送出前的預估值超標,連跑都不跑)。
+   用 `dry_run=True` 測發現:同一句 SQL 不管拿掉 keyword 過濾、拿掉 ORDER BY、
+   砍到只剩 3 個欄位,BigQuery 的預估值全部釘死在同一個數字(~113~163GB,
+   視日期而定,含 UTC+8 ±8h buffer 幾乎等於整個分區視窗的 `data` 欄大小)——
+   BigQuery 的預估器對 JSON 欄位沒有 per-path 概念,一律以「整欄上限」估算,
+   跟 sql/*.sqlx 裡「dry-run 估 9.17GB、實跑計費 12.6MB,728 倍差」是同一件事,
+   只是這次落差沒那麼誇張。拿掉預估限制後真的跑,實際計費(`total_bytes_billed`)
+   是 ~20GB(vs 預估 112.92GB,約 5.7 倍差)。**結論:預估值跟實際帳單對這張表
+   完全兜不起來**,任何低於 ~160GB 的 `maximum_bytes_billed` 都會擋到明明便宜
+   的查詢。現行做法:`MAX_BYTES_BILLED_PER_QUERY` 只當「跑到失控」的最後防線
+   (預設 300GB,不當日常用量控管),真正的用量顯示改成事後量測
+   (`BigQueryEventRepo.last_query_bytes()`,API 回應帶 `bytes_billed`,
+   Streamlit 顯示「用量 X GB」)。
+   **真實用量參考值**(2026-08-24,keyword=福岡):純列表查詢(不含明細)單次
+   約 20GB;單人回放明細原本(content+recall+prods 三支查詢加總)約 85GB。
+   `build_detail_query()` 把 prods 併進 content 查詢後(event_id 已鎖定同一列,
+   跟原本另開一支 `build_prods_query()` 掃的是同一天同一列資料,只是抓的欄位
+   不同,見該函式註解),省掉一支重複查詢,同一筆事件降到**約 65GB**
+   (content+recall 兩支;用 BigQuery job 記錄交叉驗證過,64.62GB)。這遠比
+   原本設想的「一次查詢幾百 MB」高很多,值得知道。
+   另外發現並修掉一個放大成本的 bug:Streamlit 每個互動(切事件下拉選單、
+   開合特徵面板)都會把整份腳本重跑,原本沒快取的話同一份資料會被重複打好
+   幾次 BQ——`app/streamlit_app.py` 的 `_get()` / `_search_events()` 已加
+   `st.cache_data(ttl=600)`,同一組條件 10 分鐘內不會重複計費。
 
 ## 架構
 
 ```
-BigQuery dw_analysis_record.search_event_{daily,prod_daily}   ← sql/*.sqlx (dataform, 資料團隊 review 併入)
+BigQuery dw_analysis_record.stream_search_record (VIEW,原始表,直查)
         ↓
-src/repo/bigquery.py    ← 分區強制 / 成本 guard / PII;EventRepo Protocol
+src/repo/bigquery.py    ← JSON_VALUE/JSON_QUERY 抽取 / 分區強制 / PII;EventRepo Protocol
    └── src/repo/fake.py ← FakeEventRepo:測試 + demo(福岡 fixture)
         ↓
 src/api/main.py         ← FastAPI(5.2–5.5 + POST /api/events/search)
         ↓
 app/streamlit_app.py    ← ui-spec 版面:標題摘要+條件收合 → 讀數列 → 排序對照(同分帶括號)+特徵側欄
 ```
+
+`sql/*.sqlx`(dataform 初稿)目前不接線,保留作 JSON path 對映參考 ——
+2026-08-26 一度改用它們餵的 flat 中繼表,2026-08-27 又改回直查原始表。
 
 Domain 純函式(必有測試):
 - `src/domain/relevance.py` — 六碼解碼。spec §9.1–9.3 未決,答案回來**只改這個檔**與前端配色
@@ -66,9 +113,12 @@ docker compose up -d replay-api replay-ui
 | 變數 | 預設 | 用途 |
 |---|---|---|
 | `USE_FAKE` | — | `1` = repo factory 回 FakeEventRepo(demo/開發) |
-| `BQ_PROJECT_ID` | `kkday-data-dap` | BQ 專案 |
+| `BQ_PROJECT_ID` | `kkday-data-dap` | BQ 專案(資料所在專案,原始表位置) |
 | `BQ_DATASET` | `dw_analysis_record` | dataset (2026-08-19 更正,spec 早版寫 dl_qa) |
+| `BQ_BILLING_PROJECT` | `kkday-data-dap-ui` | 查詢帳單 project(2026-08-27 改回直查原始表時定案,跟主平台 backend 用的 `-sit` 隔開) |
+| `BQ_MAX_BYTES_BILLED` | `300` GB(位元組) | 單次查詢 `maximum_bytes_billed` 上限,只當失控防線,不是日常用量控管(見紅線 4) |
 | `API_BASE` | `http://localhost:8300` | Streamlit 打的 API 位址 |
+| `MAIN_APP_URL` | `http://localhost:5888/explore_platform/` | 畫面右上角「搜尋巡檢平台 ↗」連結目標(跟主平台 AppHeader 的「回放」連結是反方向)。docker-compose 的 `replay-ui` service 已覆寫成相對路徑 `/explore_platform/`(同源 nginx 反代下適用) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | 真 BQ 模式必填 |
 
 ## 待決事項(spec §9,骨架不受影響)

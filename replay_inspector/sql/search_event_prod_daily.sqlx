@@ -1,7 +1,9 @@
--- ⚠ SUPERSEDED 2026-08-26:資料團隊已自建 flat 中繼表
---   `dw_analysis_record.stream_search_record_flat` (每日 D-1,分區 event_date,
---   叢集 event_type/kkud/query_keyword,content 列預 join uf) — 平台已直接改用它,
---   本檔不再需要併入 dataform,保留作 schema 對映參考。
+-- ⚠ 2026-08-26 一度 SUPERSEDED:資料團隊自建 flat 中繼表
+--   `dw_analysis_record.stream_search_record_flat`,平台當時改用它。
+--   2026-08-27 跟 RD 討論後改回直查本檔的源表 `stream_search_record`
+--   (見 spec/v1-spec.md §2.1、CLAUDE.md 紅線 1)——本檔目前仍不接線
+--   (平台在 src/repo/bigquery.py 直接 on-demand 查,不經 dataform),
+--   但這裡的 JSON path 對映是 src/repo/bigquery.py 的抽取依據,保留維護。
 
 config {
   type: "incremental",
@@ -31,7 +33,9 @@ WITH events AS (
     JSON_QUERY_ARRAY(data, '$.prods')            AS prods          -- TODO(verify) path
   FROM ${ref("dw_analysis_record", "stream_search_record")}
   WHERE event_type IN ('content', 'content.cache')
-    AND JSON_VALUE(data, '$.request_type') = 'product.list'
+    -- ✗ 實測推翻 2026-08-27:$.request_type 這個欄位在真實 payload 裡根本
+    --   不存在,原本這行過濾條件會把所有結果濾光,已移除(見
+    --   search_event_daily.sqlx 同款修正的完整說明)。
     ${when(incremental(),
       `AND event_date >= TIMESTAMP(DATAFORM_VAR_RUN_DATE)
        AND event_date <  TIMESTAMP_ADD(TIMESTAMP(DATAFORM_VAR_RUN_DATE), INTERVAL 1 DAY)`)}

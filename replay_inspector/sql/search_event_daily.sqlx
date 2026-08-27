@@ -1,7 +1,9 @@
--- ⚠ SUPERSEDED 2026-08-26:資料團隊已自建 flat 中繼表
---   `dw_analysis_record.stream_search_record_flat` (每日 D-1,分區 event_date,
---   叢集 event_type/kkud/query_keyword,content 列預 join uf) — 平台已直接改用它,
---   本檔不再需要併入 dataform,保留作 schema 對映參考。
+-- ⚠ 2026-08-26 一度 SUPERSEDED:資料團隊自建 flat 中繼表
+--   `dw_analysis_record.stream_search_record_flat`,平台當時改用它。
+--   2026-08-27 跟 RD 討論後改回直查本檔的源表 `stream_search_record`
+--   (見 spec/v1-spec.md §2.1、CLAUDE.md 紅線 1)——本檔目前仍不接線
+--   (平台在 src/repo/bigquery.py 直接 on-demand 查,不經 dataform),
+--   但這裡的 JSON path 對映是 src/repo/bigquery.py 的抽取依據,保留維護。
 
 config {
   type: "incremental",
@@ -17,9 +19,13 @@ config {
 }
 
 -- =============================================================================
--- ⚠ 交付初稿:給資料團隊 review 併入 dataform repo。
---   唯一允許讀取原表 stream_search_record 的路徑 (spec 2.1,一天付一次 193GB 成本)。
---   欄位 JSON path 以 spec §3.1 為準;未能實測處標 -- TODO(verify)。
+-- ⚠ 交付初稿:給資料團隊 review 併入 dataform repo(目前不接線,見上方)。
+--   欄位 JSON path 已對 kkday-data-dap-ui 實跑真資料驗證過(2026-08-27,
+--   event_date=2026-08-24,keyword=福岡),見 src/repo/bigquery.py module
+--   docstring 與 CLAUDE.md 紅線 1;未能實測處仍標 -- TODO(verify)。
+--   本節上方「一天付一次 193GB 成本」是早期用錯表名時的估算,已由
+--   spec/v1-spec.md §2.1 與 CLAUDE.md 紅線 1 的真實成本認知取代,
+--   不代表本表的實測數字。
 --
 -- 兩個 join 陷阱 (spec 2.4):
 --   1. cache 可跨日:content.cache 引用的 recall.cache 可能來自前幾天,
@@ -35,7 +41,12 @@ WITH content AS (
     event_type,
     cache_hit,                                                   -- 頂層欄位,優先用
     JSON_VALUE(data, '$.source_event_id')      AS source_event_id,
-    JSON_VALUE(data, '$.request_type')         AS request_type,
+    -- ✗ 實測推翻 2026-08-27:$.request_type 這個欄位在真實 payload 裡根本
+    --   不存在(對 event_date=2026-08-24 的 content 事件做過 TO_JSON_STRING(data)
+    --   完整 dump,沒有這個 key)。原本這裡抽這欄、下面 WHERE 用它過濾
+    --   'product.list',會把所有列表結果濾光 —— 已移除,event_type IN
+    --   ('content','content.cache') 已足夠界定範圍(見 src/repo/bigquery.py
+    --   同款修正、CLAUDE.md 紅線 1)。
     -- ✓ RESOLVED 2026-08-19:payload 欄位名 keyword (RD 確認 + 原表實測有值;
     --   $.query.lang / $.query.locale 同層,一併實測 ✓)
     JSON_VALUE(data, '$.query.keyword')        AS keyword,
@@ -59,7 +70,6 @@ WITH content AS (
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.ltr_features')), 'null') AS ltr_features
   FROM ${ref("dw_analysis_record", "stream_search_record")}
   WHERE event_type IN ('content', 'content.cache')
-    AND JSON_VALUE(data, '$.request_type') = 'product.list'      -- V1 只處理這個
     ${when(incremental(),
       `AND event_date >= TIMESTAMP(DATAFORM_VAR_RUN_DATE)
        AND event_date <  TIMESTAMP_ADD(TIMESTAMP(DATAFORM_VAR_RUN_DATE), INTERVAL 1 DAY)`)}
@@ -87,6 +97,14 @@ recall AS (
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.uf.intent')), 'null')  AS uf_intent,
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.uf.profile')), 'null') AS uf_profile,
     JSON_VALUE(data, '$.uf.profile_version')         AS uf_profile_version,
+    -- ✓ 實測修正 2026-08-27:不是獨立欄位,是 uf.profile 這個
+    --   {feature_name:{d,v,t}} 扁平特徵表裡兩個具名 feature 的值(跟其他
+    --   uf.profile.* 特徵同構,見上面 uf_profile 的「原樣保留,不展平」)。
+    --   第一輪隨機抽 20 筆 uf.profile 非空樣本沒搜到,一度誤判成「欄位不
+    --   存在」——per-user 特徵覆蓋率各自獨立,換一個有訂單歷史的使用者
+    --   重測才驗到(見 src/repo/bigquery.py 同款修正)。
+    JSON_VALUE(data, '$.uf.profile.uf_user_type.d')       AS uf_user_type,
+    JSON_VALUE(data, '$.uf.profile.uf_membership_tier.d') AS uf_membership_tier,
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.uf.lbs')), 'null')     AS uf_lbs,   -- 新增:原本未落表
     -- cf 拆欄 (實測:cf 只在 recall 側)。
     -- ✓ 定案 2026-08-19 (二次修正):cf_raw「落表」— per-path 計費是
@@ -95,8 +113,10 @@ recall AS (
     --   dataform 每日單次掃描裡一起付 (spec 原設計正確)。
     NULLIF(TO_JSON_STRING(JSON_QUERY(data, '$.cf')), 'null')           AS cf_raw,
     JSON_VALUE(data, '$.cf.platform')          AS cf_platform,
-    SAFE_CAST(JSON_VALUE(data, '$.cf.hour') AS INT64)    AS cf_hour,
-    SAFE_CAST(JSON_VALUE(data, '$.cf.weekday') AS INT64) AS cf_weekday,
+    -- ✗ 實測推翻 2026-08-27:$.cf.hour/$.cf.weekday 不存在,實際巢狀在
+    --   $.cf.time_context 底下(見 src/repo/bigquery.py 同款修正)。
+    SAFE_CAST(JSON_VALUE(data, '$.cf.time_context.hour') AS INT64)    AS cf_hour,
+    SAFE_CAST(JSON_VALUE(data, '$.cf.time_context.weekday') AS INT64) AS cf_weekday,
     JSON_VALUE(data, '$.cf.query.final')       AS cf_query_final,
     ARRAY(SELECT JSON_VALUE(t) FROM UNNEST(
       JSON_QUERY_ARRAY(data, '$.cf.query.tokens')) t)    AS cf_query_tokens,
@@ -123,6 +143,8 @@ SELECT
   r.uf_intent,
   r.uf_profile,
   r.uf_profile_version,
+  r.uf_user_type,
+  r.uf_membership_tier,
   r.uf_lbs,
   COALESCE(c.ltr_features, r.recall_ltr_features) AS ltr_features,
   (c.ltr_features IS NULL AND r.recall_ltr_features IS NOT NULL)

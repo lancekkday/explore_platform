@@ -213,7 +213,14 @@ class FakeEventRepo:
         # cluster hint 在 fake 裡不影響結果 (session_id 已唯一),照收以對齊 Protocol
         self.query_count += 1
         ev = _EVENTS.get(session_id)
-        return dict(ev) if ev else None
+        if not ev:
+            return None
+        out = dict(ev)
+        # 2026-08-27:main.py 的 event_detail 改吃 get_event() 回傳的 prods,
+        # 不再另外呼叫 get_prods() (省一支重複查詢,見 bigquery.py 同款改動)
+        out["prods"] = self.get_prods(date, ev.get("keyword"), ev.get("locale"),
+                                      ev.get("exp_version"), session_id=session_id)
+        return out
 
     def get_cf_raw(self, session_id: str, date: str,
                    keyword: Optional[str] = None, exp_version: Optional[str] = None,
@@ -228,3 +235,6 @@ class FakeEventRepo:
         if session_id:
             prods = [p for p in prods if p["session_id"] == session_id]
         return [dict(p) for p in prods]
+
+    def last_query_bytes(self) -> int:
+        return 0   # demo 模式不打真的 BQ,沒有計費位元組數可言

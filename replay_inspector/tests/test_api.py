@@ -191,42 +191,150 @@ def test_compare_auto_detects_experiments(client):
     assert r.json()["metrics"]["top10_overlap"] == 8
 
 
-# ── 驗收 1:成本紅線 guard ────────────────────────────────────────────────────
+# ── 驗收 1(2026-08-27 改回原始表後失效,見下方 test_raw_table_is_query_source)──
 
-def test_raw_table_guard():
-    from src.repo.bigquery import assert_no_raw_table
-    # 新名 (2026-08-19 更正:dw_analysis_record.stream_search_record)
-    with pytest.raises(RuntimeError):
-        assert_no_raw_table("SELECT * FROM `kkday-data-dap.dw_analysis_record.stream_search_record`")
-    # 舊文件用名也擋 (spec 早期版本寫 dl_base.ar-stream_search_record)
-    with pytest.raises(RuntimeError):
-        assert_no_raw_table("SELECT * FROM `kkday-data-dap.dl_base.ar-stream_search_record`")
-    with pytest.raises(RuntimeError):
-        assert_no_raw_table("select data from dl_base.ar_stream_search_record")
-    # 自家落表在同 dataset,表名不含 stream — 不得誤傷
-    assert_no_raw_table("SELECT 1 FROM `kkday-data-dap.dw_analysis_record.search_event_daily`")
+def test_raw_table_is_query_source():
+    """2026-08-27 定案(跟 RD 討論後改回去):平台直查原始表
+    `stream_search_record`,不再是 `_flat` 中繼表;帳單 project 指到
+    kkday-data-dap-ui(跟主平台 backend 的 -sit 隔開)。"""
+    from src.repo import bigquery
+    assert bigquery.RAW_TABLE == "`kkday-data-dap.dw_analysis_record.stream_search_record`"
+    assert not hasattr(bigquery, "assert_no_raw_table"), \
+        "成本紅線已撤除 (2026-08-27) — 若還存在代表改回去的動作沒做乾淨"
+    assert bigquery.BQ_BILLING_PROJECT == "kkday-data-dap-ui"
 
 
-def test_no_source_file_references_raw_table():
-    """驗收 1 的靜態面:src/ 與 app/ 不得出現原表名(sql/ 的 dataform 除外)。"""
-    import pathlib
-    root = pathlib.Path(__file__).resolve().parents[1]
-    offenders = []
-    for folder in ("src", "app"):
-        for p in (root / folder).rglob("*.py"):
-            text = p.read_text(encoding="utf-8")
-            # 拿掉 guard 自己的 pattern 定義與註解列
-            for line in text.splitlines():
-                stripped = line.strip()
-                if (stripped.startswith("#") or "_RAW_TABLE_PATTERN" in line
-                        or "cost guard" in line):
-                    continue
-                if "stream_search_record_flat" in line:
-                    continue   # flat 中繼表是平台的合法資料源
-                if ("ar-stream_search_record" in line or "ar_stream_search_record" in line
-                        or "stream_search_record" in line):
-                    offenders.append(f"{p}: {stripped[:80]}")
-    assert not offenders, offenders
+# ── repo 層例外一律轉 400,不得漏接變成未處理的 500(2026-08-27 code review)──
+# 起因:event_detail/event_cf 原本各自寫 try/except 只接 QueryTooExpensive,
+# 漏了 ClusterKeyRequired;main._repo_call 統一處理後在此鎖住四個端點,
+# 避免以後又有端點漏接其中一種。
+
+class _RaisingRepo:
+    """故意讓每個方法丟指定例外的 stub — 只驗證 main.py 的例外轉換,
+    不需要真的連 BigQuery。"""
+
+    def __init__(self, exc):
+        self._exc = exc
+
+    def list_events(self, date, filters):
+        raise self._exc
+
+    def get_event(self, session_id, date, keyword=None, exp_version=None, locale=None):
+        raise self._exc
+
+    def get_cf_raw(self, session_id, date, keyword=None, exp_version=None, locale=None):
+        raise self._exc
+
+    def get_prods(self, date, keyword, locale, exp_version, session_id=None):
+        raise self._exc
+
+    def last_query_bytes(self):
+        return 0
+
+
+@pytest.fixture(params=["cluster_key", "too_expensive"])
+def raising_client(request):
+    from src.repo.bigquery import ClusterKeyRequired, QueryTooExpensive
+    exc = (ClusterKeyRequired("missing keyword") if request.param == "cluster_key"
+           else QueryTooExpensive("scan too large"))
+    app.dependency_overrides[get_repo] = lambda: _RaisingRepo(exc)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def test_list_events_repo_exceptions_become_400(raising_client):
+    r = raising_client.get("/api/events", params={"date": DEMO_DATE, "keyword": "福岡"})
+    assert r.status_code == 400
+
+
+def test_event_detail_repo_exceptions_become_400(raising_client):
+    r = raising_client.get("/api/events/sess-x", params={"date": DEMO_DATE})
+    assert r.status_code == 400
+
+
+def test_event_cf_repo_exceptions_become_400(raising_client):
+    r = raising_client.get("/api/events/sess-x/cf", params={"date": DEMO_DATE})
+    assert r.status_code == 400
+
+
+class _RepoMissingProds:
+    """EventRepo.get_event() 契約要求回傳 dict 必須含 "prods" key(見
+    bigquery.EventRepo.get_event docstring)——這支 stub 故意漏掉,驗證
+    event_detail 對這種情境的實際行為(2026-08-27 code review 抓到:
+    這個「必須含 prods」的隱性契約完全沒有測試逼過,忘記塞的話會靜默
+    回空清單,跟「這個事件真的沒有商品」無法區分)。"""
+
+    def get_event(self, session_id, date, keyword=None, exp_version=None, locale=None):
+        return {
+            "session_id": session_id, "event_date": None, "event_type": "content",
+            "cache_hit": False, "keyword": "測試詞", "normalized_keyword": "測試詞",
+            "lang": "zh-tw", "locale": "tw", "currency": "TWD", "exp_version": "exp_a",
+            "source": "web", "kkud": "kkud-x", "ip_masked": None,
+            "page_start": 0, "page_count": 10, "total_count": 10, "prod_cnt": 10,
+            "uf_intent": None, "uf_profile": None, "uf_profile_version": None,
+            "uf_lbs": None, "cf_platform": None, "cf_hour": None, "cf_weekday": None,
+            "cf_query_final": None, "cf_query_tokens": None,
+            "join_failed": False, "uf_absent": False, "ltr_features_recovered": False,
+            # 故意不帶 "prods" key
+        }
+
+    def get_cf_raw(self, *a, **kw):
+        return None
+
+    def get_prods(self, *a, **kw):
+        return []
+
+    def last_query_bytes(self):
+        return 0
+
+
+def test_event_detail_tolerates_repo_missing_prods_key():
+    """記錄現況行為:回傳空商品列表 + 200,不是報錯。這是刻意接受的
+    contract 缺口(見 EventRepo.get_event docstring)—— 這個測試存在的
+    目的不是宣告這個行為理想,是確保有人改動時看得到「原本會靜默改變」。"""
+    app.dependency_overrides[get_repo] = lambda: _RepoMissingProds()
+    try:
+        c = TestClient(app)
+        r = c.get("/api/events/sess-x", params={"date": DEMO_DATE})
+        assert r.status_code == 200
+        assert r.json()["prods"] == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_compare_repo_exceptions_become_400(raising_client):
+    r = raising_client.get("/api/compare", params={
+        "date": DEMO_DATE, "keyword": "福岡", "exp_a": "a", "exp_b": "b",
+    })
+    assert r.status_code == 400
+
+
+def test_is_bytes_billed_limit_error_reads_structured_reason():
+    """實測 (2026-08-27) google-api-core 對這個錯誤的真實形狀:
+    InternalServerError.errors == [{'reason': 'bytesBilledLimitExceeded', ...}]。
+    結構化欄位優先於字串比對(code review 抓到原本只做字串比對,SDK 措辭一變
+    就會悄悄失效)。"""
+    from src.repo.bigquery import _is_bytes_billed_limit_error
+
+    class _FakeApiError(Exception):
+        def __init__(self, errors):
+            super().__init__("some wording that does not mention bytes at all")
+            self.errors = errors
+
+    hit = _FakeApiError([{"reason": "bytesBilledLimitExceeded", "message": "..."}])
+    assert _is_bytes_billed_limit_error(hit) is True
+
+    miss = _FakeApiError([{"reason": "invalidQuery", "message": "..."}])
+    assert _is_bytes_billed_limit_error(miss) is False
+
+
+def test_is_bytes_billed_limit_error_falls_back_to_string_match():
+    """沒有 .errors 屬性(例如非 GoogleAPICallError 的一般例外)時,
+    退回字串比對當備援,不要整個判斷失效。"""
+    from src.repo.bigquery import _is_bytes_billed_limit_error
+
+    assert _is_bytes_billed_limit_error(RuntimeError("Query exceeded limit for bytes billed")) is True
+    assert _is_bytes_billed_limit_error(RuntimeError("connection reset")) is False
 
 
 # ── 分區時間窗換算 (5.1) ──────────────────────────────────────────────────────
@@ -240,18 +348,20 @@ def test_local_date_to_utc_range_buffer():
 
 
 def test_point_queries_require_cluster_key():
-    """flat 表叢集鍵 (event_type, kkud, query_keyword):detail 點查缺 keyword
-    直接丟 ClusterKeyRequired — event_id-only 會掃全天分區 (實測 21GB)。"""
+    """detail 點查缺 keyword 直接丟 ClusterKeyRequired — 原始表無實體叢集,
+    這條規則現在保的是正確性(鎖定唯一事件),不是省成本。"""
     from src.repo.bigquery import ClusterKeyRequired, build_detail_query, build_recall_query
     sql, params = build_detail_query("sess-x", DEMO_DATE,
                                      keyword="福岡", exp_version="exp_a", locale="tw")
-    assert "query_keyword = @keyword" in sql and "event_id = @session_id" in sql
+    assert "JSON_VALUE(data, '$.query.keyword') = @keyword" in sql
+    assert "event_id = @session_id" in sql
     assert params["keyword"] == "福岡"
     with pytest.raises(ClusterKeyRequired):
         build_detail_query("sess-x", DEMO_DATE)   # 缺 keyword → 不准出查詢
-    # recall 回查:kkud + keyword 雙叢集鍵 + event_id 結果過濾 (實測 10.5MB)
+    # recall 回查:kkud + keyword 縮小範圍 + event_id 結果過濾
     sql2, _ = build_recall_query("recall-1", DEMO_DATE, kkud="k-1", keyword="福岡")
-    assert "kkud = @kkud" in sql2 and "query_keyword = @keyword" in sql2
+    assert "JSON_VALUE(data, '$.kkud') = @kkud" in sql2
+    assert "JSON_VALUE(data, '$.query.keyword') = @keyword" in sql2
     assert "event_id = @event_id" in sql2 and "LIMIT 1" in sql2
 
 
@@ -269,28 +379,14 @@ def test_compare_respects_cache_hit_filter(client, repo):
     assert all(row["verdict"] == "only_a" for row in body["rows"])
 
 
-def test_raw_stream_blocked_flat_allowed():
-    """紅線:原始事件流 (無 _flat) 一律擋;stream_search_record_flat 是
-    合法叢集中繼表放行。(2026-08 教訓:原始流 per-path 計費 = path × 分區,
-    「單筆」回查實測 14~36GB。)"""
-    from src.repo.bigquery import assert_no_raw_table
-    with pytest.raises(RuntimeError):
-        assert_no_raw_table(
-            "SELECT keyword FROM `kkday-data-dap.dw_analysis_record.stream_search_record`")
-    with pytest.raises(RuntimeError):
-        assert_no_raw_table("SELECT * FROM `kkday-data-dap.dl_base.ar-stream_search_record`")
-    assert_no_raw_table(
-        "SELECT 1 FROM `kkday-data-dap.dw_analysis_record.stream_search_record_flat`")
-
-
 def test_prods_query_can_lock_session():
     """同天同 keyword+exp 可能多個 session — prod 查詢必須能鎖定單一事件;
-    prods 是 content 列的 JSON 欄,取單列由 parse_prods 展開。"""
+    prods 是 content 列的 JSON 陣列,取單列由 parse_prods 展開。"""
     from src.repo.bigquery import build_prods_query, parse_prods
     sql, params = build_prods_query(DEMO_DATE, "福岡", None, "exp_a",
                                     session_id="sess-x")
     assert "event_id = @session_id" in sql
-    assert "query_keyword = @keyword" in sql and "prods" in sql
+    assert "JSON_VALUE(data, '$.query.keyword') = @keyword" in sql and "prods" in sql
     assert params["session_id"] == "sess-x"
     # parse_prods:rank = pagination_start + offset + 1;payload 無商品名
     prods = parse_prods(

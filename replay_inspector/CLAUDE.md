@@ -49,8 +49,10 @@ keyword,treatment 與 control 看到的結果差在哪、為什麼」。唯讀�
    只是這次落差沒那麼誇張。拿掉預估限制後真的跑,實際計費(`total_bytes_billed`)
    是 ~20GB(vs 預估 112.92GB,約 5.7 倍差)。**結論:預估值跟實際帳單對這張表
    完全兜不起來**,任何低於 ~160GB 的 `maximum_bytes_billed` 都會擋到明明便宜
-   的查詢。現行做法:`MAX_BYTES_BILLED_PER_QUERY` 只當「跑到失控」的最後防線
-   (預設 300GB,不當日常用量控管),真正的用量顯示改成事後量測
+   的查詢。**2026-08-31 使用者要求直接拿掉預設上限**:`MAX_BYTES_BILLED_PER_QUERY`
+   預設為 `None`(不設 `maximum_bytes_billed`,不擋),只有明確設 env
+   `BQ_MAX_BYTES_BILLED`(位元組數)才會重新啟用「跑到失控」的最後防線
+   (不當日常用量控管),真正的用量顯示改成事後量測
    (`BigQueryEventRepo.last_query_bytes()`,API 回應帶 `bytes_billed`,
    Streamlit 顯示「用量 X GB」)。
    **真實用量參考值**(2026-08-24,keyword=福岡):純列表查詢(不含明細)單次
@@ -116,7 +118,7 @@ docker compose up -d replay-api replay-ui
 | `BQ_PROJECT_ID` | `kkday-data-dap` | BQ 專案(資料所在專案,原始表位置) |
 | `BQ_DATASET` | `dw_analysis_record` | dataset (2026-08-19 更正,spec 早版寫 dl_qa) |
 | `BQ_BILLING_PROJECT` | `kkday-data-dap-ui` | 查詢帳單 project(2026-08-27 改回直查原始表時定案,跟主平台 backend 用的 `-sit` 隔開) |
-| `BQ_MAX_BYTES_BILLED` | `300` GB(位元組) | 單次查詢 `maximum_bytes_billed` 上限,只當失控防線,不是日常用量控管(見紅線 4) |
+| `BQ_MAX_BYTES_BILLED` | (未設 = 不限) | 單次查詢 `maximum_bytes_billed` 上限;2026-08-31 使用者要求拿掉預設上限,只有明確設此 env(給位元組數)才會啟用失控防線(見紅線 4) |
 | `API_BASE` | `http://localhost:8300` | Streamlit 打的 API 位址 |
 | `MAIN_APP_URL` | `http://localhost:5888/explore_platform/` | 畫面右上角「搜尋巡檢平台 ↗」連結目標(跟主平台 AppHeader 的「回放」連結是反方向)。docker-compose 的 `replay-ui` service 已覆寫成相對路徑 `/explore_platform/`(同源 nginx 反代下適用) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | 真 BQ 模式必填 |

@@ -61,7 +61,11 @@ RAW_TABLE = f"`{BQ_PROJECT_ID}.{BQ_DATASET}.stream_search_record`"
 # 原因見上方註解 —— 預估值對這張 JSON 表灌水,任何合理上限都會擋到便宜查詢。
 # 仍保留 env 覆寫:要重新設失控防線時給 BQ_MAX_BYTES_BILLED(直接給位元組數)。
 _env_max = os.getenv("BQ_MAX_BYTES_BILLED")
-MAX_BYTES_BILLED_PER_QUERY = int(_env_max) if _env_max else None
+_parsed_max = int(_env_max) if _env_max else None
+# <=0 一律視為「不設限」—— 與下方 `if MAX_BYTES_BILLED_PER_QUERY` truthiness
+# 判斷一致(避免 0 在 _run 掛上 maximum_bytes_billed=0 擋掉全部,卻在 error
+# 訊息端被當未設的分歧)。要設防線請給正位元組數。
+MAX_BYTES_BILLED_PER_QUERY = _parsed_max if _parsed_max and _parsed_max > 0 else None
 
 TZ_TAIPEI = timezone(timedelta(hours=8))
 

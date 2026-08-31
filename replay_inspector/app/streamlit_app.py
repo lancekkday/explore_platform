@@ -41,7 +41,12 @@ API_BASE = os.getenv("API_BASE", "http://localhost:8300")
 # docker/SIT 同源反代時,replay-ui service 的 environment 覆寫成相對路徑 /explore_platform/。
 MAIN_APP_URL = os.getenv("MAIN_APP_URL", "http://localhost:5888/explore_platform/")
 RERANK_BOUNDARY = 100
-MAX_BYTES_BILLED_PER_QUERY_GB = MAX_BYTES_BILLED_PER_QUERY / 1024 ** 3
+# MAX_BYTES_BILLED_PER_QUERY 預設 None(不設上限,2026-08-31 使用者要求拿掉)
+# —— 顯示用 label 要能處理 None,不能直接除。
+_CAP_LABEL = (
+    f"{MAX_BYTES_BILLED_PER_QUERY / 1024 ** 3:.0f}GB"
+    if MAX_BYTES_BILLED_PER_QUERY else "無"
+)
 
 st.set_page_config(page_title="個性化搜尋事件回放器", layout="wide")
 
@@ -523,7 +528,7 @@ with left:
             f"無 A/B 對照;本頁 {pg.get('prod_cnt') or 0} 筆 · 全量 {pg.get('total_count') or '—'} 筆"
             f" · rank ≤ {pg.get('rerank_boundary')} 進精排"
             f" · <span title='這次查詢(事件選單 + 明細 + 商品列)BigQuery 計費用量,"
-            f"單次上限 {MAX_BYTES_BILLED_PER_QUERY_GB:.0f}GB'>用量 "
+            f"單次上限 {_CAP_LABEL}'>用量 "
             f"{_esc(_humanize_bytes(list_bytes + (detail.get('bytes_billed') or 0)))}</span>"
             f"</div></div>",
             unsafe_allow_html=True,
@@ -646,7 +651,7 @@ with left:
                 f"<span style='color:var(--graphite)'> ↔ </span>"
                 f"{_side_desc('B control', 'var(--counter)', b_meta)}"
                 f"<span class='ri-note' title='這次查詢(事件偵測 + A/B 兩側明細)BigQuery "
-                f"計費用量,單次上限 {MAX_BYTES_BILLED_PER_QUERY_GB:.0f}GB'> · 用量 "
+                f"計費用量,單次上限 {_CAP_LABEL}'> · 用量 "
                 f"{_esc(_humanize_bytes(total_bytes))}</span></div>",
                 unsafe_allow_html=True,
             )

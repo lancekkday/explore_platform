@@ -57,7 +57,11 @@ RAW_TABLE = f"`{BQ_PROJECT_ID}.{BQ_DATASET}.stream_search_record`"
 # 會把明明便宜的查詢也一起擋掉。改把這個常數當「跑到失控才擋」的最後防線
 # (預設抓到比觀察到的最高預估值 112.92GB 還高一截,不擋一般查詢),真正的
 # 20GB 級用量控管改成事後量測 + UI 顯示(見 last_query_bytes()),不是這裡。
-MAX_BYTES_BILLED_PER_QUERY = int(os.getenv("BQ_MAX_BYTES_BILLED", str(300 * 1024 ** 3)))
+# 2026-08-31 使用者要求拿掉單次查詢上限:預設不設 maximum_bytes_billed(不擋)。
+# 原因見上方註解 —— 預估值對這張 JSON 表灌水,任何合理上限都會擋到便宜查詢。
+# 仍保留 env 覆寫:要重新設失控防線時給 BQ_MAX_BYTES_BILLED(直接給位元組數)。
+_env_max = os.getenv("BQ_MAX_BYTES_BILLED")
+MAX_BYTES_BILLED_PER_QUERY = int(_env_max) if _env_max else None
 
 TZ_TAIPEI = timezone(timedelta(hours=8))
 
@@ -405,18 +409,23 @@ class BigQueryEventRepo:
                 job_params.append(bigquery.ScalarQueryParameter(k, "INT64", v))
             else:
                 job_params.append(bigquery.ScalarQueryParameter(k, "STRING", v))
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=job_params,
-            maximum_bytes_billed=MAX_BYTES_BILLED_PER_QUERY,
-        )
+        job_config = bigquery.QueryJobConfig(query_parameters=job_params)
+        # None = 不設上限。注意不能傳 maximum_bytes_billed=None 給 QueryJobConfig
+        # —— client 會把它序列化成字串 "None" 送出,BigQuery 回 400
+        # (Invalid value ... (TYPE_INT64), "None")。只有設了才掛上屬性。
+        if MAX_BYTES_BILLED_PER_QUERY is not None:
+            job_config.maximum_bytes_billed = MAX_BYTES_BILLED_PER_QUERY
         try:
             job = self._bq().query(sql, job_config=job_config)
             rows = [dict(row) for row in job.result()]
         except Exception as e:
             if _is_bytes_billed_limit_error(e):
+                _cap = (
+                    f"({MAX_BYTES_BILLED_PER_QUERY / 1024 ** 3:.0f}GB)"
+                    if MAX_BYTES_BILLED_PER_QUERY else "(BQ_MAX_BYTES_BILLED)"
+                )
                 raise QueryTooExpensive(
-                    f"單次查詢預估掃描量超過上限 "
-                    f"({MAX_BYTES_BILLED_PER_QUERY / 1024 ** 3:.0f}GB),"
+                    f"單次查詢預估掃描量超過上限 {_cap},"
                     f"BigQuery 拒絕執行 —— 通常是缺 keyword/kkud 縮小範圍。"
                     f"原始錯誤:{e}"
                 ) from e
